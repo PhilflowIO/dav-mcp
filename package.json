@@ -10,7 +10,8 @@
   "scripts": {
     "start": "node src/index.js",
     "start:stdio": "node src/server-stdio.js",
-    "dev": "node --watch src/index.js"
+    "dev": "node --watch src/index.js",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js"
   },
   "author": "tsdav-mcp-server contributors",
   "license": "MIT",
@@ -53,6 +54,7 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "express-rate-limit": "^8.1.0",
+    "ical.js": "^2.2.1",
     "pino": "^9.12.0",
     "pino-pretty": "^13.1.1",
     "tsdav": "^2.1.5",
@@ -60,6 +62,8 @@
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
-    "@types/express": "^5.0.0"
+    "@types/express": "^5.0.0",
+    "@types/jest": "^30.0.0",
+    "jest": "^30.2.0"
   }
 }

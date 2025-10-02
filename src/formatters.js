@@ -3,79 +3,166 @@
  *
  * This module provides formatters that convert raw CalDAV/CardDAV data
  * into human-readable Markdown format optimized for LLM consumption.
+ *
+ * Uses RFC-compliant parsing:
+ * - ical.js for RFC 5545 (iCalendar) compliance
+ * - ical.js for RFC 6350 (vCard) compliance (supports v3.0 and v4.0)
  */
 
+import ICAL from 'ical.js';
+
 /**
- * Parse iCal data string to extract event properties
+ * Parse iCal data string to extract event properties (RFC 5545 compliant)
  */
 function parseICalEvent(icalData) {
-  const lines = icalData.split('\n').map(l => l.trim());
-  const event = {};
+  try {
+    const jcalData = ICAL.parse(icalData);
+    const comp = new ICAL.Component(jcalData);
+    const vevent = comp.getFirstSubcomponent('vevent');
 
-  for (const line of lines) {
-    if (line.startsWith('SUMMARY:')) event.summary = line.replace('SUMMARY:', '');
-    if (line.startsWith('DTSTART:')) event.dtstart = line.replace('DTSTART:', '');
-    if (line.startsWith('DTEND:')) event.dtend = line.replace('DTEND:', '');
-    if (line.startsWith('LOCATION:')) event.location = line.replace('LOCATION:', '');
-    if (line.startsWith('DESCRIPTION:')) event.description = line.replace('DESCRIPTION:', '');
-    if (line.startsWith('UID:')) event.uid = line.replace('UID:', '');
+    if (!vevent) {
+      return {};
+    }
+
+    const event = new ICAL.Event(vevent);
+
+    return {
+      summary: event.summary || '',
+      description: event.description || '',
+      location: event.location || '',
+      uid: event.uid || '',
+      dtstart: event.startDate,
+      dtend: event.endDate,
+      isRecurring: event.isRecurring(),
+      rrule: event.isRecurring() ? vevent.getFirstPropertyValue('rrule') : null,
+      organizer: vevent.getFirstPropertyValue('organizer'),
+      attendees: vevent.getAllProperties('attendee').map(att => ({
+        email: att.getFirstValue(),
+        role: att.getParameter('role'),
+        partstat: att.getParameter('partstat'),
+        cn: att.getParameter('cn'),
+      })),
+      alarms: vevent.getAllSubcomponents('valarm').map(valarm => ({
+        action: valarm.getFirstPropertyValue('action'),
+        trigger: valarm.getFirstPropertyValue('trigger'),
+        description: valarm.getFirstPropertyValue('description'),
+      })),
+    };
+  } catch (error) {
+    console.error('Error parsing iCal event:', error);
+    return {};
   }
-
-  return event;
 }
 
 /**
- * Parse vCard data string to extract contact properties
+ * Parse vCard data string to extract contact properties (RFC 6350 compliant)
  */
 function parseVCard(vcardData) {
-  const lines = vcardData.split('\n').map(l => l.trim());
-  const contact = {};
+  try {
+    const jcard = ICAL.parse(vcardData);
+    const vcard = new ICAL.Component(jcard);
 
-  for (const line of lines) {
-    if (line.startsWith('FN:')) contact.fullName = line.replace('FN:', '');
-    if (line.startsWith('N:')) {
-      const parts = line.replace('N:', '').split(';');
-      contact.familyName = parts[0] || '';
-      contact.givenName = parts[1] || '';
+    const contact = {
+      fullName: vcard.getFirstPropertyValue('fn') || '',
+      uid: vcard.getFirstPropertyValue('uid') || '',
+    };
+
+    // Parse structured name (N property)
+    const n = vcard.getFirstProperty('n');
+    if (n) {
+      const nameValue = n.getFirstValue();
+      contact.familyName = nameValue[0] || '';
+      contact.givenName = nameValue[1] || '';
+      contact.additionalNames = nameValue[2] || '';
+      contact.honorificPrefixes = nameValue[3] || '';
+      contact.honorificSuffixes = nameValue[4] || '';
     }
-    if (line.startsWith('EMAIL')) contact.email = line.split(':')[1] || '';
-    if (line.startsWith('TEL')) contact.phone = line.split(':')[1] || '';
-    if (line.startsWith('ORG:')) contact.organization = line.replace('ORG:', '');
-    if (line.startsWith('NOTE:')) contact.note = line.replace('NOTE:', '');
-    if (line.startsWith('UID:')) contact.uid = line.replace('UID:', '');
-  }
 
-  return contact;
+    // Parse all emails
+    const emails = vcard.getAllProperties('email');
+    if (emails && emails.length > 0) {
+      contact.emails = emails.map(e => ({
+        value: e.getFirstValue(),
+        type: e.getParameter('type') ? [e.getParameter('type')] : [],
+      }));
+    }
+
+    // Parse all phone numbers
+    const tels = vcard.getAllProperties('tel');
+    if (tels && tels.length > 0) {
+      contact.phones = tels.map(t => ({
+        value: t.getFirstValue(),
+        type: t.getParameter('type') ? [t.getParameter('type')] : [],
+      }));
+    }
+
+    // Parse all addresses
+    const adrs = vcard.getAllProperties('adr');
+    if (adrs && adrs.length > 0) {
+      contact.addresses = adrs.map(a => {
+        const adrValue = a.getFirstValue();
+        return {
+          poBox: adrValue[0] || '',
+          extendedAddress: adrValue[1] || '',
+          streetAddress: adrValue[2] || '',
+          locality: adrValue[3] || '',
+          region: adrValue[4] || '',
+          postalCode: adrValue[5] || '',
+          country: adrValue[6] || '',
+          type: a.getParameter('type') ? [a.getParameter('type')] : [],
+        };
+      });
+    }
+
+    // Parse organization
+    const org = vcard.getFirstProperty('org');
+    if (org) {
+      const orgValue = org.getFirstValue();
+      contact.organization = Array.isArray(orgValue) ? orgValue.join(', ') : orgValue;
+    }
+
+    // Parse note
+    const note = vcard.getFirstPropertyValue('note');
+    if (note) {
+      contact.note = note;
+    }
+
+    return contact;
+  } catch (error) {
+    console.error('Error parsing vCard:', error);
+    return {};
+  }
 }
 
 /**
- * Format iCal datetime to human-readable format
+ * Format ICAL.Time to human-readable format with proper timezone support
  */
-function formatDateTime(icalDate) {
-  if (!icalDate) return '';
+function formatDateTime(icalTime) {
+  if (!icalTime) return '';
 
-  // iCal format: 20251015T100000Z
-  const year = icalDate.substring(0, 4);
-  const month = icalDate.substring(4, 6);
-  const day = icalDate.substring(6, 8);
-  const hour = icalDate.substring(9, 11);
-  const minute = icalDate.substring(11, 13);
+  try {
+    // Convert ICAL.Time to JavaScript Date
+    const jsDate = icalTime.toJSDate();
 
-  const date = new Date(`${year}-${month}-${day}T${hour}:${minute}:00Z`);
+    const dateStr = jsDate.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      timeZone: icalTime.timezone === 'UTC' ? 'UTC' : undefined,
+    });
 
-  const dateStr = date.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric'
-  });
+    const timeStr = jsDate.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZoneName: 'short',
+      timeZone: icalTime.timezone === 'UTC' ? 'UTC' : undefined,
+    });
 
-  const timeStr = date.toLocaleTimeString('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZoneName: 'short'
-  });
-
-  return `${dateStr}, ${timeStr}`;
+    return `${dateStr}, ${timeStr}`;
+  } catch (error) {
+    console.error('Error formatting datetime:', error);
+    return '';
+  }
 }
 
 /**
@@ -101,6 +188,36 @@ export function formatEvent(event, calendarName = 'Unknown Calendar') {
 
   if (parsed.description) {
     output += `- **Description**: ${parsed.description}\n`;
+  }
+
+  // Show recurrence info if event is recurring
+  if (parsed.isRecurring && parsed.rrule) {
+    output += `- **Recurring**: ${parsed.rrule.toString()}\n`;
+  }
+
+  // Show organizer if present
+  if (parsed.organizer) {
+    const organizerEmail = parsed.organizer.replace('mailto:', '');
+    output += `- **Organizer**: ${organizerEmail}\n`;
+  }
+
+  // Show attendees if present
+  if (parsed.attendees && parsed.attendees.length > 0) {
+    output += `- **Attendees**: ${parsed.attendees.length} person(s)\n`;
+    parsed.attendees.forEach(att => {
+      const email = att.email ? att.email.replace('mailto:', '') : '';
+      const name = att.cn || email;
+      const status = att.partstat ? ` (${att.partstat})` : '';
+      output += `  - ${name}${status}\n`;
+    });
+  }
+
+  // Show alarms if present
+  if (parsed.alarms && parsed.alarms.length > 0) {
+    output += `- **Reminders**: ${parsed.alarms.length} alarm(s)\n`;
+    parsed.alarms.forEach(alarm => {
+      output += `  - ${alarm.action}: ${alarm.trigger ? alarm.trigger.toString() : 'Unknown trigger'}\n`;
+    });
   }
 
   output += `- **Calendar**: ${calendarName}\n`;
@@ -153,16 +270,66 @@ export function formatContact(contact, addressBookName = 'Unknown Address Book')
 
   let output = `## ${parsed.fullName || 'Unnamed Contact'}\n\n`;
 
+  // Show structured name if available
+  if (parsed.givenName || parsed.familyName) {
+    const nameParts = [];
+    if (parsed.honorificPrefixes) nameParts.push(parsed.honorificPrefixes);
+    if (parsed.givenName) nameParts.push(parsed.givenName);
+    if (parsed.additionalNames) nameParts.push(parsed.additionalNames);
+    if (parsed.familyName) nameParts.push(parsed.familyName);
+    if (parsed.honorificSuffixes) nameParts.push(parsed.honorificSuffixes);
+    if (nameParts.length > 0) {
+      output += `- **Full Name**: ${nameParts.join(' ')}\n`;
+    }
+  }
+
   if (parsed.organization) {
     output += `- **Organization**: ${parsed.organization}\n`;
   }
 
-  if (parsed.email) {
-    output += `- **Email**: ${parsed.email}\n`;
+  // Show all emails
+  if (parsed.emails && parsed.emails.length > 0) {
+    if (parsed.emails.length === 1) {
+      const emailType = parsed.emails[0].type.length > 0 ? ` (${parsed.emails[0].type.join(', ')})` : '';
+      output += `- **Email**: ${parsed.emails[0].value}${emailType}\n`;
+    } else {
+      output += `- **Emails**: ${parsed.emails.length} email(s)\n`;
+      parsed.emails.forEach(email => {
+        const emailType = email.type.length > 0 ? ` (${email.type.join(', ')})` : '';
+        output += `  - ${email.value}${emailType}\n`;
+      });
+    }
   }
 
-  if (parsed.phone) {
-    output += `- **Phone**: ${parsed.phone}\n`;
+  // Show all phones
+  if (parsed.phones && parsed.phones.length > 0) {
+    if (parsed.phones.length === 1) {
+      const phoneType = parsed.phones[0].type.length > 0 ? ` (${parsed.phones[0].type.join(', ')})` : '';
+      output += `- **Phone**: ${parsed.phones[0].value}${phoneType}\n`;
+    } else {
+      output += `- **Phones**: ${parsed.phones.length} phone(s)\n`;
+      parsed.phones.forEach(phone => {
+        const phoneType = phone.type.length > 0 ? ` (${phone.type.join(', ')})` : '';
+        output += `  - ${phone.value}${phoneType}\n`;
+      });
+    }
+  }
+
+  // Show all addresses
+  if (parsed.addresses && parsed.addresses.length > 0) {
+    output += `- **Addresses**: ${parsed.addresses.length} address(es)\n`;
+    parsed.addresses.forEach(addr => {
+      const addrParts = [];
+      if (addr.streetAddress) addrParts.push(addr.streetAddress);
+      if (addr.locality) addrParts.push(addr.locality);
+      if (addr.region) addrParts.push(addr.region);
+      if (addr.postalCode) addrParts.push(addr.postalCode);
+      if (addr.country) addrParts.push(addr.country);
+      const addrType = addr.type.length > 0 ? ` (${addr.type.join(', ')})` : '';
+      if (addrParts.length > 0) {
+        output += `  - ${addrParts.join(', ')}${addrType}\n`;
+      }
+    });
   }
 
   if (parsed.note) {
