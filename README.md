@@ -85,90 +85,19 @@ npm start
 
 Server runs on: `http://localhost:3000`
 
-### Step 2: Configure n8n MCP Client Node
-
-1. **Add "MCP Client Tool" node to your workflow**
-
-2. **Configure the connection:**
-   - **SSE Endpoint**: `http://localhost:3000/sse`
-   - **Authentication Method**: `Bearer` (optional)
-   - **Bearer Token**: `secure-token-123456` (from .env)
-
-3. **Select tools:**
-   - Option 1: "All tools from the MCP server"
-   - Option 2: Select specific tools
-
-### Step 3: Use Tools
-
-#### Example 1: List calendars
-
-```javascript
-// Tool: list_calendars
-// Input: {} (no parameters)
-// Output: List of all calendars with URLs, names, colors
-```
-
-#### Example 2: Create event
-
-```javascript
-// Tool: create_event
-// Input:
-{
-  "calendar_url": "https://dav.example.com/user/calendar-uuid/",
-  "summary": "Team Meeting",
-  "start_date": "2025-10-15T10:00:00.000Z",
-  "end_date": "2025-10-15T11:00:00.000Z",
-  "description": "Monthly team sync",
-  "location": "Conference Room A"
-}
-```
-
-#### Example 3: Search events efficiently (RECOMMENDED)
-
-```javascript
-// Tool: calendar_query (use this instead of list_events!)
-// Input:
-{
-  "calendar_url": "https://dav.example.com/user/calendar-uuid/",
-  "summary_filter": "Meeting",  // Find events with "Meeting" in title
-  "time_range_start": "2025-10-01T00:00:00.000Z",
-  "time_range_end": "2025-10-31T23:59:59.999Z"
-}
-```
-
-#### Example 4: Search contacts efficiently (RECOMMENDED)
-
-```javascript
-// Tool: addressbook_query (use this instead of list_contacts!)
-// Input:
-{
-  "addressbook_url": "https://dav.example.com/user/addressbook-uuid/",
-  "organization_filter": "Acme Corp",  // Find all contacts at Acme Corp
-  "email_filter": "@gmail.com"  // Or find Gmail contacts
-}
-```
-
-#### Example 5: Create contact
-
-```javascript
-// Tool: create_contact
-// Input:
-{
-  "addressbook_url": "https://dav.example.com/user/addressbook-uuid/",
-  "full_name": "John Doe",
-  "family_name": "Doe",
-  "given_name": "John",
-  "email": "john.doe@example.com",
-  "phone": "+1 555 123 4567",
-  "organization": "Acme Corp"
-}
-```
-
-### Step 4: Use with AI Agent
+### Step 2: Use with AI Agent
 
 1. **Add an "AI Agent" node**
 2. **Connect the MCP Client Tool node to the AI Agent**
-3. **The AI Agent can now interact with your calendar naturally:**
+3. **Configure the connection:**
+   - **SSE Endpoint**: `http://localhost:3000/sse`
+   - **Authentication Method**: `Bearer` (optional)
+   - **Bearer Token**: `secure-token-123456` (from .env)
+4. **Select tools:**
+   - Option 1: "All tools from the MCP server"
+   - Option 2: Select specific tools
+
+5. **The AI Agent can now interact with your calendar naturally:**
 
 Example prompts:
 - "List all my calendars"
@@ -177,6 +106,8 @@ Example prompts:
 - "Find all contacts at Google"
 - "Create a new contact for Jane Smith"
 - "When am I free tomorrow between 9 AM and 5 PM?"
+
+
 
 ## 🌐 Remote Access (for n8n Cloud)
 
