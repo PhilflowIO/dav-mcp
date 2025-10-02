@@ -97,6 +97,21 @@ export const addressBookQuerySchema = z.object({
   organization_filter: z.string().optional(),
 });
 
+export const calendarMultiGetSchema = z.object({
+  calendar_url: z.string().url('Invalid calendar URL'),
+  event_urls: z.array(z.string().url('Invalid event URL')).min(1, 'At least one event URL is required'),
+});
+
+export const addressBookMultiGetSchema = z.object({
+  addressbook_url: z.string().url('Invalid addressbook URL'),
+  contact_urls: z.array(z.string().url('Invalid contact URL')).min(1, 'At least one contact URL is required'),
+});
+
+export const isCollectionDirtySchema = z.object({
+  collection_url: z.string().url('Invalid collection URL'),
+  collection_ctag: z.string().min(1, 'Collection ctag is required'),
+});
+
 /**
  * Validate input against a schema
  */
