@@ -58,5 +58,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Check for syntax errors
-        run: node --check src/**/*.js
+      - name: Check syntax
+        run: |
+          for file in src/*.js; do
+            node --check "$file"
+          done
