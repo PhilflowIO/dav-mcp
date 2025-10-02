@@ -1,0 +1,65 @@
+{
+  "name": "tsdav-mcp-server",
+  "version": "0.1.0",
+  "description": "Model Context Protocol (MCP) server for CalDAV/CardDAV integration via tsdav - enables AI systems to manage calendars and contacts",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "tsdav-mcp": "./src/server-stdio.js"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "start:stdio": "node src/server-stdio.js",
+    "dev": "node --watch src/index.js"
+  },
+  "author": "tsdav-mcp-server contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PhilflowIO/tsdav-mcp-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/PhilflowIO/tsdav-mcp-server/issues"
+  },
+  "homepage": "https://github.com/PhilflowIO/tsdav-mcp-server#readme",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "caldav",
+    "carddav",
+    "calendar",
+    "contacts",
+    "tsdav",
+    "n8n",
+    "ai",
+    "llm",
+    "dav",
+    "webdav",
+    "radicale",
+    "nextcloud"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "src/**/*",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.18.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^8.1.0",
+    "pino": "^9.12.0",
+    "pino-pretty": "^13.1.1",
+    "tsdav": "^2.1.5",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0"
+  }
+}

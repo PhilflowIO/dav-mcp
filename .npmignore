@@ -1,0 +1,45 @@
+# Test files
+tests/
+*.test.js
+__tests__/
+coverage/
+.nyc_output/
+
+# Development files
+.github/
+.vscode/
+.idea/
+.claude/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Project files
+tsdav/
+node_modules/
+*.tgz
+
+# Development scripts
+test-*.js
+debug-*.js
+cleanup.js
+full-test.js
+carddav-test.js
+tsdav-test.js
+run_server.sh
+
+# Documentation (keep only essential)
+N8N_*.md
