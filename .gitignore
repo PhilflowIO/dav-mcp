@@ -29,3 +29,4 @@ test-*.js
 debug-*.js
 cleanup.js
 full-test.js
+tsdav/
