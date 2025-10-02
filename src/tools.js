@@ -12,6 +12,13 @@ import {
   updateContactSchema,
   deleteContactSchema,
 } from './validation.js';
+import {
+  formatEventList,
+  formatContactList,
+  formatCalendarList,
+  formatAddressBookList,
+  formatSuccess,
+} from './formatters.js';
 
 /**
  * Format iCal date (ISO 8601 to iCal format)
@@ -39,20 +46,7 @@ export const tools = [
       const client = tsdavManager.getCalDavClient();
       const calendars = await client.fetchCalendars();
 
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify(calendars.map(cal => ({
-              displayName: cal.displayName,
-              url: cal.url,
-              components: cal.components,
-              calendarColor: cal.calendarColor,
-              description: cal.description,
-            })), null, 2),
-          },
-        ],
-      };
+      return formatCalendarList(calendars);
     },
   },
 
@@ -98,18 +92,7 @@ export const tools = [
 
       const events = await client.fetchCalendarObjects(options);
 
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify(events.map(event => ({
-              url: event.url,
-              etag: event.etag,
-              data: event.data,
-            })), null, 2),
-          },
-        ],
-      };
+      return formatEventList(events, calendar.displayName);
     },
   },
 
@@ -181,14 +164,7 @@ END:VCALENDAR`;
         iCalString,
       });
 
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({ success: true, url: response.url, etag: response.etag }, null, 2),
-          },
-        ],
-      };
+      return formatSuccess('Event created', { url: response.url, etag: response.etag });
     },
   },
 
@@ -225,14 +201,7 @@ END:VCALENDAR`;
         },
       });
 
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({ success: true, etag: response.etag }, null, 2),
-          },
-        ],
-      };
+      return formatSuccess('Event updated', { etag: response.etag });
     },
   },
 
@@ -264,14 +233,7 @@ END:VCALENDAR`;
         },
       });
 
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({ success: true, message: 'Event deleted' }, null, 2),
-          },
-        ],
-      };
+      return formatSuccess('Event deleted', { message: 'Event deleted successfully' });
     },
   },
 
@@ -290,18 +252,7 @@ END:VCALENDAR`;
       const client = tsdavManager.getCardDavClient();
       const addressBooks = await client.fetchAddressBooks();
 
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify(addressBooks.map(ab => ({
-              displayName: ab.displayName,
-              url: ab.url,
-              description: ab.description,
-            })), null, 2),
-          },
-        ],
-      };
+      return formatAddressBookList(addressBooks);
     },
   },
 
@@ -330,18 +281,7 @@ END:VCALENDAR`;
 
       const vcards = await client.fetchVCards({ addressBook });
 
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify(vcards.map(vcard => ({
-              url: vcard.url,
-              etag: vcard.etag,
-              data: vcard.data,
-            })), null, 2),
-          },
-        ],
-      };
+      return formatContactList(vcards, addressBook.displayName);
     },
   },
 
@@ -418,14 +358,7 @@ END:VCARD`;
         vCardString,
       });
 
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({ success: true, url: response.url, etag: response.etag }, null, 2),
-          },
-        ],
-      };
+      return formatSuccess('Contact created', { url: response.url, etag: response.etag });
     },
   },
 
@@ -462,14 +395,7 @@ END:VCARD`;
         },
       });
 
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({ success: true, etag: response.etag }, null, 2),
-          },
-        ],
-      };
+      return formatSuccess('Contact updated', { etag: response.etag });
     },
   },
 
@@ -501,14 +427,7 @@ END:VCARD`;
         },
       });
 
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({ success: true, message: 'Contact deleted' }, null, 2),
-          },
-        ],
-      };
+      return formatSuccess('Contact deleted', { message: 'Contact deleted successfully' });
     },
   },
 ];

@@ -2,6 +2,54 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## CRITICAL RULES
+
+### 🌍 English-Only Codebase
+
+**ABSOLUTE REQUIREMENT**: ALL code, comments, strings, and documentation MUST be written in English.
+
+❌ **FORBIDDEN:**
+- German variable names, function names, or comments
+- German user-facing messages or error strings
+- German documentation or inline comments
+- Mixed language code
+
+✅ **REQUIRED:**
+- All code in English
+- All comments in English
+- All user-facing strings in English
+- All documentation in English
+- All commit messages in English
+
+**Examples:**
+
+```javascript
+// ❌ WRONG - German
+function formatTermin(termin) {
+  return `Gefundene Termine: ${termin.length}`;
+}
+
+// ✅ CORRECT - English
+function formatEvent(event) {
+  return `Found events: ${event.length}`;
+}
+```
+
+### 🔒 No Real URLs in Examples
+
+**REQUIREMENT**: Never use real domain names in code examples or placeholder data.
+
+❌ **FORBIDDEN:**
+- philflow.io
+- Any real production URLs
+- Personal domain names
+
+✅ **REQUIRED:**
+- example.com
+- example.org
+- localhost
+- 127.0.0.1
+
 ## Project Overview
 
 This is an MCP (Model Context Protocol) Server that provides CalDAV/CardDAV integration for AI systems like n8n and Claude Desktop. It wraps the `tsdav` library to expose calendar and contact management through 10 standardized MCP tools.
