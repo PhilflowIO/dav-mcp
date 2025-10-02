@@ -212,21 +212,25 @@ cp -r /home/dave/Dokumente/projects/tsdav_mcp/* "$BACKUP_DIR/"
 
 ## Roadmap
 
-### Current Implementation (10 tools, 36% tsdav coverage):
+### Current Implementation (14 tools, 55% tsdav coverage):
 
-**CalDAV (5/11 methods):**
+**CalDAV (8/11 methods):**
 - ✅ list_calendars (`fetchCalendars`)
 - ✅ list_events (`fetchCalendarObjects`)
 - ✅ create_event (`createCalendarObject`)
 - ✅ update_event (`updateCalendarObject`)
 - ✅ delete_event (`deleteCalendarObject`)
+- ✅ calendar_query (`fetchCalendarObjects` with client-side filtering)
+- ✅ make_calendar (`makeCalendar`)
+- ✅ free_busy_query (`freeBusyQuery`)
 
-**CardDAV (5/7 methods):**
+**CardDAV (6/7 methods):**
 - ✅ list_addressbooks (`fetchAddressBooks`)
 - ✅ list_contacts (`fetchVCards`)
 - ✅ create_contact (`createVCard`)
 - ✅ update_contact (`updateVCard`)
 - ✅ delete_contact (`deleteVCard`)
+- ✅ addressbook_query (`fetchVCards` with client-side filtering)
 
 ### Phase 4: LLM Output Optimization (Priority: HIGH) ✅ COMPLETED
 
@@ -265,33 +269,38 @@ cp -r /home/dave/Dokumente/projects/tsdav_mcp/* "$BACKUP_DIR/"
 - ✅ RFC-compliant parsing handles all edge cases
 - ✅ Timezone-aware date formatting
 
-### Phase 5: Missing tsdav Methods (Priority: MEDIUM)
+### Phase 5: Advanced Query & Management Tools (Priority: MEDIUM) ✅ COMPLETED
 
-**HIGH PRIORITY Methods (implement first):**
+**Status**: ✅ Core Phase 5 tools implemented
 
-1. **calendarQuery** - Advanced event filtering
-   - Filter by date range, component type, properties
-   - Use case: "Find all recurring events", "Events in October with 'meeting' in title"
-   - Difficulty: Medium (3-4 hours)
+**Implemented Tools:**
+
+1. ✅ **calendar_query** - Advanced event filtering
+   - Filter by date range, summary, location
+   - Client-side filtering for flexible queries
+   - Returns formatted event list with all RFC-compliant features
    - Impact: ⭐⭐⭐⭐⭐
 
-2. **addressBookQuery** - Advanced contact filtering
-   - Filter by name, email, organization, properties
-   - Use case: "Find all contacts at @example.com", "Contacts in 'Sales' department"
-   - Difficulty: Medium (3-4 hours)
+2. ✅ **addressbook_query** - Advanced contact filtering
+   - Filter by name, email, organization
+   - Client-side filtering for flexible queries
+   - Returns formatted contact list
    - Impact: ⭐⭐⭐⭐⭐
 
-3. **makeCalendar** - Create new calendars
+3. ✅ **make_calendar** - Create new calendars
    - Create new calendar collections on the server
-   - Use case: "Create a new calendar called 'Projects'"
-   - Difficulty: Easy (1-2 hours)
-   - Impact: ⭐⭐⭐⭐ (completes CRUD for calendars)
+   - Support for display name, description, color, timezone
+   - Completes CRUD for calendars
+   - Impact: ⭐⭐⭐⭐
 
-4. **freeBusyQuery** - Check availability
+4. ✅ **free_busy_query** - Check availability
    - Query free/busy time without exposing event details
    - Use case: Meeting scheduling, availability checking
-   - Difficulty: Medium (3-4 hours)
    - Impact: ⭐⭐⭐⭐
+
+**Current Tool Count**: 14 tools (up from 10)
+
+**Pending (Future Enhancement):**
 
 5. **syncCalendars** - Efficient sync with change detection
    - Detect created/updated/deleted calendars efficiently

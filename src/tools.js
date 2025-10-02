@@ -7,10 +7,14 @@ import {
   createEventSchema,
   updateEventSchema,
   deleteEventSchema,
+  calendarQuerySchema,
+  makeCalendarSchema,
+  freeBusyQuerySchema,
   listContactsSchema,
   createContactSchema,
   updateContactSchema,
   deleteContactSchema,
+  addressBookQuerySchema,
 } from './validation.js';
 import {
   formatEventList,
@@ -237,6 +241,173 @@ END:VCALENDAR`;
     },
   },
 
+  {
+    name: 'calendar_query',
+    description: 'Advanced query for calendar events with filtering by date range, summary, and location',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        calendar_url: {
+          type: 'string',
+          description: 'The URL of the calendar to query',
+        },
+        time_range_start: {
+          type: 'string',
+          description: 'Optional: Start date in ISO 8601 format',
+        },
+        time_range_end: {
+          type: 'string',
+          description: 'Optional: End date in ISO 8601 format',
+        },
+        summary_filter: {
+          type: 'string',
+          description: 'Optional: Filter events by summary (case-insensitive substring match)',
+        },
+        location_filter: {
+          type: 'string',
+          description: 'Optional: Filter events by location (case-insensitive substring match)',
+        },
+        expand_recurring: {
+          type: 'boolean',
+          description: 'Optional: Expand recurring events into individual instances (default: false)',
+        },
+      },
+      required: ['calendar_url'],
+    },
+    handler: async (args) => {
+      const validated = validateInput(calendarQuerySchema, args);
+      const client = tsdavManager.getCalDavClient();
+      const calendars = await client.fetchCalendars();
+      const calendar = calendars.find(c => c.url === validated.calendar_url);
+
+      if (!calendar) {
+        throw new Error(`Calendar not found: ${validated.calendar_url}`);
+      }
+
+      const options = { calendar };
+
+      if (validated.time_range_start && validated.time_range_end) {
+        options.timeRange = {
+          start: validated.time_range_start,
+          end: validated.time_range_end,
+        };
+      }
+
+      let events = await client.fetchCalendarObjects(options);
+
+      // Apply client-side filters
+      if (validated.summary_filter) {
+        const filterLower = validated.summary_filter.toLowerCase();
+        events = events.filter(event => {
+          const summary = event.data.match(/SUMMARY:(.+)/i)?.[1] || '';
+          return summary.toLowerCase().includes(filterLower);
+        });
+      }
+
+      if (validated.location_filter) {
+        const filterLower = validated.location_filter.toLowerCase();
+        events = events.filter(event => {
+          const location = event.data.match(/LOCATION:(.+)/i)?.[1] || '';
+          return location.toLowerCase().includes(filterLower);
+        });
+      }
+
+      return formatEventList(events, calendar.displayName);
+    },
+  },
+
+  {
+    name: 'make_calendar',
+    description: 'Create a new calendar on the CalDAV server',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        display_name: {
+          type: 'string',
+          description: 'Display name for the new calendar',
+        },
+        description: {
+          type: 'string',
+          description: 'Optional: Description of the calendar',
+        },
+        color: {
+          type: 'string',
+          description: 'Optional: Calendar color in hex format (#RRGGBB or #RRGGBBAA)',
+        },
+        timezone: {
+          type: 'string',
+          description: 'Optional: Timezone for the calendar (e.g., "Europe/Berlin")',
+        },
+      },
+      required: ['display_name'],
+    },
+    handler: async (args) => {
+      const validated = validateInput(makeCalendarSchema, args);
+      const client = tsdavManager.getCalDavClient();
+
+      const calendar = await client.makeCalendar({
+        filename: `${Date.now()}.ics`,
+        displayName: validated.display_name,
+        description: validated.description,
+        color: validated.color,
+        timezone: validated.timezone,
+      });
+
+      return formatSuccess('Calendar created', {
+        url: calendar.url,
+        displayName: validated.display_name,
+      });
+    },
+  },
+
+  {
+    name: 'free_busy_query',
+    description: 'Query free/busy time for a calendar without exposing event details',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        calendar_url: {
+          type: 'string',
+          description: 'The URL of the calendar to query',
+        },
+        time_range_start: {
+          type: 'string',
+          description: 'Start date in ISO 8601 format',
+        },
+        time_range_end: {
+          type: 'string',
+          description: 'End date in ISO 8601 format',
+        },
+      },
+      required: ['calendar_url', 'time_range_start', 'time_range_end'],
+    },
+    handler: async (args) => {
+      const validated = validateInput(freeBusyQuerySchema, args);
+      const client = tsdavManager.getCalDavClient();
+      const calendars = await client.fetchCalendars();
+      const calendar = calendars.find(c => c.url === validated.calendar_url);
+
+      if (!calendar) {
+        throw new Error(`Calendar not found: ${validated.calendar_url}`);
+      }
+
+      const freeBusy = await client.freeBusyQuery({
+        url: calendar.url,
+        timeRange: {
+          start: validated.time_range_start,
+          end: validated.time_range_end,
+        },
+      });
+
+      return {
+        content: [{
+          type: 'text',
+          text: `## Free/Busy Query Result\n\n- **Calendar**: ${calendar.displayName}\n- **Time Range**: ${new Date(validated.time_range_start).toLocaleString()} to ${new Date(validated.time_range_end).toLocaleString()}\n\n### Raw Data\n\`\`\`\n${freeBusy}\n\`\`\``,
+        }],
+      };
+    },
+  },
+
   // ================================
   // CARDDAV TOOLS
   // ================================
@@ -428,6 +599,72 @@ END:VCARD`;
       });
 
       return formatSuccess('Contact deleted', { message: 'Contact deleted successfully' });
+    },
+  },
+
+  {
+    name: 'addressbook_query',
+    description: 'Advanced query for contacts with filtering by name, email, and organization',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        addressbook_url: {
+          type: 'string',
+          description: 'The URL of the address book to query',
+        },
+        name_filter: {
+          type: 'string',
+          description: 'Optional: Filter contacts by name (case-insensitive substring match)',
+        },
+        email_filter: {
+          type: 'string',
+          description: 'Optional: Filter contacts by email (case-insensitive substring match)',
+        },
+        organization_filter: {
+          type: 'string',
+          description: 'Optional: Filter contacts by organization (case-insensitive substring match)',
+        },
+      },
+      required: ['addressbook_url'],
+    },
+    handler: async (args) => {
+      const validated = validateInput(addressBookQuerySchema, args);
+      const client = tsdavManager.getCardDavClient();
+      const addressBooks = await client.fetchAddressBooks();
+      const addressBook = addressBooks.find(ab => ab.url === validated.addressbook_url);
+
+      if (!addressBook) {
+        throw new Error(`Address book not found: ${validated.addressbook_url}`);
+      }
+
+      let vcards = await client.fetchVCards({ addressBook });
+
+      // Apply client-side filters
+      if (validated.name_filter) {
+        const filterLower = validated.name_filter.toLowerCase();
+        vcards = vcards.filter(vcard => {
+          const fn = vcard.data.match(/FN:(.+)/i)?.[1] || '';
+          return fn.toLowerCase().includes(filterLower);
+        });
+      }
+
+      if (validated.email_filter) {
+        const filterLower = validated.email_filter.toLowerCase();
+        vcards = vcards.filter(vcard => {
+          const email = vcard.data.match(/EMAIL[^:]*:(.+)/i)?.[1] || '';
+          return email.toLowerCase().includes(filterLower);
+        });
+      }
+
+      if (validated.organization_filter) {
+        const filterLower = validated.organization_filter.toLowerCase();
+        vcards = vcards.filter(vcard => {
+          const org = vcard.data.match(/ORG:(.+)/i)?.[1] || '';
+          return org.toLowerCase().includes(filterLower);
+        });
+      }
+
+      return formatContactList(vcards, addressBook.displayName);
     },
   },
 ];

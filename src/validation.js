@@ -36,6 +36,31 @@ export const deleteEventSchema = z.object({
   event_etag: z.string().min(1, 'ETag is required'),
 });
 
+export const calendarQuerySchema = z.object({
+  calendar_url: z.string().url('Invalid calendar URL'),
+  time_range_start: z.string().datetime().optional(),
+  time_range_end: z.string().datetime().optional(),
+  summary_filter: z.string().optional(),
+  location_filter: z.string().optional(),
+  expand_recurring: z.boolean().optional(),
+});
+
+export const makeCalendarSchema = z.object({
+  display_name: z.string().min(1, 'Display name is required').max(200),
+  description: z.string().max(1000).optional(),
+  color: z.string().regex(/^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$/, 'Invalid color format (use #RRGGBB or #RRGGBBAA)').optional(),
+  timezone: z.string().optional(),
+});
+
+export const freeBusyQuerySchema = z.object({
+  calendar_url: z.string().url('Invalid calendar URL'),
+  time_range_start: z.string().datetime('Invalid start date format'),
+  time_range_end: z.string().datetime('Invalid end date format'),
+}).refine((data) => new Date(data.time_range_end) > new Date(data.time_range_start), {
+  message: 'End date must be after start date',
+  path: ['time_range_end'],
+});
+
 // CardDAV Schemas
 export const listAddressbooksSchema = z.object({});
 
@@ -63,6 +88,13 @@ export const updateContactSchema = z.object({
 export const deleteContactSchema = z.object({
   vcard_url: z.string().url('Invalid vCard URL'),
   vcard_etag: z.string().min(1, 'ETag is required'),
+});
+
+export const addressBookQuerySchema = z.object({
+  addressbook_url: z.string().url('Invalid addressbook URL'),
+  name_filter: z.string().optional(),
+  email_filter: z.string().optional(),
+  organization_filter: z.string().optional(),
 });
 
 /**
