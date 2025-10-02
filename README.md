@@ -19,6 +19,7 @@ MCP (Model Context Protocol) SSE Server for tsdav - CalDAV/CardDAV integration f
 - ✅ **Security**: Bearer Token Auth, Rate Limiting, CORS, Input Validation, Structured Logging
 - ✅ **Session Management**: Multi-client support with automatic session cleanup
 - ✅ **Production Ready**: Error handling, graceful shutdown, health checks
+- ✅ **Testing**: Jest test suite with 33 tests, GitHub Actions CI/CD
 
 ## ⏳ What's Not Yet Supported
 
@@ -26,10 +27,7 @@ MCP (Model Context Protocol) SSE Server for tsdav - CalDAV/CardDAV integration f
 - ❌ **Advanced iCal Features**: RRULE (recurring events), VALARM (alarms), ATTENDEES (participants)
 - ❌ **Advanced CalDAV Queries**: Filtering by properties, full-text search
 - ❌ **Bulk Operations**: Create/update/delete multiple events/contacts at once
-- ❌ **Tests**: No unit/integration tests available yet
 - ❌ **Pagination**: For very large calendars/address books
-
-> **Note**: OAuth2 support is planned for future versions (see roadmap in CLAUDE.md)
 
 ## 🌐 Supported CalDAV/CardDAV Providers
 
@@ -69,12 +67,6 @@ npm install
 # Configure .env file
 cp .env.example .env
 nano .env
-
-# Start server
-npm start
-
-# Development with auto-reload
-npm run dev
 ```
 
 ## ⚙️ Configuration
@@ -100,26 +92,34 @@ BEARER_TOKEN=your-secure-token-here
 
 ### Step 1: Start MCP Server
 
+Use Docker (recommended):
+```bash
+docker-compose up -d
+```
+
+Or run directly:
 ```bash
 npm start
 ```
 
 Server runs on: `http://localhost:3000`
 
-### Step 2: Configure n8n MCP Client Node
+### Step 2: Configure n8n AI Agent
 
-1. **Add the "MCP Client Tool" node to your workflow**
-
-2. **Configure the connection:**
+1. **Add "MCP Client Tool" node** and configure:
    - **SSE Endpoint**: `http://localhost:3000/sse`
-   - **Authentication Method**: `Bearer` (optional)
-   - **Bearer Token**: `secure-token-123456` (from .env)
+   - **Authentication**: `Bearer` (optional)
+   - **Bearer Token**: From your `.env` file
+   - **Tools**: "All tools from the MCP server"
 
-3. **Select tools:**
-   - Option 1: "All tools from the MCP server"
-   - Option 2: Select specific tools
+2. **Connect AI Agent node** to the MCP Client Tool
 
-### Step 3: Use Tools
+3. **Use natural language** to interact with your calendar:
+   - "List all my calendars"
+   - "Create a meeting tomorrow at 2pm"
+   - "Show me all events in October"
+
+### Step 3: Example Tool Usage
 
 #### Example 1: List calendars
 
@@ -171,18 +171,6 @@ Server runs on: `http://localhost:3000`
   "organization": "Acme Corp"
 }
 ```
-
-### Step 4: Use with AI Agent
-
-1. **Add an "AI Agent" node**
-2. **Connect the MCP Client Tool node with the AI Agent**
-3. **The AI Agent can now interact with your calendar using natural language:**
-
-Example prompts:
-- "List all my calendars"
-- "Create a meeting tomorrow at 2pm"
-- "Show me all events in October"
-- "Create a new contact for Max Mustermann"
 
 ## 🌐 Remote Access (for n8n Cloud)
 
