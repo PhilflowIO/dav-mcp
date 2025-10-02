@@ -1,0 +1,477 @@
+import express from 'express';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import crypto from 'crypto';
+import rateLimit from 'express-rate-limit';
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { tsdavManager } from './tsdav-client.js';
+import { tools } from './tools.js';
+import { createToolErrorResponse, createHTTPErrorResponse, AuthenticationError, MCP_ERROR_CODES } from './error-handler.js';
+import { logger, createSessionLogger, createRequestLogger } from './logger.js';
+
+// Load environment variables
+dotenv.config();
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// CORS Configuration
+const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS
+  ? process.env.CORS_ALLOWED_ORIGINS.split(',')
+  : ['http://localhost:5678', 'http://localhost:3000']; // Default for n8n and local dev
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) !== -1 || allowedOrigins.includes('*')) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+}));
+
+// Rate Limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use('/sse', limiter);
+app.use('/messages', limiter);
+
+// Body parser
+app.use(express.json());
+
+// Session storage for multiple clients
+const transports = {};
+const SESSION_TTL = 60 * 60 * 1000; // 1 hour
+const SESSION_CLEANUP_INTERVAL = 5 * 60 * 1000; // 5 minutes
+
+// Track session last activity
+const sessionActivity = new Map();
+
+/**
+ * Bearer token authentication middleware
+ */
+function authenticateBearer(req, res, next) {
+  const bearerToken = process.env.BEARER_TOKEN;
+
+  if (!bearerToken) {
+    logger.error('Server misconfiguration: BEARER_TOKEN not set');
+    const errorResponse = createHTTPErrorResponse(
+      new Error('Server misconfiguration: BEARER_TOKEN not set'),
+      500
+    );
+    return res.status(errorResponse.statusCode).json(errorResponse.body);
+  }
+
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    logger.warn({ ip: req.ip }, 'Unauthorized: Bearer token required');
+    const errorResponse = createHTTPErrorResponse(
+      new AuthenticationError('Unauthorized: Bearer token required')
+    );
+    return res.status(errorResponse.statusCode).json(errorResponse.body);
+  }
+
+  const token = authHeader.substring(7);
+
+  // Use timing-safe comparison to prevent timing attacks
+  const tokenBuffer = Buffer.from(token);
+  const secretBuffer = Buffer.from(bearerToken);
+
+  if (tokenBuffer.length !== secretBuffer.length || !crypto.timingSafeEqual(tokenBuffer, secretBuffer)) {
+    logger.warn({ ip: req.ip }, 'Unauthorized: Invalid token');
+    const errorResponse = createHTTPErrorResponse(
+      new AuthenticationError('Unauthorized: Invalid token')
+    );
+    return res.status(errorResponse.statusCode).json(errorResponse.body);
+  }
+
+  next();
+}
+
+/**
+ * Initialize tsdav clients
+ */
+async function initializeTsdav() {
+  try {
+    await tsdavManager.initialize({
+      serverUrl: process.env.CALDAV_SERVER_URL,
+      username: process.env.CALDAV_USERNAME,
+      password: process.env.CALDAV_PASSWORD,
+    });
+    logger.info('tsdav clients initialized successfully');
+  } catch (error) {
+    logger.error({ error: error.message }, 'Failed to initialize tsdav clients');
+    process.exit(1);
+  }
+}
+
+/**
+ * Cleanup expired sessions
+ */
+function cleanupExpiredSessions() {
+  const now = Date.now();
+  let cleanedCount = 0;
+
+  for (const [sessionId, lastActivity] of sessionActivity.entries()) {
+    if (now - lastActivity > SESSION_TTL) {
+      logger.info({ sessionId, age: now - lastActivity }, 'Cleaning up expired session');
+
+      // Close transport if exists
+      if (transports[sessionId]) {
+        delete transports[sessionId];
+      }
+
+      sessionActivity.delete(sessionId);
+      cleanedCount++;
+    }
+  }
+
+  if (cleanedCount > 0) {
+    logger.info({ cleanedCount, remainingSessions: sessionActivity.size }, 'Session cleanup completed');
+  }
+}
+
+/**
+ * Update session activity timestamp
+ */
+function updateSessionActivity(sessionId) {
+  sessionActivity.set(sessionId, Date.now());
+}
+
+/**
+ * Create MCP Server instance
+ */
+function createMCPServer(sessionId) {
+  const sessionLogger = createSessionLogger(sessionId);
+
+  const server = new Server(
+    {
+      name: process.env.MCP_SERVER_NAME || 'tsdav-mcp-server',
+      version: process.env.MCP_SERVER_VERSION || '1.0.0',
+    },
+    {
+      capabilities: {
+        tools: {},
+      },
+    }
+  );
+
+  // Register tools/list handler
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    const requestId = crypto.randomUUID();
+    const requestLogger = createRequestLogger(requestId, { sessionId });
+
+    requestLogger.debug('tools/list request received');
+    const toolList = tools.map(t => ({
+      name: t.name,
+      description: t.description,
+      inputSchema: t.inputSchema,
+    }));
+    requestLogger.debug({ count: toolList.length }, 'Returning tools list');
+    return { tools: toolList };
+  });
+
+  // Register tools/call handler
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const requestId = crypto.randomUUID();
+    const requestLogger = createRequestLogger(requestId, { sessionId });
+
+    const toolName = request.params.name;
+    const args = request.params.arguments || {};
+
+    requestLogger.info({ tool: toolName, args }, 'tools/call request received');
+
+    const tool = tools.find(t => t.name === toolName);
+    if (!tool) {
+      requestLogger.error({ tool: toolName }, 'Tool not found');
+      const error = new Error(`Unknown tool: ${toolName}`);
+      error.code = MCP_ERROR_CODES.METHOD_NOT_FOUND;
+      throw error;
+    }
+
+    try {
+      requestLogger.debug({ tool: toolName }, 'Executing tool');
+      const result = await tool.handler(args);
+      requestLogger.info({ tool: toolName }, 'Tool executed successfully');
+      return result;
+    } catch (error) {
+      requestLogger.error({ tool: toolName, error: error.message, stack: error.stack }, 'Tool execution error');
+      return createToolErrorResponse(error, process.env.NODE_ENV === 'development');
+    }
+  });
+
+  sessionLogger.info('MCP Server created for session');
+  return server;
+}
+
+/**
+ * Health check endpoint
+ */
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    server: process.env.MCP_SERVER_NAME || 'tsdav-mcp-server',
+    version: process.env.MCP_SERVER_VERSION || '1.0.0',
+    timestamp: new Date().toISOString(),
+    sessions: {
+      active: Object.keys(transports).length,
+      total: sessionActivity.size,
+    },
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+  });
+});
+
+/**
+ * SSE endpoint - GET /sse
+ */
+app.get('/sse', authenticateBearer, async (req, res) => {
+  const sessionId = `session-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+  const sessionLogger = createSessionLogger(sessionId);
+
+  sessionLogger.info({
+    ip: req.ip,
+    userAgent: req.get('user-agent') || 'unknown',
+  }, 'New SSE connection established');
+
+  try {
+    // Set SSE headers
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    sessionLogger.debug('SSE headers set');
+
+    // Create MCP server for this session
+    sessionLogger.debug('Creating MCP server');
+    const mcpServer = createMCPServer(sessionId);
+
+    // Create SSE transport
+    sessionLogger.debug('Creating SSE transport');
+    const transport = new SSEServerTransport('/messages', res);
+
+    // Store transport with its sessionId (from the transport itself)
+    sessionLogger.debug({ transportSessionId: transport.sessionId }, 'Transport created');
+    transports[transport.sessionId] = transport;
+    updateSessionActivity(transport.sessionId);
+
+    // Connect MCP server to transport
+    sessionLogger.debug('Connecting MCP server to transport');
+    await mcpServer.connect(transport);
+    sessionLogger.info('MCP server connected successfully, session active');
+
+    // Keep connection alive
+    const keepAliveInterval = setInterval(() => {
+      if (!res.writableEnded) {
+        res.write(': keepalive\n\n');
+        sessionLogger.debug('Keepalive sent');
+      } else {
+        clearInterval(keepAliveInterval);
+      }
+    }, 30000); // Every 30 seconds
+
+    // Cleanup on disconnect
+    req.on('close', () => {
+      sessionLogger.info({ transportSessionId: transport.sessionId }, 'SSE connection closed by client');
+      clearInterval(keepAliveInterval);
+      delete transports[transport.sessionId];
+      sessionActivity.delete(transport.sessionId);
+    });
+
+    req.on('error', (error) => {
+      sessionLogger.error({
+        error: error.message,
+        code: error.code,
+        transportSessionId: transport.sessionId,
+      }, 'SSE connection error');
+      clearInterval(keepAliveInterval);
+      delete transports[sessionId];
+    });
+
+    res.on('finish', () => {
+      sessionLogger.debug('Response finished');
+      clearInterval(keepAliveInterval);
+    });
+
+    res.on('close', () => {
+      sessionLogger.debug('Response closed');
+      clearInterval(keepAliveInterval);
+    });
+  } catch (error) {
+    sessionLogger.error({ error: error.message, stack: error.stack }, 'Error setting up SSE connection');
+    if (!res.headersSent) {
+      const errorResponse = createHTTPErrorResponse(error);
+      res.status(errorResponse.statusCode).json(errorResponse.body);
+    }
+  }
+});
+
+/**
+ * Message endpoint - POST /messages
+ * Used by SSE clients to send messages back to the server
+ */
+app.post('/messages', authenticateBearer, express.json(), async (req, res) => {
+  const sessionId = req.query.sessionId;
+  const requestLogger = createSessionLogger(sessionId || 'unknown');
+
+  requestLogger.info({ method: req.body?.method }, 'Message received');
+
+  if (!sessionId) {
+    requestLogger.error('No sessionId provided');
+    const errorResponse = createHTTPErrorResponse(
+      new Error('sessionId required'),
+      400
+    );
+    return res.status(errorResponse.statusCode).json(errorResponse.body);
+  }
+
+  const transport = transports[sessionId];
+  if (!transport) {
+    requestLogger.error({
+      sessionId,
+      availableSessions: Object.keys(transports),
+    }, 'Session not found');
+    const errorResponse = createHTTPErrorResponse(
+      new Error('Session not found'),
+      404
+    );
+    return res.status(errorResponse.statusCode).json(errorResponse.body);
+  }
+
+  try {
+    // Update session activity
+    updateSessionActivity(sessionId);
+
+    // Use the transport's handlePostMessage method
+    await transport.handlePostMessage(req, res, req.body);
+    requestLogger.debug('Message handled by transport');
+  } catch (error) {
+    requestLogger.error({ error: error.message }, 'Error handling message');
+    if (!res.headersSent) {
+      const errorResponse = createHTTPErrorResponse(error);
+      res.status(errorResponse.statusCode).json(errorResponse.body);
+    }
+  }
+});
+
+/**
+ * Info endpoint - GET /
+ */
+app.get('/', (req, res) => {
+  res.json({
+    name: process.env.MCP_SERVER_NAME || 'tsdav-mcp-server',
+    version: process.env.MCP_SERVER_VERSION || '1.0.0',
+    description: 'MCP SSE Server for tsdav - CalDAV/CardDAV integration',
+    endpoints: {
+      sse: '/sse (GET)',
+      messages: '/messages (POST)',
+      health: '/health (GET)',
+    },
+    tools: tools.map(t => ({
+      name: t.name,
+      description: t.description,
+    })),
+    documentation: 'See README.md for n8n integration instructions',
+  });
+});
+
+/**
+ * Graceful shutdown handler
+ */
+async function gracefulShutdown(signal) {
+  logger.info({ signal }, 'Received shutdown signal, starting graceful shutdown...');
+
+  // Stop accepting new connections
+  if (server) {
+    server.close(() => {
+      logger.info('HTTP server closed');
+    });
+  }
+
+  // Close all active transports
+  const sessionIds = Object.keys(transports);
+  logger.info({ sessionCount: sessionIds.length }, 'Closing active sessions');
+
+  for (const sessionId of sessionIds) {
+    try {
+      delete transports[sessionId];
+      sessionActivity.delete(sessionId);
+    } catch (error) {
+      logger.error({ sessionId, error: error.message }, 'Error closing session');
+    }
+  }
+
+  // Clear cleanup interval
+  if (cleanupInterval) {
+    clearInterval(cleanupInterval);
+  }
+
+  logger.info('Graceful shutdown completed');
+  process.exit(0);
+}
+
+// Register shutdown handlers
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Handle uncaught errors
+process.on('uncaughtException', (error) => {
+  logger.error({ error: error.message, stack: error.stack }, 'Uncaught exception');
+  gracefulShutdown('uncaughtException');
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error({ reason, promise }, 'Unhandled promise rejection');
+  gracefulShutdown('unhandledRejection');
+});
+
+let server;
+let cleanupInterval;
+
+/**
+ * Start server
+ */
+async function start() {
+  logger.info('Starting tsdav MCP Server...');
+
+  // Initialize tsdav clients
+  await initializeTsdav();
+
+  // Start session cleanup interval
+  cleanupInterval = setInterval(cleanupExpiredSessions, SESSION_CLEANUP_INTERVAL);
+  logger.info({ interval: SESSION_CLEANUP_INTERVAL, ttl: SESSION_TTL }, 'Session cleanup scheduled');
+
+  // Start Express server
+  server = app.listen(PORT, () => {
+    logger.info({
+      port: PORT,
+      url: `http://localhost:${PORT}`,
+      sseEndpoint: `http://localhost:${PORT}/sse`,
+      healthEndpoint: `http://localhost:${PORT}/health`,
+    }, 'MCP Server running');
+
+    logger.info({ count: tools.length }, 'Available tools');
+    tools.forEach(tool => {
+      logger.debug({ name: tool.name, description: tool.description }, 'Tool registered');
+    });
+
+    logger.info('Ready for n8n connections');
+  });
+}
+
+// Start the server
+start().catch(error => {
+  logger.error({ error: error.message, stack: error.stack }, 'Failed to start server');
+  process.exit(1);
+});
