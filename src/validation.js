@@ -8,9 +8,9 @@ import { z } from 'zod';
 export const listCalendarsSchema = z.object({});
 
 export const listEventsSchema = z.object({
-  calendar_url: z.string().url('Invalid calendar URL'),
-  time_range_start: z.string().datetime().optional(),
-  time_range_end: z.string().datetime().optional(),
+  calendar_url: z.string().url('Invalid calendar URL').optional(),
+  time_range_start: z.string().datetime({ offset: true }).optional(),
+  time_range_end: z.string().datetime({ offset: true }).optional(),
 });
 
 export const createEventSchema = z.object({
@@ -34,6 +34,37 @@ export const updateEventSchema = z.object({
 export const deleteEventSchema = z.object({
   event_url: z.string().url('Invalid event URL'),
   event_etag: z.string().min(1, 'ETag is required'),
+});
+
+export const calendarQuerySchema = z.object({
+  calendar_url: z.string().url('Invalid calendar URL').optional(),
+  time_range_start: z.string().datetime({ offset: true }).optional(),
+  time_range_end: z.string().datetime({ offset: true }).optional(),
+  summary_filter: z.string().optional(),
+  location_filter: z.string().optional(),
+});
+
+export const makeCalendarSchema = z.object({
+  display_name: z.string().min(1, 'Display name is required').max(200),
+  description: z.string().max(500).optional(),
+  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+  timezone: z.string().optional(),
+});
+
+export const freeBusyQuerySchema = z.object({
+  calendar_url: z.string().url('Invalid calendar URL'),
+  time_range_start: z.string().datetime({ offset: true }),
+  time_range_end: z.string().datetime({ offset: true }),
+});
+
+export const calendarMultiGetSchema = z.object({
+  calendar_url: z.string().url('Invalid calendar URL'),
+  event_urls: z.array(z.string().url('Invalid event URL')).min(1, 'At least one event URL required'),
+});
+
+export const isCollectionDirtySchema = z.object({
+  collection_url: z.string().url('Invalid collection URL'),
+  previous_ctag: z.string().min(1, 'Previous CTag is required'),
 });
 
 // CardDAV Schemas
@@ -63,6 +94,56 @@ export const updateContactSchema = z.object({
 export const deleteContactSchema = z.object({
   vcard_url: z.string().url('Invalid vCard URL'),
   vcard_etag: z.string().min(1, 'ETag is required'),
+});
+
+export const addressBookQuerySchema = z.object({
+  addressbook_url: z.string().url('Invalid addressbook URL'),
+  name_filter: z.string().optional(),
+  email_filter: z.string().optional(),
+  organization_filter: z.string().optional(),
+});
+
+export const addressBookMultiGetSchema = z.object({
+  addressbook_url: z.string().url('Invalid addressbook URL'),
+  contact_urls: z.array(z.string().url('Invalid contact URL')).min(1, 'At least one contact URL required'),
+});
+
+// VTODO (Task) Schemas
+export const listTodosSchema = z.object({
+  calendar_url: z.string().url('Invalid calendar URL'),
+});
+
+export const createTodoSchema = z.object({
+  calendar_url: z.string().url('Invalid calendar URL'),
+  summary: z.string().min(1, 'Summary is required').max(500),
+  description: z.string().max(5000).optional(),
+  due_date: z.string().optional(), // ISO 8601 with timezone
+  priority: z.number().int().min(0).max(9).optional(), // 0=undefined, 1=highest, 9=lowest
+  status: z.enum(['NEEDS-ACTION', 'IN-PROCESS', 'COMPLETED', 'CANCELLED']).optional(),
+  percent_complete: z.number().int().min(0).max(100).optional(),
+});
+
+export const updateTodoSchema = z.object({
+  todo_url: z.string().url('Invalid todo URL'),
+  todo_etag: z.string().min(1, 'ETag is required'),
+  updated_ical_data: z.string().min(1, 'iCal data is required'),
+});
+
+export const deleteTodoSchema = z.object({
+  todo_url: z.string().url('Invalid todo URL'),
+  todo_etag: z.string().min(1, 'ETag is required'),
+});
+
+export const todoQuerySchema = z.object({
+  calendar_url: z.string().url('Invalid calendar URL').optional(),
+  summary_filter: z.string().optional(),
+  status_filter: z.enum(['NEEDS-ACTION', 'IN-PROCESS', 'COMPLETED', 'CANCELLED']).optional(),
+  time_range_start: z.string().optional(), // ISO 8601 with timezone
+  time_range_end: z.string().optional(), // ISO 8601 with timezone
+});
+
+export const todoMultiGetSchema = z.object({
+  todo_urls: z.array(z.string().url('Invalid todo URL')).min(1, 'At least one todo URL required'),
 });
 
 /**
