@@ -1,3 +1,4 @@
+import ICAL from 'ical.js';
 import { tsdavManager } from './tsdav-client.js';
 import {
   validateInput,
@@ -18,12 +19,19 @@ import {
   deleteContactSchema,
   addressBookQuerySchema,
   addressBookMultiGetSchema,
+  listTodosSchema,
+  createTodoSchema,
+  updateTodoSchema,
+  deleteTodoSchema,
+  todoQuerySchema,
+  todoMultiGetSchema,
 } from './validation.js';
 import {
   formatEventList,
   formatContactList,
   formatCalendarList,
   formatAddressBookList,
+  formatTodoList,
   formatSuccess,
 } from './formatters.js';
 
@@ -59,13 +67,13 @@ export const tools = [
 
   {
     name: 'list_events',
-    description: 'List ALL events from a calendar without filtering. WARNING: Returns all events which can be many thousands - use calendar_query instead when searching for specific events by text, date, or location to save tokens',
+    description: 'List ALL events from a single calendar without filtering. WARNING: Returns all events which can be many thousands - use calendar_query instead for searching with filters (supports multi-calendar search).',
     inputSchema: {
       type: 'object',
       properties: {
         calendar_url: {
           type: 'string',
-          description: 'The URL of the calendar to fetch events from',
+          description: 'The URL of the calendar to fetch events from. Use list_calendars first to get available URLs.',
         },
         time_range_start: {
           type: 'string',
@@ -85,12 +93,26 @@ export const tools = [
       const calendar = calendars.find(c => c.url === validated.calendar_url);
 
       if (!calendar) {
-        throw new Error(`Calendar not found: ${validated.calendar_url}`);
+        const availableUrls = calendars.map(c => c.url).join('\n- ');
+        throw new Error(
+          `Calendar not found: ${validated.calendar_url}\n\n` +
+          `Available calendar URLs:\n- ${availableUrls}\n\n` +
+          `Please use list_calendars first to get the correct calendar URLs.`
+        );
       }
 
       const options = { calendar };
 
-      if (validated.time_range_start && validated.time_range_end) {
+      // If only start date provided, default end date to 1 year from start
+      if (validated.time_range_start && !validated.time_range_end) {
+        const startDate = new Date(validated.time_range_start);
+        const endDate = new Date(startDate);
+        endDate.setFullYear(endDate.getFullYear() + 1);
+        options.timeRange = {
+          start: validated.time_range_start,
+          end: endDate.toISOString(),
+        };
+      } else if (validated.time_range_start && validated.time_range_end) {
         options.timeRange = {
           start: validated.time_range_start,
           end: validated.time_range_end,
@@ -252,21 +274,21 @@ END:VCALENDAR`;
 
   {
     name: 'calendar_query',
-    description: 'PREFERRED: Search and filter calendar events efficiently by text (summary/title), date range, or location. Use this instead of list_events when user asks "find events with X" or "show me events containing Y" to avoid loading thousands of events. Much more token-efficient than list_events',
+    description: 'PREFERRED: Search and filter calendar events efficiently by text (summary/title), date range, or location. Use this instead of list_events when user asks "find events with X" or "show me events containing Y" to avoid loading thousands of events. Much more token-efficient than list_events. IMPORTANT: When user asks about "today", "tomorrow", "this week" etc., you MUST calculate the correct date range in ISO 8601 format (e.g., 2025-10-08T00:00:00.000Z for tomorrow). If calendar_url is not provided, searches across ALL calendars automatically.',
     inputSchema: {
       type: 'object',
       properties: {
         calendar_url: {
           type: 'string',
-          description: 'The URL of the calendar to query',
+          description: 'Optional: The URL of a specific calendar to query. If omitted, searches across ALL available calendars.',
         },
         time_range_start: {
           type: 'string',
-          description: 'Optional: Start date in ISO 8601 format (e.g., 2025-01-01T00:00:00.000Z)',
+          description: 'Optional: Start date in ISO 8601 format (e.g., 2025-10-08T00:00:00.000Z). When user asks "tomorrow", calculate tomorrow\'s date. When user asks "this week", use start of current week.',
         },
         time_range_end: {
           type: 'string',
-          description: 'Optional: End date in ISO 8601 format',
+          description: 'Optional: End date in ISO 8601 format. If omitted but time_range_start is provided, defaults to 1 year from start date.',
         },
         summary_filter: {
           type: 'string',
@@ -277,30 +299,58 @@ END:VCALENDAR`;
           description: 'Optional: Filter events by location (case-insensitive substring match). Use when user asks "events in room X" or "meetings at location Y"',
         },
       },
-      required: ['calendar_url'],
+      required: [],
     },
     handler: async (args) => {
       const validated = validateInput(calendarQuerySchema, args);
       const client = tsdavManager.getCalDavClient();
       const calendars = await client.fetchCalendars();
-      const calendar = calendars.find(c => c.url === validated.calendar_url);
 
-      if (!calendar) {
-        throw new Error(`Calendar not found: ${validated.calendar_url}`);
+      // If specific calendar requested, use it
+      let calendarsToSearch = calendars;
+      if (validated.calendar_url) {
+        const calendar = calendars.find(c => c.url === validated.calendar_url);
+        if (!calendar) {
+          const availableUrls = calendars.map(c => c.url).join('\n- ');
+          throw new Error(
+            `Calendar not found: ${validated.calendar_url}\n\n` +
+            `Available calendar URLs:\n- ${availableUrls}\n\n` +
+            `Tip: Omit calendar_url to search across all calendars automatically.`
+          );
+        }
+        calendarsToSearch = [calendar];
       }
 
-      const options = { calendar };
-
-      if (validated.time_range_start && validated.time_range_end) {
-        options.timeRange = {
+      // Build timeRange options
+      const timeRangeOptions = {};
+      if (validated.time_range_start && !validated.time_range_end) {
+        const startDate = new Date(validated.time_range_start);
+        const endDate = new Date(startDate);
+        endDate.setFullYear(endDate.getFullYear() + 1);
+        timeRangeOptions.timeRange = {
+          start: validated.time_range_start,
+          end: endDate.toISOString(),
+        };
+      } else if (validated.time_range_start && validated.time_range_end) {
+        timeRangeOptions.timeRange = {
           start: validated.time_range_start,
           end: validated.time_range_end,
         };
       }
 
-      const events = await client.fetchCalendarObjects(options);
+      // Search across all selected calendars
+      let allEvents = [];
+      for (const calendar of calendarsToSearch) {
+        const options = { calendar, ...timeRangeOptions };
+        const events = await client.fetchCalendarObjects(options);
+        // Add calendar info to each event
+        events.forEach(event => {
+          event._calendarName = calendar.displayName || calendar.url;
+        });
+        allEvents = allEvents.concat(events);
+      }
 
-      let filteredEvents = events;
+      let filteredEvents = allEvents;
 
       if (validated.summary_filter) {
         const summaryLower = validated.summary_filter.toLowerCase();
@@ -318,7 +368,12 @@ END:VCALENDAR`;
         });
       }
 
-      return formatEventList(filteredEvents, calendar);
+      // Determine calendar name for display
+      const calendarName = calendarsToSearch.length === 1
+        ? (calendarsToSearch[0].displayName || calendarsToSearch[0].url)
+        : `All Calendars (${calendarsToSearch.length})`;
+
+      return formatEventList(filteredEvents, calendarName);
     },
   },
 
@@ -801,6 +856,336 @@ END:VCARD`;
       });
 
       return formatContactList(vcards, { url: validated.addressbook_url });
+    },
+  },
+
+  // ================================
+  // VTODO (TASK) TOOLS
+  // ================================
+  {
+    name: 'list_todos',
+    description: 'List ALL todos/tasks from a calendar. WARNING: Returns all todos without filtering - use todo_query for searches with filters by status, summary, or due date.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        calendar_url: {
+          type: 'string',
+          description: 'The URL of the calendar containing todos',
+        },
+      },
+      required: ['calendar_url'],
+    },
+    handler: async (args) => {
+      const validated = validateInput(listTodosSchema, args);
+      const client = tsdavManager.getCalDavClient();
+
+      const calendar = { url: validated.calendar_url };
+      const todos = await client.fetchTodos({ calendar });
+
+      return formatTodoList(todos, validated.calendar_url);
+    },
+  },
+
+  {
+    name: 'create_todo',
+    description: 'Create a new todo/task in a calendar. Use this when user wants to add a task, todo item, or reminder with optional due date, priority, and status.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        calendar_url: {
+          type: 'string',
+          description: 'The URL of the calendar to create the todo in',
+        },
+        summary: {
+          type: 'string',
+          description: 'The title/summary of the todo (required)',
+        },
+        description: {
+          type: 'string',
+          description: 'Optional detailed description',
+        },
+        due_date: {
+          type: 'string',
+          description: 'Optional due date in ISO 8601 format (e.g., 2025-12-31T23:59:59+02:00)',
+        },
+        priority: {
+          type: 'number',
+          description: 'Optional priority: 0=none, 1-3=high, 4-6=medium, 7-9=low',
+        },
+        status: {
+          type: 'string',
+          enum: ['NEEDS-ACTION', 'IN-PROCESS', 'COMPLETED', 'CANCELLED'],
+          description: 'Optional status (default: NEEDS-ACTION)',
+        },
+        percent_complete: {
+          type: 'number',
+          description: 'Optional completion percentage (0-100)',
+        },
+      },
+      required: ['calendar_url', 'summary'],
+    },
+    handler: async (args) => {
+      const validated = validateInput(createTodoSchema, args);
+      const client = tsdavManager.getCalDavClient();
+
+      // Build VTODO iCalendar string
+      const uid = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}@tsdav-mcp`;
+      const dtstamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+
+      let vtodo = 'BEGIN:VCALENDAR\r\n';
+      vtodo += 'VERSION:2.0\r\n';
+      vtodo += 'PRODID:-//tsdav-mcp-server//NONSGML v1.2.0//EN\r\n';
+      vtodo += 'BEGIN:VTODO\r\n';
+      vtodo += `UID:${uid}\r\n`;
+      vtodo += `DTSTAMP:${dtstamp}\r\n`;
+      vtodo += `SUMMARY:${sanitizeICalString(validated.summary)}\r\n`;
+
+      if (validated.description) {
+        vtodo += `DESCRIPTION:${sanitizeICalString(validated.description)}\r\n`;
+      }
+
+      if (validated.status) {
+        vtodo += `STATUS:${validated.status}\r\n`;
+      } else {
+        vtodo += 'STATUS:NEEDS-ACTION\r\n';
+      }
+
+      if (validated.priority !== undefined) {
+        vtodo += `PRIORITY:${validated.priority}\r\n`;
+      }
+
+      if (validated.due_date) {
+        const dueDate = new Date(validated.due_date).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+        vtodo += `DUE:${dueDate}\r\n`;
+      }
+
+      if (validated.percent_complete !== undefined) {
+        vtodo += `PERCENT-COMPLETE:${validated.percent_complete}\r\n`;
+      }
+
+      vtodo += 'END:VTODO\r\n';
+      vtodo += 'END:VCALENDAR\r\n';
+
+      const result = await client.createTodo({
+        calendar: { url: validated.calendar_url },
+        filename: `${Date.now()}.ics`,
+        iCalString: vtodo,
+      });
+
+      return formatSuccess('Todo created successfully', {
+        url: result.url,
+        etag: result.etag,
+        summary: validated.summary,
+      });
+    },
+  },
+
+  {
+    name: 'update_todo',
+    description: 'Update an existing todo/task. Requires todo URL, etag, and complete updated iCal data. Use this to modify todo details or mark as completed.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        todo_url: {
+          type: 'string',
+          description: 'The URL of the todo to update',
+        },
+        todo_etag: {
+          type: 'string',
+          description: 'The current ETag of the todo (required for conflict detection)',
+        },
+        updated_ical_data: {
+          type: 'string',
+          description: 'Complete updated VTODO iCalendar data',
+        },
+      },
+      required: ['todo_url', 'todo_etag', 'updated_ical_data'],
+    },
+    handler: async (args) => {
+      const validated = validateInput(updateTodoSchema, args);
+      const client = tsdavManager.getCalDavClient();
+
+      const result = await client.updateTodo({
+        todo: {
+          url: validated.todo_url,
+          data: validated.updated_ical_data,
+          etag: validated.todo_etag,
+        },
+      });
+
+      return formatSuccess('Todo updated successfully', {
+        url: result.url,
+        etag: result.etag,
+      });
+    },
+  },
+
+  {
+    name: 'delete_todo',
+    description: 'Delete a todo/task permanently from the calendar. Cannot be undone. Requires todo URL and etag.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        todo_url: {
+          type: 'string',
+          description: 'The URL of the todo to delete',
+        },
+        todo_etag: {
+          type: 'string',
+          description: 'The current ETag of the todo',
+        },
+      },
+      required: ['todo_url', 'todo_etag'],
+    },
+    handler: async (args) => {
+      const validated = validateInput(deleteTodoSchema, args);
+      const client = tsdavManager.getCalDavClient();
+
+      await client.deleteTodo({
+        todo: {
+          url: validated.todo_url,
+          etag: validated.todo_etag,
+        },
+      });
+
+      return formatSuccess('Todo deleted successfully');
+    },
+  },
+
+  {
+    name: 'todo_query',
+    description: '⭐ PREFERRED: Search and filter todos efficiently by status, summary text, or due date range. Use this instead of list_todos when user asks "show my tasks", "what\'s due this week", "incomplete tasks". Much more token-efficient than list_todos. If calendar_url is not provided, searches across ALL calendars automatically.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        calendar_url: {
+          type: 'string',
+          description: 'Optional: The URL of a specific calendar containing todos. If omitted, searches across ALL calendars.',
+        },
+        summary_filter: {
+          type: 'string',
+          description: 'Optional: Filter by summary text (partial match, case-insensitive)',
+        },
+        status_filter: {
+          type: 'string',
+          enum: ['NEEDS-ACTION', 'IN-PROCESS', 'COMPLETED', 'CANCELLED'],
+          description: 'Optional: Filter by specific status',
+        },
+        time_range_start: {
+          type: 'string',
+          description: 'Optional: Start of due date range (ISO 8601 format)',
+        },
+        time_range_end: {
+          type: 'string',
+          description: 'Optional: End of due date range (ISO 8601 format)',
+        },
+      },
+      required: [],
+    },
+    handler: async (args) => {
+      const validated = validateInput(todoQuerySchema, args);
+      const client = tsdavManager.getCalDavClient();
+      const calendars = await client.fetchCalendars();
+
+      // If specific calendar requested, use it
+      let calendarsToSearch = calendars;
+      if (validated.calendar_url) {
+        const calendar = calendars.find(c => c.url === validated.calendar_url);
+        if (!calendar) {
+          const availableUrls = calendars.map(c => c.url).join('\n- ');
+          throw new Error(
+            `Calendar not found: ${validated.calendar_url}\n\n` +
+            `Available calendar URLs:\n- ${availableUrls}\n\n` +
+            `Tip: Omit calendar_url to search across all calendars automatically.`
+          );
+        }
+        calendarsToSearch = [calendar];
+      }
+
+      // Fetch todos from all selected calendars
+      let todos = [];
+      for (const calendar of calendarsToSearch) {
+        const calendarTodos = await client.fetchTodos({ calendar });
+        // Add calendar info to each todo
+        calendarTodos.forEach(todo => {
+          todo._calendarName = calendar.displayName || calendar.url;
+        });
+        todos = todos.concat(calendarTodos);
+      }
+
+      // Client-side filtering (tsdav doesn't support server-side VTODO filtering yet)
+      if (validated.summary_filter) {
+        const summaryLower = validated.summary_filter.toLowerCase();
+        todos = todos.filter(todo => {
+          const summary = todo.data?.match(/SUMMARY:(.+)/)?.[1] || '';
+          return summary.toLowerCase().includes(summaryLower);
+        });
+      }
+
+      if (validated.status_filter) {
+        todos = todos.filter(todo => {
+          const status = todo.data?.match(/STATUS:(.+)/)?.[1] || 'NEEDS-ACTION';
+          return status === validated.status_filter;
+        });
+      }
+
+      if (validated.time_range_start && validated.time_range_end) {
+        const startTime = new Date(validated.time_range_start).getTime();
+        const endTime = new Date(validated.time_range_end).getTime();
+
+        todos = todos.filter(todo => {
+          const dueMatch = todo.data?.match(/DUE:(\d{8}T\d{6}Z?)/);
+          if (!dueMatch) return false;
+
+          const dueStr = dueMatch[1];
+          const year = parseInt(dueStr.substr(0, 4));
+          const month = parseInt(dueStr.substr(4, 2)) - 1;
+          const day = parseInt(dueStr.substr(6, 2));
+          const hour = parseInt(dueStr.substr(9, 2));
+          const minute = parseInt(dueStr.substr(11, 2));
+          const dueTime = new Date(Date.UTC(year, month, day, hour, minute)).getTime();
+
+          return dueTime >= startTime && dueTime <= endTime;
+        });
+      }
+
+      // Determine calendar name for display
+      const calendarName = calendarsToSearch.length === 1
+        ? (calendarsToSearch[0].displayName || calendarsToSearch[0].url)
+        : `All Calendars (${calendarsToSearch.length})`;
+
+      return formatTodoList(todos, calendarName);
+    },
+  },
+
+  {
+    name: 'todo_multi_get',
+    description: 'Batch fetch multiple specific todos by their URLs. More efficient than fetching one by one when you have exact todo URLs.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        todo_urls: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Array of todo URLs to fetch',
+        },
+      },
+      required: ['todo_urls'],
+    },
+    handler: async (args) => {
+      const validated = validateInput(todoMultiGetSchema, args);
+      const client = tsdavManager.getCalDavClient();
+
+      // Extract calendar URL from first todo URL
+      const calendarUrl = validated.todo_urls[0].split('/').slice(0, -1).join('/');
+
+      const todos = await client.todoMultiGet({
+        url: calendarUrl,
+        props: [{ name: 'getetag', namespace: 'DAV:' }, { name: 'calendar-data', namespace: 'urn:ietf:params:xml:ns:caldav' }],
+        objectUrls: validated.todo_urls,
+      });
+
+      return formatTodoList(todos, calendarUrl);
     },
   },
 ];
