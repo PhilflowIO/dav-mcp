@@ -1,6 +1,6 @@
 {
   "name": "tsdav-mcp-server",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Model Context Protocol (MCP) server for CalDAV/CardDAV/VTODO integration via tsdav - enables AI systems to manage calendars, contacts, and tasks",
   "type": "module",
   "main": "src/index.js",
