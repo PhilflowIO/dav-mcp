@@ -53,8 +53,8 @@ export class MCPLogParser {
   parseToolCall(lines, startIndex) {
     const requestLine = lines[startIndex];
 
-    // Extract timestamp
-    const timestampMatch = requestLine.match(/\[(\d{2}:\d{2}:\d{2})\]/);
+    // Extract timestamp (with milliseconds)
+    const timestampMatch = requestLine.match(/\[(\d{2}:\d{2}:\d{2}(?:\.\d{3})?)\]/);
     const timestamp = timestampMatch ? timestampMatch[1] : null;
 
     // Extract requestId
@@ -90,11 +90,11 @@ export class MCPLogParser {
     // Look ahead for "Tool executed successfully" or error
     for (let j = startIndex; j < Math.min(startIndex + 20, lines.length); j++) {
       if (lines[j].includes('Tool executed successfully') &&
-          lines[j + 2]?.includes(`requestId.*: "${requestId}"`)) {
+          lines[j + 1]?.includes(requestId)) {
         success = true;
 
         // Calculate execution time if we have timestamps
-        const successTimestamp = lines[j].match(/\[(\d{2}:\d{2}:\d{2})\]/)?.[1];
+        const successTimestamp = lines[j].match(/\[(\d{2}:\d{2}:\d{2}(?:\.\d{3})?)\]/)?.[1];
         if (timestamp && successTimestamp) {
           executionTime = this.calculateTimeDiff(timestamp, successTimestamp);
         }
@@ -151,11 +151,15 @@ export class MCPLogParser {
    * Calculate time difference in milliseconds
    */
   calculateTimeDiff(startTime, endTime) {
-    const [startH, startM, startS] = startTime.split(':').map(Number);
-    const [endH, endM, endS] = endTime.split(':').map(Number);
+    // Parse HH:MM:SS.mmm or HH:MM:SS format
+    const parseTime = (timeStr) => {
+      const [time, ms = '0'] = timeStr.split('.');
+      const [h, m, s] = time.split(':').map(Number);
+      return (h * 3600 + m * 60 + s) * 1000 + Number(ms);
+    };
 
-    const startMs = (startH * 3600 + startM * 60 + startS) * 1000;
-    const endMs = (endH * 3600 + endM * 60 + endS) * 1000;
+    const startMs = parseTime(startTime);
+    const endMs = parseTime(endTime);
 
     return endMs - startMs;
   }

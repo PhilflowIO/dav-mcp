@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { MCPLogParser } from './mcp-log-parser.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,6 +23,7 @@ class MCPTestRunner {
       repetitions: config.repetitions || 5,
       successThreshold: config.successThreshold || 0.8, // 80% = 4/5 runs
       timeout: config.timeout || 30000, // 30 seconds per request
+      mcpLogPath: config.mcpLogPath || '/tmp/mcp-server.log', // Path to MCP server log
       ...config
     };
 
@@ -37,6 +39,10 @@ class MCPTestRunner {
       },
       testResults: []
     };
+
+    // Initialize log parser
+    this.logParser = new MCPLogParser(this.config.mcpLogPath);
+    this.previousLogLength = 0; // Track log position
   }
 
   /**
@@ -160,6 +166,21 @@ class MCPTestRunner {
   }
 
   /**
+   * Extract new tool calls from MCP log since last check
+   */
+  getNewToolCalls() {
+    try {
+      const allToolCalls = this.logParser.parseLog();
+      const newCalls = allToolCalls.slice(this.previousLogLength);
+      this.previousLogLength = allToolCalls.length;
+      return newCalls;
+    } catch (error) {
+      console.warn(`Warning: Could not parse MCP logs: ${error.message}`);
+      return [];
+    }
+  }
+
+  /**
    * Run a single test case multiple times (5x repetition)
    */
   async runTestCase(testCase) {
@@ -182,6 +203,9 @@ class MCPTestRunner {
       const startTime = Date.now();
       const response = await this.sendToWebhook(testCase.user_query);
       const duration = Date.now() - startTime;
+
+      // Extract MCP tool calls that occurred during this test run
+      const mcpToolCalls = this.getNewToolCalls();
 
       // Extract from n8n output format: {output: {tool_used: ..., answer: ...}}
       const output = response.output || response;
@@ -219,7 +243,15 @@ class MCPTestRunner {
           parameters_correct: paramsCorrect,
           answer_quality_good: answerGood,
           all_passed: toolCorrect && paramsCorrect && answerGood
-        }
+        },
+        mcp_tool_calls: mcpToolCalls.map(call => ({
+          tool: call.tool,
+          args: call.args,
+          timestamp: call.timestamp,
+          success: call.success,
+          execution_time_ms: call.executionTime
+        })),
+        total_mcp_execution_time_ms: mcpToolCalls.reduce((sum, call) => sum + (call.executionTime || 0), 0)
       };
 
       runs.push(runResult);
@@ -231,6 +263,7 @@ class MCPTestRunner {
       console.log(`    - Params: ${paramsCorrect ? '✅' : '❌'}`);
       console.log(`    - Answer: ${answerGood ? '✅' : '❌'}`);
       console.log(`    - Duration: ${duration}ms`);
+      console.log(`    - MCP Calls: ${mcpToolCalls.length} (${runResult.total_mcp_execution_time_ms}ms)`);
 
       // Small delay between runs to avoid overwhelming the webhook
       if (i < this.config.repetitions - 1) {
