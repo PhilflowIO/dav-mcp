@@ -1,0 +1,762 @@
+{
+  "metadata": {
+    "version": "1.2.1",
+    "total_tests": 55,
+    "categories": {
+      "caldav": 20,
+      "carddav": 15,
+      "vtodo": 15,
+      "edge_cases": 5
+    },
+    "description": "Comprehensive test suite for tsdav-mcp-server to validate LLM tool selection accuracy"
+  },
+  "test_cases": [
+    {
+      "id": "caldav-001",
+      "category": "caldav",
+      "name": "List all calendars",
+      "user_query": "Show me all my calendars",
+      "expected_tool": "list_calendars",
+      "expected_parameters": {},
+      "rationale": "User wants to see all calendars - list_calendars is the correct choice",
+      "difficulty": "easy"
+    },
+    {
+      "id": "caldav-002",
+      "category": "caldav",
+      "name": "Search events with filter",
+      "user_query": "Find all my meetings with John next week",
+      "expected_tool": "calendar_query",
+      "expected_parameters": {
+        "summary_filter": "John",
+        "time_range_start": "2025-10-13T00:00:00Z",
+        "time_range_end": "2025-10-19T23:59:59Z"
+      },
+      "rationale": "Filtered search - calendar_query is PREFERRED over list_events",
+      "difficulty": "medium",
+      "common_mistake": "LLMs often select list_events instead of calendar_query"
+    },
+    {
+      "id": "caldav-003",
+      "category": "caldav",
+      "name": "Create new event",
+      "user_query": "Schedule a team standup for tomorrow at 9am",
+      "expected_tool": "create_event",
+      "expected_parameters": {
+        "calendar_url": "https://dav.philflow.io/admin/calendar1/",
+        "summary": "Team Standup",
+        "dtstart": "2025-10-08T09:00:00Z",
+        "dtend": "2025-10-08T09:30:00Z"
+      },
+      "rationale": "Creating new event requires create_event tool",
+      "difficulty": "easy"
+    },
+    {
+      "id": "caldav-004",
+      "category": "caldav",
+      "name": "Update existing event",
+      "user_query": "Move my dentist appointment to 3pm instead of 2pm",
+      "expected_tool": "update_event",
+      "expected_parameters": {
+        "event_url": "https://dav.philflow.io/admin/calendar1/event123.ics",
+        "etag": "required",
+        "dtstart": "2025-10-08T15:00:00Z"
+      },
+      "rationale": "Modifying existing event requires update_event with ETag",
+      "difficulty": "medium"
+    },
+    {
+      "id": "caldav-005",
+      "category": "caldav",
+      "name": "Delete event",
+      "user_query": "Cancel my Friday lunch meeting",
+      "expected_tool": "delete_event",
+      "expected_parameters": {
+        "event_url": "https://dav.philflow.io/admin/calendar1/lunch-friday.ics",
+        "etag": "required"
+      },
+      "rationale": "Deleting event requires delete_event tool",
+      "difficulty": "easy"
+    },
+    {
+      "id": "caldav-006",
+      "category": "caldav",
+      "name": "Search by date range",
+      "user_query": "What meetings do I have this week?",
+      "expected_tool": "calendar_query",
+      "expected_parameters": {
+        "time_range_start": "2025-10-07T00:00:00Z",
+        "time_range_end": "2025-10-13T23:59:59Z"
+      },
+      "rationale": "Date range filter - use calendar_query, not list_events",
+      "difficulty": "medium",
+      "common_mistake": "list_events is often incorrectly selected"
+    },
+    {
+      "id": "caldav-007",
+      "category": "caldav",
+      "name": "Search by keyword",
+      "user_query": "Find all events with 'budget' in the title",
+      "expected_tool": "calendar_query",
+      "expected_parameters": {
+        "summary_filter": "budget"
+      },
+      "rationale": "Keyword search requires calendar_query",
+      "difficulty": "medium"
+    },
+    {
+      "id": "caldav-008",
+      "category": "caldav",
+      "name": "Create new calendar",
+      "user_query": "Create a new calendar called 'Work Projects'",
+      "expected_tool": "make_calendar",
+      "expected_parameters": {
+        "url": "https://dav.philflow.io/admin/",
+        "display_name": "Work Projects"
+      },
+      "rationale": "Creating calendar collection requires make_calendar",
+      "difficulty": "easy"
+    },
+    {
+      "id": "caldav-009",
+      "category": "caldav",
+      "name": "Check availability",
+      "user_query": "Am I free between 2pm and 4pm tomorrow?",
+      "expected_tool": "free_busy_query",
+      "expected_parameters": {
+        "calendar_url": "https://dav.philflow.io/admin/calendar1/",
+        "time_range_start": "2025-10-08T14:00:00Z",
+        "time_range_end": "2025-10-08T16:00:00Z"
+      },
+      "rationale": "Availability check without exposing details requires free_busy_query",
+      "difficulty": "medium"
+    },
+    {
+      "id": "caldav-010",
+      "category": "caldav",
+      "name": "Batch fetch specific events",
+      "user_query": "Get details for these 3 specific events: event1.ics, event2.ics, event3.ics",
+      "expected_tool": "calendar_multi_get",
+      "expected_parameters": {
+        "calendar_url": "https://dav.philflow.io/admin/calendar1/",
+        "event_urls": [
+          "https://dav.philflow.io/admin/calendar1/event1.ics",
+          "https://dav.philflow.io/admin/calendar1/event2.ics",
+          "https://dav.philflow.io/admin/calendar1/event3.ics"
+        ]
+      },
+      "rationale": "Batch fetch by URLs requires calendar_multi_get",
+      "difficulty": "hard"
+    },
+    {
+      "id": "caldav-011",
+      "category": "caldav",
+      "name": "Check calendar sync status",
+      "user_query": "Has my calendar changed since last sync?",
+      "expected_tool": "is_collection_dirty",
+      "expected_parameters": {
+        "calendar_url": "https://dav.philflow.io/admin/calendar1/",
+        "sync_token": "previous-sync-token"
+      },
+      "rationale": "Sync status check requires is_collection_dirty",
+      "difficulty": "hard"
+    },
+    {
+      "id": "caldav-012",
+      "category": "caldav",
+      "name": "Find events in specific location",
+      "user_query": "Show me all meetings in the conference room next week",
+      "expected_tool": "calendar_query",
+      "expected_parameters": {
+        "location_filter": "conference room",
+        "time_range_start": "2025-10-13T00:00:00Z",
+        "time_range_end": "2025-10-19T23:59:59Z"
+      },
+      "rationale": "Location-based search uses calendar_query",
+      "difficulty": "medium"
+    },
+    {
+      "id": "caldav-013",
+      "category": "caldav",
+      "name": "List all events without filter",
+      "user_query": "Show me literally every single event in my calendar, no filters",
+      "expected_tool": "list_events",
+      "expected_parameters": {
+        "calendar_url": "https://dav.philflow.io/admin/calendar1/"
+      },
+      "rationale": "Explicit request for ALL events - list_events is appropriate",
+      "difficulty": "easy"
+    },
+    {
+      "id": "caldav-014",
+      "category": "caldav",
+      "name": "Find events by description",
+      "user_query": "Find all events that mention 'quarterly review' in the description",
+      "expected_tool": "calendar_query",
+      "expected_parameters": {
+        "description_filter": "quarterly review"
+      },
+      "rationale": "Description search requires calendar_query",
+      "difficulty": "medium"
+    },
+    {
+      "id": "caldav-015",
+      "category": "caldav",
+      "name": "Create recurring event",
+      "user_query": "Schedule weekly team meeting every Monday at 10am",
+      "expected_tool": "create_event",
+      "expected_parameters": {
+        "calendar_url": "https://dav.philflow.io/admin/calendar1/",
+        "summary": "Weekly Team Meeting",
+        "dtstart": "2025-10-13T10:00:00Z",
+        "dtend": "2025-10-13T11:00:00Z",
+        "rrule": "FREQ=WEEKLY;BYDAY=MO"
+      },
+      "rationale": "Recurring events use create_event with RRULE",
+      "difficulty": "hard"
+    },
+    {
+      "id": "caldav-016",
+      "category": "caldav",
+      "name": "Find today's events",
+      "user_query": "What's on my calendar today?",
+      "expected_tool": "calendar_query",
+      "expected_parameters": {
+        "time_range_start": "2025-10-07T00:00:00Z",
+        "time_range_end": "2025-10-07T23:59:59Z"
+      },
+      "rationale": "Today's events require date filtering via calendar_query",
+      "difficulty": "easy"
+    },
+    {
+      "id": "caldav-017",
+      "category": "caldav",
+      "name": "Find events with attendees",
+      "user_query": "Show me all meetings where Sarah is an attendee",
+      "expected_tool": "calendar_query",
+      "expected_parameters": {
+        "attendee_filter": "Sarah"
+      },
+      "rationale": "Attendee-based search uses calendar_query",
+      "difficulty": "medium"
+    },
+    {
+      "id": "caldav-018",
+      "category": "caldav",
+      "name": "Check availability for meeting",
+      "user_query": "Can I schedule a 2-hour meeting on Thursday afternoon?",
+      "expected_tool": "free_busy_query",
+      "expected_parameters": {
+        "calendar_url": "https://dav.philflow.io/admin/calendar1/",
+        "time_range_start": "2025-10-09T13:00:00Z",
+        "time_range_end": "2025-10-09T18:00:00Z"
+      },
+      "rationale": "Availability check for scheduling uses free_busy_query",
+      "difficulty": "medium"
+    },
+    {
+      "id": "caldav-019",
+      "category": "caldav",
+      "name": "Update event location",
+      "user_query": "Change my 3pm meeting location to Zoom",
+      "expected_tool": "update_event",
+      "expected_parameters": {
+        "event_url": "https://dav.philflow.io/admin/calendar1/meeting-3pm.ics",
+        "etag": "required",
+        "location": "Zoom"
+      },
+      "rationale": "Updating event properties requires update_event",
+      "difficulty": "medium"
+    },
+    {
+      "id": "caldav-020",
+      "category": "caldav",
+      "name": "Find events by category",
+      "user_query": "Show me all work events this month",
+      "expected_tool": "calendar_query",
+      "expected_parameters": {
+        "categories_filter": "work",
+        "time_range_start": "2025-10-01T00:00:00Z",
+        "time_range_end": "2025-10-31T23:59:59Z"
+      },
+      "rationale": "Category-based filtering uses calendar_query",
+      "difficulty": "medium"
+    },
+    {
+      "id": "carddav-001",
+      "category": "carddav",
+      "name": "List all address books",
+      "user_query": "Show me all my address books",
+      "expected_tool": "list_addressbooks",
+      "expected_parameters": {},
+      "rationale": "Listing all address books requires list_addressbooks",
+      "difficulty": "easy"
+    },
+    {
+      "id": "carddav-002",
+      "category": "carddav",
+      "name": "Search contacts by name",
+      "user_query": "Find all contacts with 'Smith' in their name",
+      "expected_tool": "addressbook_query",
+      "expected_parameters": {
+        "addressbook_url": "https://dav.philflow.io/admin/contacts/",
+        "name_filter": "Smith"
+      },
+      "rationale": "Name-based search uses addressbook_query, not list_contacts",
+      "difficulty": "medium",
+      "common_mistake": "LLMs often select list_contacts instead"
+    },
+    {
+      "id": "carddav-003",
+      "category": "carddav",
+      "name": "Create new contact",
+      "user_query": "Add John Doe to my contacts with email john@example.com",
+      "expected_tool": "create_contact",
+      "expected_parameters": {
+        "addressbook_url": "https://dav.philflow.io/admin/contacts/",
+        "vcard_data": "BEGIN:VCARD\nVERSION:3.0\nFN:John Doe\nEMAIL:john@example.com\nEND:VCARD"
+      },
+      "rationale": "Creating contact requires create_contact with vCard data",
+      "difficulty": "medium"
+    },
+    {
+      "id": "carddav-004",
+      "category": "carddav",
+      "name": "Update existing contact",
+      "user_query": "Update Sarah's phone number to 555-1234",
+      "expected_tool": "update_contact",
+      "expected_parameters": {
+        "contact_url": "https://dav.philflow.io/admin/contacts/sarah.vcf",
+        "etag": "required",
+        "vcard_data": "updated vCard"
+      },
+      "rationale": "Updating contact requires update_contact with ETag",
+      "difficulty": "medium"
+    },
+    {
+      "id": "carddav-005",
+      "category": "carddav",
+      "name": "Delete contact",
+      "user_query": "Remove Michael Johnson from my contacts",
+      "expected_tool": "delete_contact",
+      "expected_parameters": {
+        "contact_url": "https://dav.philflow.io/admin/contacts/michael-johnson.vcf",
+        "etag": "required"
+      },
+      "rationale": "Deleting contact requires delete_contact",
+      "difficulty": "easy"
+    },
+    {
+      "id": "carddav-006",
+      "category": "carddav",
+      "name": "Search contacts by email",
+      "user_query": "Find the contact with email alice@company.com",
+      "expected_tool": "addressbook_query",
+      "expected_parameters": {
+        "addressbook_url": "https://dav.philflow.io/admin/contacts/",
+        "email_filter": "alice@company.com"
+      },
+      "rationale": "Email-based search uses addressbook_query",
+      "difficulty": "medium"
+    },
+    {
+      "id": "carddav-007",
+      "category": "carddav",
+      "name": "Search contacts by organization",
+      "user_query": "Show me all contacts from Acme Corp",
+      "expected_tool": "addressbook_query",
+      "expected_parameters": {
+        "addressbook_url": "https://dav.philflow.io/admin/contacts/",
+        "org_filter": "Acme Corp"
+      },
+      "rationale": "Organization-based search uses addressbook_query",
+      "difficulty": "medium"
+    },
+    {
+      "id": "carddav-008",
+      "category": "carddav",
+      "name": "List all contacts without filter",
+      "user_query": "Show me every single contact in my address book, no filters",
+      "expected_tool": "list_contacts",
+      "expected_parameters": {
+        "addressbook_url": "https://dav.philflow.io/admin/contacts/"
+      },
+      "rationale": "Explicit request for ALL contacts - list_contacts is appropriate",
+      "difficulty": "easy"
+    },
+    {
+      "id": "carddav-009",
+      "category": "carddav",
+      "name": "Batch fetch specific contacts",
+      "user_query": "Get details for these 4 contacts: alice.vcf, bob.vcf, carol.vcf, dave.vcf",
+      "expected_tool": "addressbook_multi_get",
+      "expected_parameters": {
+        "addressbook_url": "https://dav.philflow.io/admin/contacts/",
+        "contact_urls": [
+          "https://dav.philflow.io/admin/contacts/alice.vcf",
+          "https://dav.philflow.io/admin/contacts/bob.vcf",
+          "https://dav.philflow.io/admin/contacts/carol.vcf",
+          "https://dav.philflow.io/admin/contacts/dave.vcf"
+        ]
+      },
+      "rationale": "Batch fetch by URLs requires addressbook_multi_get",
+      "difficulty": "hard"
+    },
+    {
+      "id": "carddav-010",
+      "category": "carddav",
+      "name": "Search contacts by phone",
+      "user_query": "Find the contact with phone number 555-0199",
+      "expected_tool": "addressbook_query",
+      "expected_parameters": {
+        "addressbook_url": "https://dav.philflow.io/admin/contacts/",
+        "tel_filter": "555-0199"
+      },
+      "rationale": "Phone-based search uses addressbook_query",
+      "difficulty": "medium"
+    },
+    {
+      "id": "carddav-011",
+      "category": "carddav",
+      "name": "Create contact with full details",
+      "user_query": "Create a contact for Jane Smith, email jane@example.com, phone 555-9876, works at TechCorp",
+      "expected_tool": "create_contact",
+      "expected_parameters": {
+        "addressbook_url": "https://dav.philflow.io/admin/contacts/",
+        "vcard_data": "BEGIN:VCARD\nVERSION:3.0\nFN:Jane Smith\nEMAIL:jane@example.com\nTEL:555-9876\nORG:TechCorp\nEND:VCARD"
+      },
+      "rationale": "Creating detailed contact with multiple fields",
+      "difficulty": "medium"
+    },
+    {
+      "id": "carddav-012",
+      "category": "carddav",
+      "name": "Search contacts with multiple criteria",
+      "user_query": "Find all contacts from Google with 'engineer' in their title",
+      "expected_tool": "addressbook_query",
+      "expected_parameters": {
+        "addressbook_url": "https://dav.philflow.io/admin/contacts/",
+        "org_filter": "Google",
+        "title_filter": "engineer"
+      },
+      "rationale": "Multi-criteria search uses addressbook_query",
+      "difficulty": "hard"
+    },
+    {
+      "id": "carddav-013",
+      "category": "carddav",
+      "name": "Update contact email",
+      "user_query": "Change Tom's email address to tom.new@example.com",
+      "expected_tool": "update_contact",
+      "expected_parameters": {
+        "contact_url": "https://dav.philflow.io/admin/contacts/tom.vcf",
+        "etag": "required",
+        "vcard_data": "updated vCard with new email"
+      },
+      "rationale": "Email update requires update_contact",
+      "difficulty": "medium"
+    },
+    {
+      "id": "carddav-014",
+      "category": "carddav",
+      "name": "Search contacts by note",
+      "user_query": "Find contacts with 'VIP' in the notes",
+      "expected_tool": "addressbook_query",
+      "expected_parameters": {
+        "addressbook_url": "https://dav.philflow.io/admin/contacts/",
+        "note_filter": "VIP"
+      },
+      "rationale": "Note-based search uses addressbook_query",
+      "difficulty": "medium"
+    },
+    {
+      "id": "carddav-015",
+      "category": "carddav",
+      "name": "Create contact with address",
+      "user_query": "Add contact Lisa Wang, address 123 Main St, San Francisco, CA 94102",
+      "expected_tool": "create_contact",
+      "expected_parameters": {
+        "addressbook_url": "https://dav.philflow.io/admin/contacts/",
+        "vcard_data": "BEGIN:VCARD\nVERSION:3.0\nFN:Lisa Wang\nADR:;;123 Main St;San Francisco;CA;94102;USA\nEND:VCARD"
+      },
+      "rationale": "Creating contact with address data",
+      "difficulty": "medium"
+    },
+    {
+      "id": "vtodo-001",
+      "category": "vtodo",
+      "name": "List all todos",
+      "user_query": "Show me all my tasks",
+      "expected_tool": "list_todos",
+      "expected_parameters": {
+        "calendar_url": "https://dav.philflow.io/admin/calendar1/"
+      },
+      "rationale": "Listing all todos without filter - list_todos is appropriate",
+      "difficulty": "easy"
+    },
+    {
+      "id": "vtodo-002",
+      "category": "vtodo",
+      "name": "Search incomplete tasks",
+      "user_query": "What tasks do I still need to complete?",
+      "expected_tool": "todo_query",
+      "expected_parameters": {
+        "calendar_url": "https://dav.philflow.io/admin/calendar1/",
+        "status_filter": "NEEDS-ACTION"
+      },
+      "rationale": "Status-based filtering uses todo_query, not list_todos",
+      "difficulty": "medium",
+      "common_mistake": "LLMs often select list_todos instead of todo_query"
+    },
+    {
+      "id": "vtodo-003",
+      "category": "vtodo",
+      "name": "Create new todo",
+      "user_query": "Create a task to buy groceries, due tomorrow",
+      "expected_tool": "create_todo",
+      "expected_parameters": {
+        "calendar_url": "https://dav.philflow.io/admin/calendar1/",
+        "summary": "Buy groceries",
+        "due_date": "2025-10-08T23:59:59Z"
+      },
+      "rationale": "Creating new task requires create_todo",
+      "difficulty": "easy"
+    },
+    {
+      "id": "vtodo-004",
+      "category": "vtodo",
+      "name": "Mark todo as completed",
+      "user_query": "Mark the 'Call dentist' task as completed",
+      "expected_tool": "update_todo",
+      "expected_parameters": {
+        "todo_url": "https://dav.philflow.io/admin/calendar1/call-dentist.ics",
+        "etag": "required",
+        "status": "COMPLETED",
+        "percent_complete": 100
+      },
+      "rationale": "Updating task status requires update_todo",
+      "difficulty": "medium"
+    },
+    {
+      "id": "vtodo-005",
+      "category": "vtodo",
+      "name": "Delete todo",
+      "user_query": "Remove the 'Clean garage' task",
+      "expected_tool": "delete_todo",
+      "expected_parameters": {
+        "todo_url": "https://dav.philflow.io/admin/calendar1/clean-garage.ics",
+        "etag": "required"
+      },
+      "rationale": "Deleting task requires delete_todo",
+      "difficulty": "easy"
+    },
+    {
+      "id": "vtodo-006",
+      "category": "vtodo",
+      "name": "Search high priority tasks",
+      "user_query": "Show me my high priority tasks",
+      "expected_tool": "todo_query",
+      "expected_parameters": {
+        "calendar_url": "https://dav.philflow.io/admin/calendar1/",
+        "priority_filter": 1
+      },
+      "rationale": "Priority-based filtering uses todo_query",
+      "difficulty": "medium"
+    },
+    {
+      "id": "vtodo-007",
+      "category": "vtodo",
+      "name": "Search tasks by due date",
+      "user_query": "What tasks are due this week?",
+      "expected_tool": "todo_query",
+      "expected_parameters": {
+        "calendar_url": "https://dav.philflow.io/admin/calendar1/",
+        "due_date_start": "2025-10-07T00:00:00Z",
+        "due_date_end": "2025-10-13T23:59:59Z"
+      },
+      "rationale": "Due date filtering uses todo_query",
+      "difficulty": "medium"
+    },
+    {
+      "id": "vtodo-008",
+      "category": "vtodo",
+      "name": "Create task with priority",
+      "user_query": "Add a high priority task to finish the report by Friday",
+      "expected_tool": "create_todo",
+      "expected_parameters": {
+        "calendar_url": "https://dav.philflow.io/admin/calendar1/",
+        "summary": "Finish the report",
+        "priority": 1,
+        "due_date": "2025-10-11T23:59:59Z"
+      },
+      "rationale": "Creating task with priority and due date",
+      "difficulty": "medium"
+    },
+    {
+      "id": "vtodo-009",
+      "category": "vtodo",
+      "name": "Update task priority",
+      "user_query": "Change the priority of 'Review code' task to high",
+      "expected_tool": "update_todo",
+      "expected_parameters": {
+        "todo_url": "https://dav.philflow.io/admin/calendar1/review-code.ics",
+        "etag": "required",
+        "priority": 1
+      },
+      "rationale": "Updating task properties requires update_todo",
+      "difficulty": "medium"
+    },
+    {
+      "id": "vtodo-010",
+      "category": "vtodo",
+      "name": "Search in-progress tasks",
+      "user_query": "Show me tasks that are currently in progress",
+      "expected_tool": "todo_query",
+      "expected_parameters": {
+        "calendar_url": "https://dav.philflow.io/admin/calendar1/",
+        "status_filter": "IN-PROCESS"
+      },
+      "rationale": "Status filtering uses todo_query",
+      "difficulty": "medium"
+    },
+    {
+      "id": "vtodo-011",
+      "category": "vtodo",
+      "name": "Batch fetch specific todos",
+      "user_query": "Get details for these 3 tasks: task1.ics, task2.ics, task3.ics",
+      "expected_tool": "todo_multi_get",
+      "expected_parameters": {
+        "calendar_url": "https://dav.philflow.io/admin/calendar1/",
+        "todo_urls": [
+          "https://dav.philflow.io/admin/calendar1/task1.ics",
+          "https://dav.philflow.io/admin/calendar1/task2.ics",
+          "https://dav.philflow.io/admin/calendar1/task3.ics"
+        ]
+      },
+      "rationale": "Batch fetch by URLs requires todo_multi_get",
+      "difficulty": "hard"
+    },
+    {
+      "id": "vtodo-012",
+      "category": "vtodo",
+      "name": "Search tasks by summary",
+      "user_query": "Find all tasks with 'project' in the name",
+      "expected_tool": "todo_query",
+      "expected_parameters": {
+        "calendar_url": "https://dav.philflow.io/admin/calendar1/",
+        "summary_filter": "project"
+      },
+      "rationale": "Summary-based search uses todo_query",
+      "difficulty": "medium"
+    },
+    {
+      "id": "vtodo-013",
+      "category": "vtodo",
+      "name": "Find overdue tasks",
+      "user_query": "Show me tasks that are past their due date",
+      "expected_tool": "todo_query",
+      "expected_parameters": {
+        "calendar_url": "https://dav.philflow.io/admin/calendar1/",
+        "due_date_end": "2025-10-06T23:59:59Z"
+      },
+      "rationale": "Due date filtering for overdue tasks",
+      "difficulty": "medium"
+    },
+    {
+      "id": "vtodo-014",
+      "category": "vtodo",
+      "name": "Create task with description",
+      "user_query": "Add a task to prepare presentation with detailed notes about quarterly results",
+      "expected_tool": "create_todo",
+      "expected_parameters": {
+        "calendar_url": "https://dav.philflow.io/admin/calendar1/",
+        "summary": "Prepare presentation",
+        "description": "Detailed notes about quarterly results"
+      },
+      "rationale": "Creating task with description field",
+      "difficulty": "medium"
+    },
+    {
+      "id": "vtodo-015",
+      "category": "vtodo",
+      "name": "Update task status to in-progress",
+      "user_query": "Mark the 'Write blog post' task as in progress",
+      "expected_tool": "update_todo",
+      "expected_parameters": {
+        "todo_url": "https://dav.philflow.io/admin/calendar1/write-blog.ics",
+        "etag": "required",
+        "status": "IN-PROCESS",
+        "percent_complete": 50
+      },
+      "rationale": "Status update to in-progress",
+      "difficulty": "medium"
+    },
+    {
+      "id": "edge-001",
+      "category": "edge_cases",
+      "name": "Ambiguous list vs query - events",
+      "user_query": "Show me my events",
+      "expected_tool": "calendar_query",
+      "expected_parameters": {
+        "calendar_url": "https://dav.philflow.io/admin/calendar1/"
+      },
+      "rationale": "Ambiguous phrasing - should prefer calendar_query as it's more efficient",
+      "difficulty": "hard",
+      "common_mistake": "Could be interpreted as list_events, but query is preferred"
+    },
+    {
+      "id": "edge-002",
+      "category": "edge_cases",
+      "name": "Ambiguous list vs query - contacts",
+      "user_query": "Show me my contacts",
+      "expected_tool": "addressbook_query",
+      "expected_parameters": {
+        "addressbook_url": "https://dav.philflow.io/admin/contacts/"
+      },
+      "rationale": "Ambiguous phrasing - should prefer addressbook_query",
+      "difficulty": "hard",
+      "common_mistake": "Could be interpreted as list_contacts"
+    },
+    {
+      "id": "edge-003",
+      "category": "edge_cases",
+      "name": "Ambiguous list vs query - todos",
+      "user_query": "Show me my tasks",
+      "expected_tool": "todo_query",
+      "expected_parameters": {
+        "calendar_url": "https://dav.philflow.io/admin/calendar1/"
+      },
+      "rationale": "Ambiguous phrasing - should prefer todo_query for efficiency",
+      "difficulty": "hard",
+      "common_mistake": "Could be interpreted as list_todos"
+    },
+    {
+      "id": "edge-004",
+      "category": "edge_cases",
+      "name": "URL confusion - calendar vs addressbook",
+      "user_query": "Create an event in my contacts",
+      "expected_tool": "create_event",
+      "expected_parameters": {
+        "calendar_url": "https://dav.philflow.io/admin/calendar1/"
+      },
+      "rationale": "User confused terminology - events go in calendars, not contacts",
+      "difficulty": "hard",
+      "common_mistake": "LLM might get confused by 'contacts' mention"
+    },
+    {
+      "id": "edge-005",
+      "category": "edge_cases",
+      "name": "Mixed terminology - task vs event",
+      "user_query": "Schedule a task to review quarterly earnings on Friday",
+      "expected_tool": "create_todo",
+      "expected_parameters": {
+        "calendar_url": "https://dav.philflow.io/admin/calendar1/",
+        "summary": "Review quarterly earnings",
+        "due_date": "2025-10-11T23:59:59Z"
+      },
+      "rationale": "User says 'schedule' (event word) but means 'task' (todo) - context matters",
+      "difficulty": "hard",
+      "common_mistake": "Might incorrectly select create_event instead of create_todo"
+    }
+  ]
+}
