@@ -426,15 +426,17 @@ async function gracefulShutdown(signal) {
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
-// Handle uncaught errors
+// Handle uncaught errors - LOG but DO NOT kill the server
+// Tool errors are caught in the tool handler try/catch (line 208)
+// These handlers are only for truly unexpected errors that escape our error handling
 process.on('uncaughtException', (error) => {
-  logger.error({ error: error.message, stack: error.stack }, 'Uncaught exception');
-  gracefulShutdown('uncaughtException');
+  logger.error({ error: error.message, stack: error.stack }, 'Uncaught exception - server continuing');
+  // DO NOT call gracefulShutdown() - let the server continue running
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  logger.error({ reason, promise }, 'Unhandled promise rejection');
-  gracefulShutdown('unhandledRejection');
+  logger.error({ reason, promise }, 'Unhandled promise rejection - server continuing');
+  // DO NOT call gracefulShutdown() - let the server continue running
 });
 
 let server;
