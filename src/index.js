@@ -35,10 +35,17 @@ app.use(cors({
   credentials: true,
 }));
 
-// Rate Limiting
+// Rate Limiting - Higher limits for localhost/Docker testing
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  max: (req) => {
+    // Allow higher rate limit for localhost and Docker networks (for testing)
+    const ip = req.ip || req.connection.remoteAddress;
+    if (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1' || ip?.startsWith('::ffff:172.')) {
+      return 10000; // 10000 requests for local/Docker networks
+    }
+    return 100; // 100 requests for external IPs
+  },
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
