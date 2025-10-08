@@ -296,7 +296,8 @@ app.get('/sse', authenticateBearer, async (req, res) => {
         transportSessionId: transport.sessionId,
       }, 'SSE connection error');
       clearInterval(keepAliveInterval);
-      delete transports[sessionId];
+      delete transports[transport.sessionId];
+      sessionActivity.delete(transport.sessionId);
     });
 
     res.on('finish', () => {

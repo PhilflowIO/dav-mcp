@@ -1,6 +1,6 @@
 {
   "name": "tsdav-mcp-server",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Model Context Protocol (MCP) server for CalDAV/CardDAV/VTODO integration via tsdav - enables AI systems to manage calendars, contacts, and tasks",
   "type": "module",
   "main": "src/index.js",
@@ -13,7 +13,9 @@
     "dev": "node --watch src/index.js",
     "test": "NODE_ENV=test NODE_OPTIONS='--experimental-vm-modules' jest",
     "test:watch": "NODE_ENV=test NODE_OPTIONS='--experimental-vm-modules' jest --watch",
-    "test:coverage": "NODE_ENV=test NODE_OPTIONS='--experimental-vm-modules' jest --coverage"
+    "test:coverage": "NODE_ENV=test NODE_OPTIONS='--experimental-vm-modules' jest --coverage",
+    "test:integration": "node tests/integration/mcp-test-runner.js",
+    "test:setup-data": "node tests/integration/setup-test-data.js"
   },
   "author": "tsdav-mcp-server contributors",
   "license": "MIT",
