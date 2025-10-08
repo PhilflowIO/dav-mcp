@@ -1,0 +1,3152 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MCP Test Results - 2025-10-08T06:58:37.350Z</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 20px; background: #f5f5f5; }
+    .container { max-width: 1200px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    h1 { color: #333; border-bottom: 3px solid #4CAF50; padding-bottom: 10px; }
+    h2 { color: #555; margin-top: 30px; }
+    .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin: 20px 0; }
+    .stat-card { background: #f9f9f9; padding: 20px; border-radius: 6px; border-left: 4px solid #4CAF50; }
+    .stat-card.failed { border-left-color: #f44336; }
+    .stat-card h3 { margin: 0 0 10px 0; color: #666; font-size: 14px; }
+    .stat-card .value { font-size: 32px; font-weight: bold; color: #333; }
+    .test-result { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 6px; }
+    .test-result.passed { background: #e8f5e9; border-color: #4CAF50; }
+    .test-result.failed { background: #ffebee; border-color: #f44336; }
+    .test-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .test-title { font-weight: bold; font-size: 16px; }
+    .badge { padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: bold; }
+    .badge.passed { background: #4CAF50; color: white; }
+    .badge.failed { background: #f44336; color: white; }
+    .runs { margin-top: 10px; }
+    .run { margin: 5px 0; padding: 8px; background: rgba(0,0,0,0.05); border-radius: 4px; font-size: 14px; }
+    .progress-bar { height: 20px; background: #ddd; border-radius: 10px; overflow: hidden; margin: 10px 0; }
+    .progress-fill { height: 100%; background: #4CAF50; transition: width 0.3s; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>MCP Test Runner - Results</h1>
+    <p><strong>Timestamp:</strong> 2025-10-08T06:58:37.350Z</p>
+    <p><strong>Webhook:</strong> http://0.0.0.0:5678/webhook/d8bec01d-333d-444e-9573-6e2bafdde560</p>
+    <p><strong>Configuration:</strong> 5 runs per test, 80% success threshold</p>
+
+    <div class="summary">
+      <div class="stat-card">
+        <h3>Total Tests</h3>
+        <div class="value">55</div>
+      </div>
+      <div class="stat-card">
+        <h3>Total Runs</h3>
+        <div class="value">275</div>
+      </div>
+      <div class="stat-card">
+        <h3>Passed</h3>
+        <div class="value">3</div>
+      </div>
+      <div class="stat-card failed">
+        <h3>Failed</h3>
+        <div class="value">52</div>
+      </div>
+      <div class="stat-card">
+        <h3>Accuracy</h3>
+        <div class="value">5.5%</div>
+      </div>
+    </div>
+
+    <h2>Overall Progress</h2>
+    <div class="progress-bar">
+      <div class="progress-fill" style="width: 5.454545454545454%"></div>
+    </div>
+
+    <h2>Test Results</h2>
+    
+      <div class="test-result passed">
+        <div class="test-header">
+          <div class="test-title">[caldav-001] List all calendars</div>
+          <span class="badge passed">PASSED</span>
+        </div>
+        <p><strong>Query:</strong> "Show me all my calendars"</p>
+        <p><strong>Expected Tool:</strong> list_calendars</p>
+        <p><strong>Difficulty:</strong> easy</p>
+        <p><strong>Success Rate:</strong> Tool 100% | Params 0% | Answer 100%</p>
+        
+        <div class="runs">
+          <strong>Runs (5/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: list_calendars ✅ |
+              Params: ❌ |
+              Answer: ✅
+              (5317ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: list_calendars ✅ |
+              Params: ❌ |
+              Answer: ✅
+              (6471ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: list_calendars ✅ |
+              Params: ❌ |
+              Answer: ✅
+              (6806ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: list_calendars ✅ |
+              Params: ❌ |
+              Answer: ✅
+              (6676ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: list_calendars ✅ |
+              Params: ❌ |
+              Answer: ✅
+              (7118ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result passed">
+        <div class="test-header">
+          <div class="test-title">[caldav-002] Search events with filter</div>
+          <span class="badge passed">PASSED</span>
+        </div>
+        <p><strong>Query:</strong> "Find all my meetings with John next week"</p>
+        <p><strong>Expected Tool:</strong> calendar_query</p>
+        <p><strong>Difficulty:</strong> medium</p>
+        <p><strong>Success Rate:</strong> Tool 100% | Params 0% | Answer 100%</p>
+        <p><strong>Common Mistake:</strong> LLMs often select list_events instead of calendar_query</p>
+        <div class="runs">
+          <strong>Runs (5/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: calendar_query ✅ |
+              Params: ❌ |
+              Answer: ✅
+              (5488ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: calendar_query ✅ |
+              Params: ❌ |
+              Answer: ✅
+              (5931ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: calendar_query ✅ |
+              Params: ❌ |
+              Answer: ✅
+              (5578ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: calendar_query ✅ |
+              Params: ❌ |
+              Answer: ✅
+              (7350ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: calendar_query ✅ |
+              Params: ❌ |
+              Answer: ✅
+              (6357ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result passed">
+        <div class="test-header">
+          <div class="test-title">[caldav-003] Create new event</div>
+          <span class="badge passed">PASSED</span>
+        </div>
+        <p><strong>Query:</strong> "Schedule a team standup for tomorrow at 9am"</p>
+        <p><strong>Expected Tool:</strong> create_event</p>
+        <p><strong>Difficulty:</strong> easy</p>
+        <p><strong>Success Rate:</strong> Tool 100% | Params 0% | Answer 100%</p>
+        
+        <div class="runs">
+          <strong>Runs (5/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: create_event ✅ |
+              Params: ❌ |
+              Answer: ✅
+              (6655ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: create_event ✅ |
+              Params: ❌ |
+              Answer: ✅
+              (7488ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: create_event ✅ |
+              Params: ❌ |
+              Answer: ✅
+              (13092ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: create_event ✅ |
+              Params: ❌ |
+              Answer: ✅
+              (7174ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: create_event ✅ |
+              Params: ❌ |
+              Answer: ✅
+              (11088ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[caldav-004] Update existing event</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Move my dentist appointment to 3pm instead of 2pm"</p>
+        <p><strong>Expected Tool:</strong> update_event</p>
+        <p><strong>Difficulty:</strong> medium</p>
+        <p><strong>Success Rate:</strong> Tool 40% | Params 0% | Answer 40%</p>
+        
+        <div class="runs">
+          <strong>Runs (2/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: update_event ✅ |
+              Params: ❌ |
+              Answer: ✅
+              (10575ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: update_event ✅ |
+              Params: ❌ |
+              Answer: ✅
+              (10072ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (80ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (85ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (89ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[caldav-005] Delete event</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Cancel my Friday lunch meeting"</p>
+        <p><strong>Expected Tool:</strong> delete_event</p>
+        <p><strong>Difficulty:</strong> easy</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (79ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (86ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (88ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (87ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (91ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[caldav-006] Search by date range</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "What meetings do I have this week?"</p>
+        <p><strong>Expected Tool:</strong> calendar_query</p>
+        <p><strong>Difficulty:</strong> medium</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        <p><strong>Common Mistake:</strong> list_events is often incorrectly selected</p>
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (83ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (90ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (89ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (91ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (72ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[caldav-007] Search by keyword</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Find all events with 'budget' in the title"</p>
+        <p><strong>Expected Tool:</strong> calendar_query</p>
+        <p><strong>Difficulty:</strong> medium</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (82ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (85ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (91ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (92ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (97ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[caldav-008] Create new calendar</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Create a new calendar called 'Work Projects'"</p>
+        <p><strong>Expected Tool:</strong> make_calendar</p>
+        <p><strong>Difficulty:</strong> easy</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (86ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (86ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (89ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (104ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (85ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[caldav-009] Check availability</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Am I free between 2pm and 4pm tomorrow?"</p>
+        <p><strong>Expected Tool:</strong> free_busy_query</p>
+        <p><strong>Difficulty:</strong> medium</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (84ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (90ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (93ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (89ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (76ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[caldav-010] Batch fetch specific events</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Get details for these 3 specific events: event1.ics, event2.ics, event3.ics"</p>
+        <p><strong>Expected Tool:</strong> calendar_multi_get</p>
+        <p><strong>Difficulty:</strong> hard</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (85ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (87ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (78ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (90ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (85ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[caldav-011] Check calendar sync status</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Has my calendar changed since last sync?"</p>
+        <p><strong>Expected Tool:</strong> is_collection_dirty</p>
+        <p><strong>Difficulty:</strong> hard</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (96ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (93ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (92ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (95ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (80ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[caldav-012] Find events in specific location</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Show me all meetings in the conference room next week"</p>
+        <p><strong>Expected Tool:</strong> calendar_query</p>
+        <p><strong>Difficulty:</strong> medium</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (91ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (88ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (91ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (98ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (94ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[caldav-013] List all events without filter</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Show me literally every single event in my calendar, no filters"</p>
+        <p><strong>Expected Tool:</strong> list_events</p>
+        <p><strong>Difficulty:</strong> easy</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (101ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (92ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (88ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (76ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (90ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[caldav-014] Find events by description</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Find all events that mention 'quarterly review' in the description"</p>
+        <p><strong>Expected Tool:</strong> calendar_query</p>
+        <p><strong>Difficulty:</strong> medium</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (93ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (78ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (89ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (93ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (95ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[caldav-015] Create recurring event</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Schedule weekly team meeting every Monday at 10am"</p>
+        <p><strong>Expected Tool:</strong> create_event</p>
+        <p><strong>Difficulty:</strong> hard</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (105ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (89ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (94ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (82ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (93ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[caldav-016] Find today's events</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "What's on my calendar today?"</p>
+        <p><strong>Expected Tool:</strong> calendar_query</p>
+        <p><strong>Difficulty:</strong> easy</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (88ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (99ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (95ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (78ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (85ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[caldav-017] Find events with attendees</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Show me all meetings where Sarah is an attendee"</p>
+        <p><strong>Expected Tool:</strong> calendar_query</p>
+        <p><strong>Difficulty:</strong> medium</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (96ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (87ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (83ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (81ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (81ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[caldav-018] Check availability for meeting</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Can I schedule a 2-hour meeting on Thursday afternoon?"</p>
+        <p><strong>Expected Tool:</strong> free_busy_query</p>
+        <p><strong>Difficulty:</strong> medium</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (85ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (113ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (94ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (88ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (90ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[caldav-019] Update event location</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Change my 3pm meeting location to Zoom"</p>
+        <p><strong>Expected Tool:</strong> update_event</p>
+        <p><strong>Difficulty:</strong> medium</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (90ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (78ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (107ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (85ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (88ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[caldav-020] Find events by category</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Show me all work events this month"</p>
+        <p><strong>Expected Tool:</strong> calendar_query</p>
+        <p><strong>Difficulty:</strong> medium</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (83ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (89ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (75ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (85ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (87ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[carddav-001] List all address books</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Show me all my address books"</p>
+        <p><strong>Expected Tool:</strong> list_addressbooks</p>
+        <p><strong>Difficulty:</strong> easy</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (84ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (89ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (85ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (75ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (89ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[carddav-002] Search contacts by name</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Find all contacts with 'Smith' in their name"</p>
+        <p><strong>Expected Tool:</strong> addressbook_query</p>
+        <p><strong>Difficulty:</strong> medium</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        <p><strong>Common Mistake:</strong> LLMs often select list_contacts instead</p>
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (87ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (94ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (89ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (87ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (94ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[carddav-003] Create new contact</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Add John Doe to my contacts with email john@example.com"</p>
+        <p><strong>Expected Tool:</strong> create_contact</p>
+        <p><strong>Difficulty:</strong> medium</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (87ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (88ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (100ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (89ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (86ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[carddav-004] Update existing contact</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Update Sarah's phone number to 555-1234"</p>
+        <p><strong>Expected Tool:</strong> update_contact</p>
+        <p><strong>Difficulty:</strong> medium</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (91ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (91ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (78ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (78ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (89ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[carddav-005] Delete contact</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Remove Michael Johnson from my contacts"</p>
+        <p><strong>Expected Tool:</strong> delete_contact</p>
+        <p><strong>Difficulty:</strong> easy</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (86ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (89ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (88ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (73ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (100ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[carddav-006] Search contacts by email</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Find the contact with email alice@company.com"</p>
+        <p><strong>Expected Tool:</strong> addressbook_query</p>
+        <p><strong>Difficulty:</strong> medium</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (81ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (103ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (76ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (89ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (89ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[carddav-007] Search contacts by organization</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Show me all contacts from Acme Corp"</p>
+        <p><strong>Expected Tool:</strong> addressbook_query</p>
+        <p><strong>Difficulty:</strong> medium</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (84ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (77ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (91ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (105ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (90ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[carddav-008] List all contacts without filter</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Show me every single contact in my address book, no filters"</p>
+        <p><strong>Expected Tool:</strong> list_contacts</p>
+        <p><strong>Difficulty:</strong> easy</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (88ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (91ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (79ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (90ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (92ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[carddav-009] Batch fetch specific contacts</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Get details for these 4 contacts: alice.vcf, bob.vcf, carol.vcf, dave.vcf"</p>
+        <p><strong>Expected Tool:</strong> addressbook_multi_get</p>
+        <p><strong>Difficulty:</strong> hard</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (88ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (95ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (92ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (79ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (87ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[carddav-010] Search contacts by phone</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Find the contact with phone number 555-0199"</p>
+        <p><strong>Expected Tool:</strong> addressbook_query</p>
+        <p><strong>Difficulty:</strong> medium</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (87ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (89ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (93ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (90ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (80ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[carddav-011] Create contact with full details</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Create a contact for Jane Smith, email jane@example.com, phone 555-9876, works at TechCorp"</p>
+        <p><strong>Expected Tool:</strong> create_contact</p>
+        <p><strong>Difficulty:</strong> medium</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (91ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (87ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (91ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (85ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (89ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[carddav-012] Search contacts with multiple criteria</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Find all contacts from Google with 'engineer' in their title"</p>
+        <p><strong>Expected Tool:</strong> addressbook_query</p>
+        <p><strong>Difficulty:</strong> hard</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (96ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (75ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (85ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (86ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (88ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[carddav-013] Update contact email</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Change Tom's email address to tom.new@example.com"</p>
+        <p><strong>Expected Tool:</strong> update_contact</p>
+        <p><strong>Difficulty:</strong> medium</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (82ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (87ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (86ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (87ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (76ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[carddav-014] Search contacts by note</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Find contacts with 'VIP' in the notes"</p>
+        <p><strong>Expected Tool:</strong> addressbook_query</p>
+        <p><strong>Difficulty:</strong> medium</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (79ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (101ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (84ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (84ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (73ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[carddav-015] Create contact with address</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Add contact Lisa Wang, address 123 Main St, San Francisco, CA 94102"</p>
+        <p><strong>Expected Tool:</strong> create_contact</p>
+        <p><strong>Difficulty:</strong> medium</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (83ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (87ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (86ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (88ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (89ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[vtodo-001] List all todos</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Show me all my tasks"</p>
+        <p><strong>Expected Tool:</strong> list_todos</p>
+        <p><strong>Difficulty:</strong> easy</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (96ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (84ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (85ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (87ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (87ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[vtodo-002] Search incomplete tasks</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "What tasks do I still need to complete?"</p>
+        <p><strong>Expected Tool:</strong> todo_query</p>
+        <p><strong>Difficulty:</strong> medium</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        <p><strong>Common Mistake:</strong> LLMs often select list_todos instead of todo_query</p>
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (82ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (85ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (91ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (73ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (93ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[vtodo-003] Create new todo</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Create a task to buy groceries, due tomorrow"</p>
+        <p><strong>Expected Tool:</strong> create_todo</p>
+        <p><strong>Difficulty:</strong> easy</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (84ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (84ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (73ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (85ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (72ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[vtodo-004] Mark todo as completed</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Mark the 'Call dentist' task as completed"</p>
+        <p><strong>Expected Tool:</strong> update_todo</p>
+        <p><strong>Difficulty:</strong> medium</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (80ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (86ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (82ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (85ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (71ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[vtodo-005] Delete todo</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Remove the 'Clean garage' task"</p>
+        <p><strong>Expected Tool:</strong> delete_todo</p>
+        <p><strong>Difficulty:</strong> easy</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (78ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (87ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (87ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (89ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (88ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[vtodo-006] Search high priority tasks</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Show me my high priority tasks"</p>
+        <p><strong>Expected Tool:</strong> todo_query</p>
+        <p><strong>Difficulty:</strong> medium</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (83ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (89ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (88ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (90ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (86ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[vtodo-007] Search tasks by due date</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "What tasks are due this week?"</p>
+        <p><strong>Expected Tool:</strong> todo_query</p>
+        <p><strong>Difficulty:</strong> medium</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (79ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (88ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (89ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (75ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (87ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[vtodo-008] Create task with priority</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Add a high priority task to finish the report by Friday"</p>
+        <p><strong>Expected Tool:</strong> create_todo</p>
+        <p><strong>Difficulty:</strong> medium</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (87ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (76ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (86ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (103ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (88ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[vtodo-009] Update task priority</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Change the priority of 'Review code' task to high"</p>
+        <p><strong>Expected Tool:</strong> update_todo</p>
+        <p><strong>Difficulty:</strong> medium</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (95ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (102ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (86ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (86ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (88ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[vtodo-010] Search in-progress tasks</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Show me tasks that are currently in progress"</p>
+        <p><strong>Expected Tool:</strong> todo_query</p>
+        <p><strong>Difficulty:</strong> medium</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (84ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (90ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (72ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (88ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (88ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[vtodo-011] Batch fetch specific todos</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Get details for these 3 tasks: task1.ics, task2.ics, task3.ics"</p>
+        <p><strong>Expected Tool:</strong> todo_multi_get</p>
+        <p><strong>Difficulty:</strong> hard</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (87ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (88ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (88ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (89ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (85ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[vtodo-012] Search tasks by summary</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Find all tasks with 'project' in the name"</p>
+        <p><strong>Expected Tool:</strong> todo_query</p>
+        <p><strong>Difficulty:</strong> medium</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (82ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (86ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (88ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (83ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (91ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[vtodo-013] Find overdue tasks</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Show me tasks that are past their due date"</p>
+        <p><strong>Expected Tool:</strong> todo_query</p>
+        <p><strong>Difficulty:</strong> medium</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (83ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (87ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (84ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (102ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (76ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[vtodo-014] Create task with description</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Add a task to prepare presentation with detailed notes about quarterly results"</p>
+        <p><strong>Expected Tool:</strong> create_todo</p>
+        <p><strong>Difficulty:</strong> medium</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (92ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (74ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (85ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (86ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (92ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[vtodo-015] Update task status to in-progress</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Mark the 'Write blog post' task as in progress"</p>
+        <p><strong>Expected Tool:</strong> update_todo</p>
+        <p><strong>Difficulty:</strong> medium</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (94ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (74ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (86ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (89ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (88ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[edge-001] Ambiguous list vs query - events</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Show me my events"</p>
+        <p><strong>Expected Tool:</strong> calendar_query</p>
+        <p><strong>Difficulty:</strong> hard</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        <p><strong>Common Mistake:</strong> Could be interpreted as list_events, but query is preferred</p>
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (83ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (99ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (97ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (88ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (92ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[edge-002] Ambiguous list vs query - contacts</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Show me my contacts"</p>
+        <p><strong>Expected Tool:</strong> addressbook_query</p>
+        <p><strong>Difficulty:</strong> hard</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        <p><strong>Common Mistake:</strong> Could be interpreted as list_contacts</p>
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (86ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (84ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (87ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (93ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (87ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[edge-003] Ambiguous list vs query - todos</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Show me my tasks"</p>
+        <p><strong>Expected Tool:</strong> todo_query</p>
+        <p><strong>Difficulty:</strong> hard</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        <p><strong>Common Mistake:</strong> Could be interpreted as list_todos</p>
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (83ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (86ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (88ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (88ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (85ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[edge-004] URL confusion - calendar vs addressbook</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Create an event in my contacts"</p>
+        <p><strong>Expected Tool:</strong> create_event</p>
+        <p><strong>Difficulty:</strong> hard</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        <p><strong>Common Mistake:</strong> LLM might get confused by 'contacts' mention</p>
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (82ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (86ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (89ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (72ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (73ms)
+            </div>
+          
+        </div>
+      </div>
+    
+      <div class="test-result failed">
+        <div class="test-header">
+          <div class="test-title">[edge-005] Mixed terminology - task vs event</div>
+          <span class="badge failed">FAILED</span>
+        </div>
+        <p><strong>Query:</strong> "Schedule a task to review quarterly earnings on Friday"</p>
+        <p><strong>Expected Tool:</strong> create_todo</p>
+        <p><strong>Difficulty:</strong> hard</p>
+        <p><strong>Success Rate:</strong> Tool 0% | Params 0% | Answer 0%</p>
+        <p><strong>Common Mistake:</strong> Might incorrectly select create_event instead of create_todo</p>
+        <div class="runs">
+          <strong>Runs (0/5 correct):</strong>
+          
+            <div class="run">
+              Run 1: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (83ms)
+            </div>
+          
+            <div class="run">
+              Run 2: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (88ms)
+            </div>
+          
+            <div class="run">
+              Run 3: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (88ms)
+            </div>
+          
+            <div class="run">
+              Run 4: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (84ms)
+            </div>
+          
+            <div class="run">
+              Run 5: ❌
+              Tool: N/A ❌ |
+              Params: ❌ |
+              Answer: ❌
+              (88ms)
+            </div>
+          
+        </div>
+      </div>
+    
+  </div>
+</body>
+</html>
+    

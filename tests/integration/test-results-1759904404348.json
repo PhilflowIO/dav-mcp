@@ -1,0 +1,1347 @@
+{
+  "metadata": {
+    "timestamp": "2025-10-08T06:17:11.374Z",
+    "config": {
+      "webhookUrl": "http://0.0.0.0:5678/webhook/d8bec01d-333d-444e-9573-6e2bafdde560",
+      "repetitions": 5,
+      "successThreshold": 0.8,
+      "timeout": 30000
+    },
+    "totalTests": 10,
+    "totalRuns": 50,
+    "passedTests": 1,
+    "failedTests": 9,
+    "accuracy": 0.1
+  },
+  "testResults": [
+    {
+      "test_case": {
+        "id": "caldav-001",
+        "category": "caldav",
+        "name": "List all calendars",
+        "user_query": "Show me all my calendars",
+        "expected_tool": "list_calendars",
+        "expected_parameters": {},
+        "rationale": "User wants to see all calendars - list_calendars is the correct choice",
+        "difficulty": "easy"
+      },
+      "runs": [
+        {
+          "run_number": 1,
+          "duration_ms": 4416,
+          "response": {
+            "tool_used": "list_calendars",
+            "answer": "You have 4 calendars:\n1. Kalender (Color: #63DA38, Components: VEVENT)\n2. Privat - Mein privater Kalender (Color: #ca2634ff, Components: VEVENT)\n3. Test (Color: #0B5462FF, Components: VTODO)\n4. DEFAULT_TASK_CALENDAR_NAME (Color: #007AFF, Components: VTODO)",
+            "raw": {
+              "output": {
+                "tool_used": "list_calendars",
+                "answer": "You have 4 calendars:\n1. Kalender (Color: #63DA38, Components: VEVENT)\n2. Privat - Mein privater Kalender (Color: #ca2634ff, Components: VEVENT)\n3. Test (Color: #0B5462FF, Components: VTODO)\n4. DEFAULT_TASK_CALENDAR_NAME (Color: #007AFF, Components: VTODO)"
+              }
+            }
+          },
+          "validation": {
+            "tool_correct": true,
+            "parameters_correct": false,
+            "answer_quality_good": true,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 2,
+          "duration_ms": 9780,
+          "response": {
+            "tool_used": "list_calendars",
+            "answer": "You have 4 calendars:\n\n1. Kalender\n   - Type: Events\n   - Color: #63DA38\n   - URL: https://dav.philflow.io/radicale_admin/8A61ECBD-D2E9-4512-96FF-83B1E8FC8ADB/\n\n2. Privat\n   - Description: Mein privater Kalender\n   - Type: Events\n   - Color: #ca2634ff\n   - URL: https://dav.philflow.io/radicale_admin/cb829e7b-7bf8-26f0-3347-2ba1c0637c99/\n\n3. Test\n   - Type: Todos\n   - Color: #0B5462FF\n   - URL: https://dav.philflow.io/radicale_admin/a43f6c02-389b-4cd6-5aa0-87b4530cd327/\n\n4. DEFAULT_TASK_CALENDAR_NAME\n   - Type: Todos\n   - Color: #007AFF\n   - URL: https://dav.philflow.io/radicale_admin/4412DE06-54DA-464C-98B4-F85B244842C0/",
+            "raw": {
+              "output": {
+                "tool_used": "list_calendars",
+                "answer": "You have 4 calendars:\n\n1. Kalender\n   - Type: Events\n   - Color: #63DA38\n   - URL: https://dav.philflow.io/radicale_admin/8A61ECBD-D2E9-4512-96FF-83B1E8FC8ADB/\n\n2. Privat\n   - Description: Mein privater Kalender\n   - Type: Events\n   - Color: #ca2634ff\n   - URL: https://dav.philflow.io/radicale_admin/cb829e7b-7bf8-26f0-3347-2ba1c0637c99/\n\n3. Test\n   - Type: Todos\n   - Color: #0B5462FF\n   - URL: https://dav.philflow.io/radicale_admin/a43f6c02-389b-4cd6-5aa0-87b4530cd327/\n\n4. DEFAULT_TASK_CALENDAR_NAME\n   - Type: Todos\n   - Color: #007AFF\n   - URL: https://dav.philflow.io/radicale_admin/4412DE06-54DA-464C-98B4-F85B244842C0/"
+              }
+            }
+          },
+          "validation": {
+            "tool_correct": true,
+            "parameters_correct": false,
+            "answer_quality_good": true,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 3,
+          "duration_ms": 7527,
+          "response": {
+            "tool_used": "list_calendars",
+            "answer": "You have 4 calendars:\n1. Kalender - URL: https://dav.philflow.io/radicale_admin/8A61ECBD-D2E9-4512-96FF-83B1E8FC8ADB/ (Color: #63DA38)\n2. Privat (Mein privater Kalender) - URL: https://dav.philflow.io/radicale_admin/cb829e7b-7bf8-26f0-3347-2ba1c0637c99/ (Color: #ca2634ff)\n3. Test - URL: https://dav.philflow.io/radicale_admin/a43f6c02-389b-4cd6-5aa0-87b4530cd327/ (Color: #0B5462FF)\n4. DEFAULT_TASK_CALENDAR_NAME - URL: https://dav.philflow.io/radicale_admin/4412DE06-54DA-464C-98B4-F85B244842C0/ (Color: #007AFF)",
+            "raw": {
+              "output": {
+                "tool_used": "list_calendars",
+                "answer": "You have 4 calendars:\n1. Kalender - URL: https://dav.philflow.io/radicale_admin/8A61ECBD-D2E9-4512-96FF-83B1E8FC8ADB/ (Color: #63DA38)\n2. Privat (Mein privater Kalender) - URL: https://dav.philflow.io/radicale_admin/cb829e7b-7bf8-26f0-3347-2ba1c0637c99/ (Color: #ca2634ff)\n3. Test - URL: https://dav.philflow.io/radicale_admin/a43f6c02-389b-4cd6-5aa0-87b4530cd327/ (Color: #0B5462FF)\n4. DEFAULT_TASK_CALENDAR_NAME - URL: https://dav.philflow.io/radicale_admin/4412DE06-54DA-464C-98B4-F85B244842C0/ (Color: #007AFF)"
+              }
+            }
+          },
+          "validation": {
+            "tool_correct": true,
+            "parameters_correct": false,
+            "answer_quality_good": true,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 4,
+          "duration_ms": 3608,
+          "response": {
+            "tool_used": "list_calendars",
+            "answer": "You have 4 calendars available:\n1. Kalender - Color: #63DA38, Components: VEVENT\n2. Privat - Description: Mein privater Kalender, Color: #ca2634ff, Components: VEVENT\n3. Test - Color: #0B5462FF, Components: VTODO\n4. DEFAULT_TASK_CALENDAR_NAME - Color: #007AFF, Components: VTODO\nIf you want to see events or tasks in any of these calendars, please let me know!",
+            "raw": {
+              "output": {
+                "tool_used": "list_calendars",
+                "answer": "You have 4 calendars available:\n1. Kalender - Color: #63DA38, Components: VEVENT\n2. Privat - Description: Mein privater Kalender, Color: #ca2634ff, Components: VEVENT\n3. Test - Color: #0B5462FF, Components: VTODO\n4. DEFAULT_TASK_CALENDAR_NAME - Color: #007AFF, Components: VTODO\nIf you want to see events or tasks in any of these calendars, please let me know!"
+              }
+            }
+          },
+          "validation": {
+            "tool_correct": true,
+            "parameters_correct": false,
+            "answer_quality_good": true,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 5,
+          "duration_ms": 5093,
+          "response": {
+            "tool_used": "list_calendars",
+            "answer": "You have 4 calendars:\n\n1. Kalender (Color: #63DA38, Type: VEVENT)\n2. Privat - Mein privater Kalender (Color: #ca2634ff, Type: VEVENT)\n3. Test (Color: #0B5462FF, Type: VTODO)\n4. DEFAULT_TASK_CALENDAR_NAME (Color: #007AFF, Type: VTODO)\n\nIf you need details or want to manage events or tasks in any of these calendars, just let me know!",
+            "raw": {
+              "output": {
+                "tool_used": "list_calendars",
+                "answer": "You have 4 calendars:\n\n1. Kalender (Color: #63DA38, Type: VEVENT)\n2. Privat - Mein privater Kalender (Color: #ca2634ff, Type: VEVENT)\n3. Test (Color: #0B5462FF, Type: VTODO)\n4. DEFAULT_TASK_CALENDAR_NAME (Color: #007AFF, Type: VTODO)\n\nIf you need details or want to manage events or tasks in any of these calendars, just let me know!"
+              }
+            }
+          },
+          "validation": {
+            "tool_correct": true,
+            "parameters_correct": false,
+            "answer_quality_good": true,
+            "all_passed": false
+          }
+        }
+      ],
+      "summary": {
+        "total_runs": 5,
+        "correct_tool_count": 5,
+        "correct_params_count": 0,
+        "good_answer_count": 5,
+        "tool_success_rate": 1,
+        "params_success_rate": 0,
+        "answer_success_rate": 1,
+        "overall_success_rate": 0,
+        "passed": true,
+        "threshold": 0.8
+      }
+    },
+    {
+      "test_case": {
+        "id": "caldav-002",
+        "category": "caldav",
+        "name": "Search events with filter",
+        "user_query": "Find all my meetings with John next week",
+        "expected_tool": "calendar_query",
+        "expected_parameters": {
+          "summary_filter": "John",
+          "time_range_start": "2025-10-13T00:00:00Z",
+          "time_range_end": "2025-10-19T23:59:59Z"
+        },
+        "rationale": "Filtered search - calendar_query is PREFERRED over list_events",
+        "difficulty": "medium",
+        "common_mistake": "LLMs often select list_events instead of calendar_query"
+      },
+      "runs": [
+        {
+          "run_number": 1,
+          "duration_ms": 21377,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 2,
+          "duration_ms": 20983,
+          "response": {
+            "raw": {
+              "output": "Agent stopped due to max iterations."
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 3,
+          "duration_ms": 23682,
+          "response": {
+            "tool_used": "calendar_query",
+            "answer": "I searched your calendars for meetings with John next week (October 13 to October 20, 2025) but found no exact matches with John in the title or description.\n\nHowever, I found the following meetings labeled as \"meeting\" around that time:\n\n1. \"30 Min Meeting between Philipp Lütje and noch son test\" on September 29, 2025, from 12:00 PM to 12:30 PM (Europe/Berlin time)\n2. \"30 Min Meeting between Philipp Lütje and Frank\" on October 3, 2025, from 4:00 PM to 4:30 PM (Europe/Berlin time)\n3. \"March 2026 Team Meeting\" on March 15, 2026, from 3:00 PM to 4:30 PM at Conference Room A\n\nIf you want me to help you find or schedule a meeting specifically with John, please provide more details or check if the meeting was recorded under a different name.",
+            "raw": {
+              "output": {
+                "tool_used": "calendar_query",
+                "answer": "I searched your calendars for meetings with John next week (October 13 to October 20, 2025) but found no exact matches with John in the title or description.\n\nHowever, I found the following meetings labeled as \"meeting\" around that time:\n\n1. \"30 Min Meeting between Philipp Lütje and noch son test\" on September 29, 2025, from 12:00 PM to 12:30 PM (Europe/Berlin time)\n2. \"30 Min Meeting between Philipp Lütje and Frank\" on October 3, 2025, from 4:00 PM to 4:30 PM (Europe/Berlin time)\n3. \"March 2026 Team Meeting\" on March 15, 2026, from 3:00 PM to 4:30 PM at Conference Room A\n\nIf you want me to help you find or schedule a meeting specifically with John, please provide more details or check if the meeting was recorded under a different name."
+              }
+            }
+          },
+          "validation": {
+            "tool_correct": true,
+            "parameters_correct": false,
+            "answer_quality_good": true,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 4,
+          "duration_ms": 16562,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 5,
+          "duration_ms": 16625,
+          "response": {
+            "raw": {
+              "output": "Agent stopped due to max iterations."
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        }
+      ],
+      "summary": {
+        "total_runs": 5,
+        "correct_tool_count": 1,
+        "correct_params_count": 0,
+        "good_answer_count": 1,
+        "tool_success_rate": 0.2,
+        "params_success_rate": 0,
+        "answer_success_rate": 0.2,
+        "overall_success_rate": 0,
+        "passed": false,
+        "threshold": 0.8
+      }
+    },
+    {
+      "test_case": {
+        "id": "caldav-003",
+        "category": "caldav",
+        "name": "Create new event",
+        "user_query": "Schedule a team standup for tomorrow at 9am",
+        "expected_tool": "create_event",
+        "expected_parameters": {
+          "calendar_url": "https://dav.philflow.io/admin/calendar1/",
+          "summary": "Team Standup",
+          "dtstart": "2025-10-08T09:00:00Z",
+          "dtend": "2025-10-08T09:30:00Z"
+        },
+        "rationale": "Creating new event requires create_event tool",
+        "difficulty": "easy"
+      },
+      "runs": [
+        {
+          "run_number": 1,
+          "duration_ms": 89,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 2,
+          "duration_ms": 73,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 3,
+          "duration_ms": 75,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 4,
+          "duration_ms": 72,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 5,
+          "duration_ms": 73,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        }
+      ],
+      "summary": {
+        "total_runs": 5,
+        "correct_tool_count": 0,
+        "correct_params_count": 0,
+        "good_answer_count": 0,
+        "tool_success_rate": 0,
+        "params_success_rate": 0,
+        "answer_success_rate": 0,
+        "overall_success_rate": 0,
+        "passed": false,
+        "threshold": 0.8
+      }
+    },
+    {
+      "test_case": {
+        "id": "caldav-004",
+        "category": "caldav",
+        "name": "Update existing event",
+        "user_query": "Move my dentist appointment to 3pm instead of 2pm",
+        "expected_tool": "update_event",
+        "expected_parameters": {
+          "event_url": "https://dav.philflow.io/admin/calendar1/event123.ics",
+          "etag": "required",
+          "dtstart": "2025-10-08T15:00:00Z"
+        },
+        "rationale": "Modifying existing event requires update_event with ETag",
+        "difficulty": "medium"
+      },
+      "runs": [
+        {
+          "run_number": 1,
+          "duration_ms": 97,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 2,
+          "duration_ms": 73,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 3,
+          "duration_ms": 87,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 4,
+          "duration_ms": 89,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 5,
+          "duration_ms": 77,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        }
+      ],
+      "summary": {
+        "total_runs": 5,
+        "correct_tool_count": 0,
+        "correct_params_count": 0,
+        "good_answer_count": 0,
+        "tool_success_rate": 0,
+        "params_success_rate": 0,
+        "answer_success_rate": 0,
+        "overall_success_rate": 0,
+        "passed": false,
+        "threshold": 0.8
+      }
+    },
+    {
+      "test_case": {
+        "id": "caldav-005",
+        "category": "caldav",
+        "name": "Delete event",
+        "user_query": "Cancel my Friday lunch meeting",
+        "expected_tool": "delete_event",
+        "expected_parameters": {
+          "event_url": "https://dav.philflow.io/admin/calendar1/lunch-friday.ics",
+          "etag": "required"
+        },
+        "rationale": "Deleting event requires delete_event tool",
+        "difficulty": "easy"
+      },
+      "runs": [
+        {
+          "run_number": 1,
+          "duration_ms": 84,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 2,
+          "duration_ms": 72,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 3,
+          "duration_ms": 73,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 4,
+          "duration_ms": 88,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 5,
+          "duration_ms": 77,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        }
+      ],
+      "summary": {
+        "total_runs": 5,
+        "correct_tool_count": 0,
+        "correct_params_count": 0,
+        "good_answer_count": 0,
+        "tool_success_rate": 0,
+        "params_success_rate": 0,
+        "answer_success_rate": 0,
+        "overall_success_rate": 0,
+        "passed": false,
+        "threshold": 0.8
+      }
+    },
+    {
+      "test_case": {
+        "id": "caldav-006",
+        "category": "caldav",
+        "name": "Search by date range",
+        "user_query": "What meetings do I have this week?",
+        "expected_tool": "calendar_query",
+        "expected_parameters": {
+          "time_range_start": "2025-10-07T00:00:00Z",
+          "time_range_end": "2025-10-13T23:59:59Z"
+        },
+        "rationale": "Date range filter - use calendar_query, not list_events",
+        "difficulty": "medium",
+        "common_mistake": "list_events is often incorrectly selected"
+      },
+      "runs": [
+        {
+          "run_number": 1,
+          "duration_ms": 85,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 2,
+          "duration_ms": 74,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 3,
+          "duration_ms": 71,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 4,
+          "duration_ms": 92,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 5,
+          "duration_ms": 79,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        }
+      ],
+      "summary": {
+        "total_runs": 5,
+        "correct_tool_count": 0,
+        "correct_params_count": 0,
+        "good_answer_count": 0,
+        "tool_success_rate": 0,
+        "params_success_rate": 0,
+        "answer_success_rate": 0,
+        "overall_success_rate": 0,
+        "passed": false,
+        "threshold": 0.8
+      }
+    },
+    {
+      "test_case": {
+        "id": "caldav-007",
+        "category": "caldav",
+        "name": "Search by keyword",
+        "user_query": "Find all events with 'budget' in the title",
+        "expected_tool": "calendar_query",
+        "expected_parameters": {
+          "summary_filter": "budget"
+        },
+        "rationale": "Keyword search requires calendar_query",
+        "difficulty": "medium"
+      },
+      "runs": [
+        {
+          "run_number": 1,
+          "duration_ms": 84,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 2,
+          "duration_ms": 89,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 3,
+          "duration_ms": 73,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 4,
+          "duration_ms": 89,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 5,
+          "duration_ms": 91,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        }
+      ],
+      "summary": {
+        "total_runs": 5,
+        "correct_tool_count": 0,
+        "correct_params_count": 0,
+        "good_answer_count": 0,
+        "tool_success_rate": 0,
+        "params_success_rate": 0,
+        "answer_success_rate": 0,
+        "overall_success_rate": 0,
+        "passed": false,
+        "threshold": 0.8
+      }
+    },
+    {
+      "test_case": {
+        "id": "caldav-008",
+        "category": "caldav",
+        "name": "Create new calendar",
+        "user_query": "Create a new calendar called 'Work Projects'",
+        "expected_tool": "make_calendar",
+        "expected_parameters": {
+          "url": "https://dav.philflow.io/admin/",
+          "display_name": "Work Projects"
+        },
+        "rationale": "Creating calendar collection requires make_calendar",
+        "difficulty": "easy"
+      },
+      "runs": [
+        {
+          "run_number": 1,
+          "duration_ms": 82,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 2,
+          "duration_ms": 78,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 3,
+          "duration_ms": 88,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 4,
+          "duration_ms": 80,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 5,
+          "duration_ms": 93,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        }
+      ],
+      "summary": {
+        "total_runs": 5,
+        "correct_tool_count": 0,
+        "correct_params_count": 0,
+        "good_answer_count": 0,
+        "tool_success_rate": 0,
+        "params_success_rate": 0,
+        "answer_success_rate": 0,
+        "overall_success_rate": 0,
+        "passed": false,
+        "threshold": 0.8
+      }
+    },
+    {
+      "test_case": {
+        "id": "caldav-009",
+        "category": "caldav",
+        "name": "Check availability",
+        "user_query": "Am I free between 2pm and 4pm tomorrow?",
+        "expected_tool": "free_busy_query",
+        "expected_parameters": {
+          "calendar_url": "https://dav.philflow.io/admin/calendar1/",
+          "time_range_start": "2025-10-08T14:00:00Z",
+          "time_range_end": "2025-10-08T16:00:00Z"
+        },
+        "rationale": "Availability check without exposing details requires free_busy_query",
+        "difficulty": "medium"
+      },
+      "runs": [
+        {
+          "run_number": 1,
+          "duration_ms": 81,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 2,
+          "duration_ms": 76,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 3,
+          "duration_ms": 76,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 4,
+          "duration_ms": 81,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 5,
+          "duration_ms": 77,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        }
+      ],
+      "summary": {
+        "total_runs": 5,
+        "correct_tool_count": 0,
+        "correct_params_count": 0,
+        "good_answer_count": 0,
+        "tool_success_rate": 0,
+        "params_success_rate": 0,
+        "answer_success_rate": 0,
+        "overall_success_rate": 0,
+        "passed": false,
+        "threshold": 0.8
+      }
+    },
+    {
+      "test_case": {
+        "id": "caldav-010",
+        "category": "caldav",
+        "name": "Batch fetch specific events",
+        "user_query": "Get details for these 3 specific events: event1.ics, event2.ics, event3.ics",
+        "expected_tool": "calendar_multi_get",
+        "expected_parameters": {
+          "calendar_url": "https://dav.philflow.io/admin/calendar1/",
+          "event_urls": [
+            "https://dav.philflow.io/admin/calendar1/event1.ics",
+            "https://dav.philflow.io/admin/calendar1/event2.ics",
+            "https://dav.philflow.io/admin/calendar1/event3.ics"
+          ]
+        },
+        "rationale": "Batch fetch by URLs requires calendar_multi_get",
+        "difficulty": "hard"
+      },
+      "runs": [
+        {
+          "run_number": 1,
+          "duration_ms": 83,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 2,
+          "duration_ms": 84,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 3,
+          "duration_ms": 86,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 4,
+          "duration_ms": 106,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        },
+        {
+          "run_number": 5,
+          "duration_ms": 99,
+          "response": {
+            "tool_used": null,
+            "answer": null,
+            "parameters": null,
+            "raw": {
+              "error": "Webhook returned 500: Internal Server Error",
+              "tool_selected": null,
+              "parameters": null,
+              "answer": null
+            }
+          },
+          "validation": {
+            "tool_correct": false,
+            "parameters_correct": false,
+            "answer_quality_good": false,
+            "all_passed": false
+          }
+        }
+      ],
+      "summary": {
+        "total_runs": 5,
+        "correct_tool_count": 0,
+        "correct_params_count": 0,
+        "good_answer_count": 0,
+        "tool_success_rate": 0,
+        "params_success_rate": 0,
+        "answer_success_rate": 0,
+        "overall_success_rate": 0,
+        "passed": false,
+        "threshold": 0.8
+      }
+    }
+  ]
+}
