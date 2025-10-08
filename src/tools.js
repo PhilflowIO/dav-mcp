@@ -10,6 +10,8 @@ import {
   deleteEventSchema,
   calendarQuerySchema,
   makeCalendarSchema,
+  updateCalendarSchema,
+  deleteCalendarSchema,
   freeBusyQuerySchema,
   calendarMultiGetSchema,
   isCollectionDirtySchema,
@@ -33,6 +35,8 @@ import {
   formatAddressBookList,
   formatTodoList,
   formatSuccess,
+  formatCalendarUpdateSuccess,
+  formatCalendarDeleteSuccess,
 } from './formatters.js';
 
 /**
@@ -379,7 +383,7 @@ END:VCALENDAR`;
 
   {
     name: 'make_calendar',
-    description: 'Create a new calendar collection on the CalDAV server with optional color, description, and timezone',
+    description: 'Create a new calendar collection on the CalDAV server with optional color, description, timezone, and component types',
     inputSchema: {
       type: 'object',
       properties: {
@@ -398,6 +402,14 @@ END:VCALENDAR`;
         timezone: {
           type: 'string',
           description: 'Optional: Timezone ID (e.g., Europe/Berlin)',
+        },
+        components: {
+          type: 'array',
+          items: {
+            type: 'string',
+            enum: ['VEVENT', 'VTODO', 'VJOURNAL']
+          },
+          description: 'Optional: Supported component types. Default: ["VEVENT", "VTODO"]. Use ["VEVENT"] for events only, ["VTODO"] for tasks only.',
         },
       },
       required: ['display_name'],
@@ -424,22 +436,144 @@ END:VCALENDAR`;
         .replace(/[^a-z0-9-]/g, '-')
         .replace(/-+/g, '-')
         .replace(/^-|-$/g, '');
-      const newCalendarUrl = `${calendarHome}${sanitizedName}-${Date.now()}/`;
+      const newCalendarUrl = `${calendarHome}${sanitizedName}/`;
+
+      // Prepare calendar props
+      const calendarProps = {
+        displayName: validated.display_name,
+        description: validated.description,
+        calendarColor: validated.color,
+        timezone: validated.timezone,
+      };
+
+      // Add supported component set if specified
+      // NOTE: Radicale ignores this property (known limitation), but works with Nextcloud/Baikal
+      // Format: supportedCalendarComponentSet.comp[{_attributes: {name: 'VEVENT'}}]
+      if (validated.components && validated.components.length > 0) {
+        calendarProps.supportedCalendarComponentSet = {
+          comp: validated.components.map(comp => ({ _attributes: { name: comp } }))
+        };
+      }
 
       const calendar = await client.makeCalendar({
         url: newCalendarUrl,
-        props: {
-          displayName: validated.display_name,
-          description: validated.description,
-          calendarColor: validated.color,
-          timezone: validated.timezone,
-        }
+        props: calendarProps
       });
 
       return formatSuccess('Calendar created successfully', {
         displayName: validated.display_name,
         url: newCalendarUrl,
       });
+    },
+  },
+
+  {
+    name: 'update_calendar',
+    description: 'Update an existing calendar\'s properties (display name, description, color, timezone). Use this when user asks to "rename calendar", "change calendar color", or "update calendar properties"',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        calendar_url: {
+          type: 'string',
+          description: 'The URL of the calendar to update (get from list_calendars)',
+        },
+        display_name: {
+          type: 'string',
+          description: 'Optional: New display name for the calendar',
+        },
+        description: {
+          type: 'string',
+          description: 'Optional: New description for the calendar',
+        },
+        color: {
+          type: 'string',
+          description: 'Optional: New calendar color in hex format (e.g., #FF5733)',
+        },
+        timezone: {
+          type: 'string',
+          description: 'Optional: New timezone ID (e.g., Europe/Berlin)',
+        },
+      },
+      required: ['calendar_url'],
+    },
+    handler: async (args) => {
+      const validated = validateInput(updateCalendarSchema, args);
+      const client = tsdavManager.getCalDavClient();
+
+      // Build WebDAV PROPPATCH XML
+      let proppatchBody = '<?xml version="1.0" encoding="UTF-8"?>';
+      proppatchBody += '<d:propertyupdate xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:x="http://apple.com/ns/ical/">';
+      proppatchBody += '<d:set><d:prop>';
+
+      if (validated.display_name) {
+        proppatchBody += `<d:displayname>${validated.display_name}</d:displayname>`;
+      }
+      if (validated.description) {
+        proppatchBody += `<c:calendar-description>${validated.description}</c:calendar-description>`;
+      }
+      if (validated.color) {
+        proppatchBody += `<x:calendar-color>${validated.color}</x:calendar-color>`;
+      }
+      if (validated.timezone) {
+        proppatchBody += `<c:calendar-timezone>${validated.timezone}</c:calendar-timezone>`;
+      }
+
+      proppatchBody += '</d:prop></d:set></d:propertyupdate>';
+
+      // Use updateObject to send PROPPATCH
+      await client.updateObject({
+        url: validated.calendar_url,
+        data: proppatchBody,
+        headers: {
+          'Content-Type': 'application/xml; charset=utf-8',
+        },
+      });
+
+      // Fetch updated calendar to confirm
+      const calendars = await client.fetchCalendars();
+      const updatedCalendar = calendars.find(c => c.url === validated.calendar_url);
+
+      if (!updatedCalendar) {
+        throw new Error(`Calendar not found after update: ${validated.calendar_url}`);
+      }
+
+      // Return formatted success
+      return formatCalendarUpdateSuccess(updatedCalendar, {
+        display_name: validated.display_name,
+        description: validated.description,
+        color: validated.color,
+        timezone: validated.timezone,
+      });
+    },
+  },
+
+  {
+    name: 'delete_calendar',
+    description: 'Permanently delete a calendar and all its events. WARNING: This action cannot be undone! Use this when user explicitly asks to "delete calendar" or "remove calendar"',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        calendar_url: {
+          type: 'string',
+          description: 'The URL of the calendar to delete (get from list_calendars)',
+        },
+      },
+      required: ['calendar_url'],
+    },
+    handler: async (args) => {
+      const validated = validateInput(deleteCalendarSchema, args);
+      const client = tsdavManager.getCalDavClient();
+
+      // Use deleteObject to send DELETE request
+      await client.deleteObject({
+        url: validated.calendar_url,
+        headers: {
+          'Content-Type': 'text/calendar; charset=utf-8',
+        },
+      });
+
+      // Return formatted success with warning
+      return formatCalendarDeleteSuccess(validated.calendar_url);
     },
   },
 

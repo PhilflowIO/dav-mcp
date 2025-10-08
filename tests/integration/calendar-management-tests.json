@@ -1,0 +1,98 @@
+{
+  "metadata": {
+    "version": "2.2.0",
+    "total_tests": 7,
+    "categories": {
+      "caldav_management": 7
+    },
+    "description": "Test suite for calendar management tools with verification (make_calendar, list_calendars, update_calendar, delete_calendar)"
+  },
+  "test_cases": [
+    {
+      "id": "caldav-mgmt-001",
+      "category": "caldav_management",
+      "name": "Create new calendar",
+      "user_query": "Create a new calendar called 'Team Events' with a blue color for events only",
+      "expected_tool": "make_calendar",
+      "expected_parameters": {
+        "display_name": "Team Events",
+        "color": "#0000FF",
+        "components": ["VEVENT"]
+      },
+      "rationale": "Create a new calendar collection with properties",
+      "difficulty": "easy"
+    },
+    {
+      "id": "caldav-mgmt-002",
+      "category": "caldav_management",
+      "name": "Verify calendar creation",
+      "user_query": "Show me all my calendars to verify the new one was created",
+      "expected_tool": "list_calendars",
+      "expected_parameters": {},
+      "rationale": "Verify that calendar was created successfully",
+      "difficulty": "easy"
+    },
+    {
+      "id": "caldav-mgmt-003",
+      "category": "caldav_management",
+      "name": "Create calendar with description",
+      "user_query": "Make a new events-only calendar named 'Project X' with description 'For tracking project milestones'",
+      "expected_tool": "make_calendar",
+      "expected_parameters": {
+        "display_name": "Project X",
+        "description": "For tracking project milestones",
+        "components": ["VEVENT"]
+      },
+      "rationale": "Create calendar with description field",
+      "difficulty": "medium"
+    },
+    {
+      "id": "caldav-mgmt-004",
+      "category": "caldav_management",
+      "name": "Update calendar color",
+      "user_query": "Change the color of my Work calendar to red",
+      "expected_tool": "update_calendar",
+      "expected_parameters": {
+        "calendar_url": "https://dav.philflow.io/admin/calendar1/",
+        "color": "#FF0000"
+      },
+      "rationale": "Calendar property update - use update_calendar for color changes",
+      "difficulty": "medium"
+    },
+    {
+      "id": "caldav-mgmt-005",
+      "category": "caldav_management",
+      "name": "Rename calendar",
+      "user_query": "Rename my personal calendar to 'Dave's Calendar'",
+      "expected_tool": "update_calendar",
+      "expected_parameters": {
+        "calendar_url": "https://dav.philflow.io/admin/calendar1/",
+        "display_name": "Dave's Calendar"
+      },
+      "rationale": "Calendar rename operation via update_calendar",
+      "difficulty": "easy"
+    },
+    {
+      "id": "caldav-mgmt-006",
+      "category": "caldav_management",
+      "name": "Delete calendar permanently",
+      "user_query": "Delete my Old Projects calendar permanently",
+      "expected_tool": "delete_calendar",
+      "expected_parameters": {
+        "calendar_url": "https://dav.philflow.io/admin/calendar1/"
+      },
+      "rationale": "Permanent calendar deletion - use delete_calendar, warns about deleting all events",
+      "difficulty": "easy"
+    },
+    {
+      "id": "caldav-mgmt-007",
+      "category": "caldav_management",
+      "name": "Verify calendar deletion",
+      "user_query": "List all calendars to confirm the deletion",
+      "expected_tool": "list_calendars",
+      "expected_parameters": {},
+      "rationale": "Verify that calendar was deleted successfully",
+      "difficulty": "easy"
+    }
+  ]
+}

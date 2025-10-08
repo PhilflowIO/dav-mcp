@@ -56,6 +56,24 @@ export const makeCalendarSchema = z.object({
   description: z.string().max(500).optional(),
   color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
   timezone: z.string().optional(),
+  components: z.array(z.enum(['VEVENT', 'VTODO', 'VJOURNAL'])).optional(),
+});
+
+export const updateCalendarSchema = z.object({
+  calendar_url: z.string().url('Invalid calendar URL'),
+  display_name: z.string().min(1).max(200).optional(),
+  description: z.string().max(500).optional(),
+  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+  timezone: z.string().optional(),
+}).refine(data => {
+  // At least one field must be provided for update
+  return data.display_name || data.description || data.color || data.timezone;
+}, {
+  message: 'At least one field (display_name, description, color, or timezone) must be provided for update',
+});
+
+export const deleteCalendarSchema = z.object({
+  calendar_url: z.string().url('Invalid calendar URL'),
 });
 
 export const freeBusyQuerySchema = z.object({

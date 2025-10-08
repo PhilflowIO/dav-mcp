@@ -500,6 +500,58 @@ export function formatSuccess(operation, details = {}) {
   };
 }
 
+export function formatCalendarUpdateSuccess(calendar, updatedFields) {
+  let output = `✅ **Calendar updated successfully**\n\n`;
+
+  output += `- **Calendar**: ${calendar.displayName || 'Unnamed Calendar'}\n`;
+  output += `- **URL**: ${calendar.url}\n`;
+
+  if (updatedFields && Object.keys(updatedFields).length > 0) {
+    output += `\n**Updated fields:**\n`;
+    if (updatedFields.display_name) {
+      output += `- Display name: ${updatedFields.display_name}\n`;
+    }
+    if (updatedFields.description) {
+      output += `- Description: ${updatedFields.description}\n`;
+    }
+    if (updatedFields.color) {
+      output += `- Color: ${updatedFields.color}\n`;
+    }
+    if (updatedFields.timezone) {
+      output += `- Timezone: ${updatedFields.timezone}\n`;
+    }
+  }
+
+  output += `\n---\n<details>\n<summary>Raw Data (JSON)</summary>\n\n\`\`\`json\n`;
+  output += JSON.stringify({ success: true, calendar, updatedFields }, null, 2);
+  output += '\n```\n</details>';
+
+  return {
+    content: [{
+      type: 'text',
+      text: output
+    }]
+  };
+}
+
+export function formatCalendarDeleteSuccess(calendarUrl) {
+  let output = `✅ **Calendar deleted successfully**\n\n`;
+
+  output += `⚠️ **Warning**: The calendar and all its events have been permanently deleted.\n\n`;
+  output += `- **Deleted URL**: ${calendarUrl}\n`;
+
+  output += `\n---\n<details>\n<summary>Raw Data (JSON)</summary>\n\n\`\`\`json\n`;
+  output += JSON.stringify({ success: true, deleted: true, url: calendarUrl }, null, 2);
+  output += '\n```\n</details>';
+
+  return {
+    content: [{
+      type: 'text',
+      text: output
+    }]
+  };
+}
+
 /**
  * Parse VTODO (task) from iCal data
  */
