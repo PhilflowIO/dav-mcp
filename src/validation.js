@@ -4,20 +4,27 @@ import { z } from 'zod';
  * Validation schemas for all MCP tools
  */
 
+// Helper: DateTime string with optional timezone offset
+// Accepts both "2026-03-02T09:00:00Z" and "2026-03-02T09:00:00"
+const dateTimeWithOptionalOffset = z.union([
+  z.string().datetime({ offset: true }), // With timezone (Z or +00:00)
+  z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/, 'Invalid datetime format') // Without timezone
+]);
+
 // CalDAV Schemas
 export const listCalendarsSchema = z.object({});
 
 export const listEventsSchema = z.object({
   calendar_url: z.string().url('Invalid calendar URL').optional(),
-  time_range_start: z.string().datetime({ offset: true }).optional(),
-  time_range_end: z.string().datetime({ offset: true }).optional(),
+  time_range_start: dateTimeWithOptionalOffset.optional(),
+  time_range_end: dateTimeWithOptionalOffset.optional(),
 });
 
 export const createEventSchema = z.object({
   calendar_url: z.string().url('Invalid calendar URL'),
   summary: z.string().min(1, 'Summary is required').max(500),
-  start_date: z.string().datetime('Invalid start date format'),
-  end_date: z.string().datetime('Invalid end date format'),
+  start_date: dateTimeWithOptionalOffset,
+  end_date: dateTimeWithOptionalOffset,
   description: z.string().max(5000).optional(),
   location: z.string().max(500).optional(),
 }).refine((data) => new Date(data.end_date) > new Date(data.start_date), {
@@ -38,8 +45,8 @@ export const deleteEventSchema = z.object({
 
 export const calendarQuerySchema = z.object({
   calendar_url: z.string().url('Invalid calendar URL').optional(),
-  time_range_start: z.string().datetime({ offset: true }).optional(),
-  time_range_end: z.string().datetime({ offset: true }).optional(),
+  time_range_start: dateTimeWithOptionalOffset.optional(),
+  time_range_end: dateTimeWithOptionalOffset.optional(),
   summary_filter: z.string().optional(),
   location_filter: z.string().optional(),
 });
@@ -53,8 +60,8 @@ export const makeCalendarSchema = z.object({
 
 export const freeBusyQuerySchema = z.object({
   calendar_url: z.string().url('Invalid calendar URL'),
-  time_range_start: z.string().datetime({ offset: true }),
-  time_range_end: z.string().datetime({ offset: true }),
+  time_range_start: dateTimeWithOptionalOffset,
+  time_range_end: dateTimeWithOptionalOffset,
 });
 
 export const calendarMultiGetSchema = z.object({
@@ -138,8 +145,8 @@ export const todoQuerySchema = z.object({
   calendar_url: z.string().url('Invalid calendar URL').optional(),
   summary_filter: z.string().optional(),
   status_filter: z.enum(['NEEDS-ACTION', 'IN-PROCESS', 'COMPLETED', 'CANCELLED']).optional(),
-  time_range_start: z.string().optional(), // ISO 8601 with timezone
-  time_range_end: z.string().optional(), // ISO 8601 with timezone
+  time_range_start: dateTimeWithOptionalOffset.optional(),
+  time_range_end: dateTimeWithOptionalOffset.optional(),
 });
 
 export const todoMultiGetSchema = z.object({

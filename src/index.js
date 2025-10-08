@@ -35,10 +35,17 @@ app.use(cors({
   credentials: true,
 }));
 
-// Rate Limiting
+// Rate Limiting - Higher limits for localhost/Docker testing
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  max: (req) => {
+    // Allow higher rate limit for localhost and Docker networks (for testing)
+    const ip = req.ip || req.connection.remoteAddress;
+    if (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1' || ip?.startsWith('::ffff:172.')) {
+      return 10000; // 10000 requests for local/Docker networks
+    }
+    return 100; // 100 requests for external IPs
+  },
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
@@ -237,79 +244,67 @@ app.get('/health', (req, res) => {
  * SSE endpoint - GET /sse
  */
 app.get('/sse', authenticateBearer, async (req, res) => {
-  const sessionId = `session-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-  const sessionLogger = createSessionLogger(sessionId);
-
-  sessionLogger.info({
-    ip: req.ip,
-    userAgent: req.get('user-agent') || 'unknown',
-  }, 'New SSE connection established');
-
   try {
-    // Set SSE headers
+    // Set SSE headers FIRST
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
+
+    // Create SSE transport (this generates the sessionId internally)
+    const transport = new SSEServerTransport('/messages', res);
+
+    // Use transport's sessionId consistently everywhere
+    const sessionId = transport.sessionId;
+    const sessionLogger = createSessionLogger(sessionId);
+
+    sessionLogger.info({
+      ip: req.ip,
+      userAgent: req.get('user-agent') || 'unknown',
+      sessionId: sessionId,
+    }, 'New SSE connection established');
+
     sessionLogger.debug('SSE headers set');
+
+    // Store transport BEFORE connecting (prevents race condition)
+    transports[sessionId] = transport;
+    updateSessionActivity(sessionId);
+    sessionLogger.debug('Transport stored');
 
     // Create MCP server for this session
     sessionLogger.debug('Creating MCP server');
     const mcpServer = createMCPServer(sessionId);
-
-    // Create SSE transport
-    sessionLogger.debug('Creating SSE transport');
-    const transport = new SSEServerTransport('/messages', res);
-
-    // Store transport with its sessionId (from the transport itself)
-    sessionLogger.debug({ transportSessionId: transport.sessionId }, 'Transport created');
-    transports[transport.sessionId] = transport;
-    updateSessionActivity(transport.sessionId);
 
     // Connect MCP server to transport
     sessionLogger.debug('Connecting MCP server to transport');
     await mcpServer.connect(transport);
     sessionLogger.info('MCP server connected successfully, session active');
 
-    // Keep connection alive
-    const keepAliveInterval = setInterval(() => {
-      if (!res.writableEnded) {
-        res.write(': keepalive\n\n');
-        sessionLogger.debug('Keepalive sent');
-      } else {
-        clearInterval(keepAliveInterval);
-      }
-    }, 30000); // Every 30 seconds
-
     // Cleanup on disconnect
     req.on('close', () => {
-      sessionLogger.info({ transportSessionId: transport.sessionId }, 'SSE connection closed by client');
-      clearInterval(keepAliveInterval);
-      delete transports[transport.sessionId];
-      sessionActivity.delete(transport.sessionId);
+      sessionLogger.info('SSE connection closed by client');
+      delete transports[sessionId];
+      sessionActivity.delete(sessionId);
     });
 
     req.on('error', (error) => {
       sessionLogger.error({
         error: error.message,
         code: error.code,
-        transportSessionId: transport.sessionId,
       }, 'SSE connection error');
-      clearInterval(keepAliveInterval);
       delete transports[sessionId];
+      sessionActivity.delete(sessionId);
     });
 
     res.on('finish', () => {
       sessionLogger.debug('Response finished');
-      clearInterval(keepAliveInterval);
     });
 
     res.on('close', () => {
       sessionLogger.debug('Response closed');
-      clearInterval(keepAliveInterval);
     });
   } catch (error) {
-    sessionLogger.error({ error: error.message, stack: error.stack }, 'Error setting up SSE connection');
+    logger.error({ error: error.message, stack: error.stack }, 'Error setting up SSE connection');
     if (!res.headersSent) {
       const errorResponse = createHTTPErrorResponse(error);
       res.status(errorResponse.statusCode).json(errorResponse.body);
@@ -321,7 +316,7 @@ app.get('/sse', authenticateBearer, async (req, res) => {
  * Message endpoint - POST /messages
  * Used by SSE clients to send messages back to the server
  */
-app.post('/messages', authenticateBearer, express.json(), async (req, res) => {
+app.post('/messages', authenticateBearer, async (req, res) => {
   const sessionId = req.query.sessionId;
   const requestLogger = createSessionLogger(sessionId || 'unknown');
 
@@ -425,15 +420,17 @@ async function gracefulShutdown(signal) {
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
-// Handle uncaught errors
+// Handle uncaught errors - LOG but DO NOT kill the server
+// Tool errors are caught in the tool handler try/catch (line 208)
+// These handlers are only for truly unexpected errors that escape our error handling
 process.on('uncaughtException', (error) => {
-  logger.error({ error: error.message, stack: error.stack }, 'Uncaught exception');
-  gracefulShutdown('uncaughtException');
+  logger.error({ error: error.message, stack: error.stack }, 'Uncaught exception - server continuing');
+  // DO NOT call gracefulShutdown() - let the server continue running
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  logger.error({ reason, promise }, 'Unhandled promise rejection');
-  gracefulShutdown('unhandledRejection');
+  logger.error({ reason, promise }, 'Unhandled promise rejection - server continuing');
+  // DO NOT call gracefulShutdown() - let the server continue running
 });
 
 let server;

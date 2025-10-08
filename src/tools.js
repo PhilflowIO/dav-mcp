@@ -406,16 +406,39 @@ END:VCALENDAR`;
       const validated = validateInput(makeCalendarSchema, args);
       const client = tsdavManager.getCalDavClient();
 
+      // Get existing calendars to find the calendar home URL
+      const calendars = await client.fetchCalendars();
+
+      if (!calendars || calendars.length === 0) {
+        throw new Error('Cannot create calendar: No calendar home found. Please ensure you have at least one calendar or proper CalDAV permissions.');
+      }
+
+      // Extract calendar home from an existing calendar URL
+      // Example: https://dav.example.com/calendars/user/calendar-name/ -> https://dav.example.com/calendars/user/
+      const existingCalendarUrl = calendars[0].url;
+      const calendarHome = existingCalendarUrl.substring(0, existingCalendarUrl.lastIndexOf('/', existingCalendarUrl.length - 2) + 1);
+
+      // Generate new calendar URL with sanitized name
+      const sanitizedName = validated.display_name
+        .toLowerCase()
+        .replace(/[^a-z0-9-]/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+      const newCalendarUrl = `${calendarHome}${sanitizedName}-${Date.now()}/`;
+
       const calendar = await client.makeCalendar({
-        displayName: validated.display_name,
-        description: validated.description,
-        calendarColor: validated.color,
-        timezone: validated.timezone,
+        url: newCalendarUrl,
+        props: {
+          displayName: validated.display_name,
+          description: validated.description,
+          calendarColor: validated.color,
+          timezone: validated.timezone,
+        }
       });
 
       return formatSuccess('Calendar created successfully', {
-        displayName: calendar.displayName,
-        url: calendar.url,
+        displayName: validated.display_name,
+        url: newCalendarUrl,
       });
     },
   },
