@@ -1,9 +1,9 @@
 {
   "metadata": {
-    "version": "1.2.1",
-    "total_tests": 55,
+    "version": "2.2.0",
+    "total_tests": 57,
     "categories": {
-      "caldav": 20,
+      "caldav": 22,
       "carddav": 15,
       "vtodo": 15,
       "edge_cases": 5
@@ -757,6 +757,31 @@
       "rationale": "User says 'schedule' (event word) but means 'task' (todo) - context matters",
       "difficulty": "hard",
       "common_mistake": "Might incorrectly select create_event instead of create_todo"
+    },
+    {
+      "id": "caldav-021",
+      "category": "caldav",
+      "name": "Update calendar color",
+      "user_query": "Change the color of my Work calendar to red",
+      "expected_tool": "update_calendar",
+      "expected_parameters": {
+        "calendar_url": "https://dav.philflow.io/admin/calendar1/",
+        "color": "#FF0000"
+      },
+      "rationale": "Calendar property update - use update_calendar for renaming, color changes, etc.",
+      "difficulty": "medium"
+    },
+    {
+      "id": "caldav-022",
+      "category": "caldav",
+      "name": "Delete calendar permanently",
+      "user_query": "Delete my Old Projects calendar permanently",
+      "expected_tool": "delete_calendar",
+      "expected_parameters": {
+        "calendar_url": "https://dav.philflow.io/admin/calendar1/"
+      },
+      "rationale": "Permanent calendar deletion - use delete_calendar, warns about deleting all events",
+      "difficulty": "easy"
     }
   ]
 }
