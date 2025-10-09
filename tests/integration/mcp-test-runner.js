@@ -2,6 +2,13 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { MCPLogParser } from './mcp-log-parser.js';
+import { AnswerQualityValidator } from './answer-validator.js';
+import {
+  detectAntiPatterns,
+  checkFirstCallCorrect,
+  calculateCallEfficiency,
+  aggregateRunMetrics
+} from '../optimization/metrics.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -43,6 +50,9 @@ class MCPTestRunner {
     // Initialize log parser
     this.logParser = new MCPLogParser(this.config.mcpLogPath);
     this.previousLogLength = 0; // Track log position
+
+    // Initialize answer quality validator (Schema v2.0)
+    this.answerValidator = new AnswerQualityValidator();
   }
 
   /**
@@ -90,10 +100,46 @@ class MCPTestRunner {
   }
 
   /**
+   * Extract user query string from test case (v1.0 and v2.0 compatible)
+   */
+  getUserQuery(testCase) {
+    // v2.0: user_query.natural
+    if (testCase.user_query?.natural) {
+      return testCase.user_query.natural;
+    }
+    // v1.0: user_query (string)
+    return testCase.user_query;
+  }
+
+  /**
+   * Extract expected tool from test case (v1.0 and v2.0 compatible)
+   */
+  getExpectedTool(testCase) {
+    // v2.0: expected_behavior.acceptable_tools[0].tool
+    if (testCase.expected_behavior?.acceptable_tools?.[0]?.tool) {
+      return testCase.expected_behavior.acceptable_tools[0].tool;
+    }
+    // v1.0: expected_tool
+    return testCase.expected_tool;
+  }
+
+  /**
+   * Extract expected parameters from test case (v1.0 and v2.0 compatible)
+   */
+  getExpectedParameters(testCase) {
+    // v2.0: expected_behavior.acceptable_tools[0].parameters
+    if (testCase.expected_behavior?.acceptable_tools?.[0]?.parameters) {
+      return testCase.expected_behavior.acceptable_tools[0].parameters;
+    }
+    // v1.0: expected_parameters
+    return testCase.expected_parameters;
+  }
+
+  /**
    * Validate if correct tool was selected
    */
   validateToolSelection(expected, actual) {
-    if (!actual) return false;
+    if (!expected || !actual) return false;
     return expected.toLowerCase() === actual.toLowerCase();
   }
 
@@ -151,18 +197,28 @@ class MCPTestRunner {
   }
 
   /**
-   * Validate answer quality (basic check)
+   * Validate answer quality (Schema v2.0 - comprehensive)
    */
-  validateAnswerQuality(answer) {
-    if (!answer) return false;
+  validateAnswerQuality(answer, userQuery, testCase) {
+    if (!answer) return { passed: false, score: 0, feedback: ['No answer provided'] };
 
-    // Basic quality checks
-    const minLength = 10; // At least 10 characters
+    // Use new comprehensive validator if test case has v2.0 schema
+    if (testCase.expected_behavior?.answer_requirements || testCase.user_query?.natural) {
+      return this.answerValidator.validateAnswerCompleteness(answer, userQuery, testCase);
+    }
+
+    // Fallback to basic validation for v1.0 tests
+    const minLength = 10;
     const hasContent = answer.trim().length >= minLength;
     const notErrorMessage = !answer.toLowerCase().includes('error') &&
                            !answer.toLowerCase().includes('failed');
 
-    return hasContent && notErrorMessage;
+    const passed = hasContent && notErrorMessage;
+    return {
+      passed: passed,
+      score: passed ? 1.0 : 0.0,
+      feedback: passed ? [] : ['Answer too short or contains error']
+    };
   }
 
   /**
@@ -184,10 +240,15 @@ class MCPTestRunner {
    * Run a single test case multiple times (5x repetition)
    */
   async runTestCase(testCase) {
+    // Extract v1.0/v2.0 compatible fields
+    const userQuery = this.getUserQuery(testCase);
+    const expectedTool = this.getExpectedTool(testCase);
+    const expectedParams = this.getExpectedParameters(testCase);
+
     console.log(`\n${'='.repeat(80)}`);
     console.log(`Testing: ${testCase.id} - ${testCase.name}`);
-    console.log(`Query: "${testCase.user_query}"`);
-    console.log(`Expected tool: ${testCase.expected_tool}`);
+    console.log(`Query: "${userQuery}"`);
+    console.log(`Expected tool: ${expectedTool}`);
     console.log(`Difficulty: ${testCase.difficulty}`);
     console.log(`${'='.repeat(80)}`);
 
@@ -201,7 +262,7 @@ class MCPTestRunner {
       console.log(`\n  Run ${i + 1}/${this.config.repetitions}...`);
 
       const startTime = Date.now();
-      const response = await this.sendToWebhook(testCase.user_query);
+      const response = await this.sendToWebhook(userQuery);
       const duration = Date.now() - startTime;
 
       // Extract MCP tool calls that occurred during this test run
@@ -214,20 +275,39 @@ class MCPTestRunner {
       const parameters = output.parameters || response.parameters;
 
       const toolCorrect = this.validateToolSelection(
-        testCase.expected_tool,
+        expectedTool,
         toolUsed
       );
 
       const paramsCorrect = this.validateParameters(
-        testCase.expected_parameters,
+        expectedParams,
         parameters
       );
 
-      const answerGood = this.validateAnswerQuality(answer);
+      // Validate answer quality (v2.0 comprehensive or v1.0 basic)
+      const answerValidation = this.validateAnswerQuality(answer, userQuery, testCase);
+      const answerGood = answerValidation.passed;
 
       if (toolCorrect) correctToolCount++;
       if (paramsCorrect) correctParamsCount++;
       if (answerGood) goodAnswerCount++;
+
+      // Calculate LLMx metrics (if optimal_route is defined)
+      const optimalRoute = testCase.optimal_route?.tools || [];
+      const optimalCallCount = testCase.optimal_route?.call_count || optimalRoute.length;
+      const optimalTimeMs = testCase.optimal_route?.estimated_time_ms || 0;
+
+      const metricsResult = {};
+      if (optimalRoute.length > 0) {
+        // Core metric 1: First Call Correctness (8/10 importance)
+        metricsResult.first_call = checkFirstCallCorrect(mcpToolCalls, optimalRoute);
+
+        // Core metric 2: Anti-Pattern Detection (9/10 importance)
+        metricsResult.anti_patterns = detectAntiPatterns(mcpToolCalls);
+
+        // Core metric 3: Call Efficiency (7/10 importance)
+        metricsResult.call_efficiency = calculateCallEfficiency(mcpToolCalls.length, optimalCallCount);
+      }
 
       const runResult = {
         run_number: i + 1,
@@ -244,6 +324,7 @@ class MCPTestRunner {
           answer_quality_good: answerGood,
           all_passed: toolCorrect && paramsCorrect && answerGood
         },
+        answer_validation_details: answerValidation,  // NEW: Detailed answer feedback (v2.0)
         mcp_tool_calls: mcpToolCalls.map(call => ({
           tool: call.tool,
           args: call.args,
@@ -251,7 +332,8 @@ class MCPTestRunner {
           success: call.success,
           execution_time_ms: call.executionTime
         })),
-        total_mcp_execution_time_ms: mcpToolCalls.reduce((sum, call) => sum + (call.executionTime || 0), 0)
+        total_mcp_execution_time_ms: mcpToolCalls.reduce((sum, call) => sum + (call.executionTime || 0), 0),
+        llmx_metrics: metricsResult  // Add LLMx metrics to each run
       };
 
       runs.push(runResult);
@@ -261,7 +343,13 @@ class MCPTestRunner {
       console.log(`    ${status}`);
       console.log(`    - Tool: ${toolUsed} ${toolCorrect ? '✅' : '❌'}`);
       console.log(`    - Params: ${paramsCorrect ? '✅' : '❌'}`);
-      console.log(`    - Answer: ${answerGood ? '✅' : '❌'}`);
+      console.log(`    - Answer: ${answerGood ? '✅' : '❌'} (score: ${answerValidation.score.toFixed(2)})`);
+
+      // Show detailed answer feedback if validation failed (v2.0)
+      if (!answerGood && answerValidation.feedback && answerValidation.feedback.length > 0) {
+        answerValidation.feedback.forEach(fb => console.log(`      ${fb}`));
+      }
+
       console.log(`    - Duration: ${duration}ms`);
       console.log(`    - MCP Calls: ${mcpToolCalls.length} (${runResult.total_mcp_execution_time_ms}ms)`);
 
@@ -280,6 +368,17 @@ class MCPTestRunner {
     // Test passes if success rate meets threshold
     const testPassed = toolSuccessRate >= this.config.successThreshold;
 
+    // Calculate aggregate LLMx metrics (if optimal_route is defined)
+    let aggregateMetrics = null;
+    if (testCase.optimal_route?.tools?.length > 0) {
+      // Map run data to format expected by aggregateRunMetrics
+      const mappedRuns = runs.map(run => ({
+        toolCalls: run.mcp_tool_calls,
+        executionTime: run.total_mcp_execution_time_ms
+      }));
+      aggregateMetrics = aggregateRunMetrics(mappedRuns, testCase);
+    }
+
     const testResult = {
       test_case: testCase,
       runs: runs,
@@ -294,7 +393,8 @@ class MCPTestRunner {
         overall_success_rate: overallSuccessRate,
         passed: testPassed,
         threshold: this.config.successThreshold
-      }
+      },
+      llmx_aggregate_metrics: aggregateMetrics  // Add aggregate metrics
     };
 
     // Log summary
@@ -305,6 +405,24 @@ class MCPTestRunner {
     console.log(`  Answer Quality: ${goodAnswerCount}/${this.config.repetitions} (${(answerSuccessRate * 100).toFixed(0)}%)`);
     console.log(`  Overall: ${(overallSuccessRate * 100).toFixed(0)}%`);
     console.log(`  Result: ${testPassed ? '✅ PASSED' : '❌ FAILED'} (threshold: ${(this.config.successThreshold * 100).toFixed(0)}%)`);
+
+    // Log LLMx metrics (if available)
+    if (aggregateMetrics) {
+      console.log(`\n  📊 LLMx Metrics:`);
+      console.log(`    Call Efficiency: ${(aggregateMetrics.avg_call_efficiency * 100).toFixed(0)}% (${aggregateMetrics.avg_call_efficiency >= 0.8 ? '✅' : '⚠️'})`);
+      console.log(`    Route Consistency: ${(aggregateMetrics.route_consistency * 100).toFixed(0)}% (${aggregateMetrics.route_consistency >= 0.8 ? '✅' : '⚠️'})`);
+      console.log(`    First Call Correct: ${aggregateMetrics.first_call_correct_count}/${aggregateMetrics.total_runs} (${(aggregateMetrics.first_call_correct_rate * 100).toFixed(0)}%)`);
+
+      if (aggregateMetrics.detected_patterns && Object.keys(aggregateMetrics.detected_patterns).length > 0) {
+        console.log(`    ⚠️  Anti-Patterns Detected:`);
+        for (const [pattern, count] of Object.entries(aggregateMetrics.detected_patterns)) {
+          console.log(`      - ${pattern}: ${count}/${aggregateMetrics.total_runs} runs`);
+        }
+      }
+
+      console.log(`    Overall Quality: ${aggregateMetrics.overall_quality}`);
+    }
+
     console.log(`${'─'.repeat(80)}`);
 
     return testResult;
@@ -317,7 +435,8 @@ class MCPTestRunner {
     const {
       categories = null, // Filter by categories: ['caldav', 'carddav', 'vtodo', 'edge_cases']
       testIds = null,    // Filter by specific test IDs
-      maxTests = null    // Limit number of tests to run
+      maxTests = null,   // Limit number of tests to run
+      testFilePath = null // Custom test file path
     } = options;
 
     console.log('\n' + '='.repeat(80));
@@ -326,9 +445,12 @@ class MCPTestRunner {
     console.log(`Webhook: ${this.config.webhookUrl}`);
     console.log(`Repetitions per test: ${this.config.repetitions}`);
     console.log(`Success threshold: ${(this.config.successThreshold * 100).toFixed(0)}%`);
+    if (testFilePath) {
+      console.log(`Test file: ${testFilePath}`);
+    }
     console.log('='.repeat(80));
 
-    let testCases = this.loadTestCases();
+    let testCases = this.loadTestCases(testFilePath);
 
     // Apply filters
     if (categories) {
@@ -569,16 +691,20 @@ class MCPTestRunner {
 if (import.meta.url === `file://${process.argv[1]}`) {
   const args = process.argv.slice(2);
 
+  // Check if custom test file provided as first argument
+  const testFilePath = args[0] || null;
+
   const config = {
     webhookUrl: process.env.WEBHOOK_URL || 'http://0.0.0.0:5678/webhook/d8bec01d-333d-444e-9573-6e2bafdde560',
-    repetitions: parseInt(process.env.REPETITIONS) || 5,
+    repetitions: parseInt(args[1]) || parseInt(process.env.REPETITIONS) || 5,
     successThreshold: parseFloat(process.env.SUCCESS_THRESHOLD) || 0.8
   };
 
   const options = {
     categories: process.env.CATEGORIES ? process.env.CATEGORIES.split(',') : null,
     testIds: process.env.TEST_IDS ? process.env.TEST_IDS.split(',') : null,
-    maxTests: process.env.MAX_TESTS ? parseInt(process.env.MAX_TESTS) : null
+    maxTests: process.env.MAX_TESTS ? parseInt(process.env.MAX_TESTS) : null,
+    testFilePath: testFilePath
   };
 
   const runner = new MCPTestRunner(config);

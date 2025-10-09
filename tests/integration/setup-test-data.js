@@ -47,8 +47,8 @@ class TestDataGenerator {
       defaultAccountType: 'caldav',
     });
 
-    await this.client.login();
-    console.log('✅ Successfully connected to DAV server\n');
+    // Note: tsdav auto-authenticates on first request, no .login() needed
+    console.log('✅ DAV client initialized\n');
   }
 
   /**

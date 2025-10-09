@@ -18,6 +18,12 @@
       "user_query": "Show me all my calendars",
       "expected_tool": "list_calendars",
       "expected_parameters": {},
+      "optimal_route": {
+        "tools": ["list_calendars"],
+        "call_count": 1,
+        "estimated_time_ms": 600,
+        "rationale": "Simple list operation - no filtering needed"
+      },
       "rationale": "User wants to see all calendars - list_calendars is the correct choice",
       "difficulty": "easy"
     },
@@ -31,6 +37,12 @@
         "summary_filter": "John",
         "time_range_start": "2025-10-13T00:00:00Z",
         "time_range_end": "2025-10-19T23:59:59Z"
+      },
+      "optimal_route": {
+        "tools": ["calendar_query"],
+        "call_count": 1,
+        "estimated_time_ms": 800,
+        "rationale": "Single efficient query with filters - no need to list all events"
       },
       "rationale": "Filtered search - calendar_query is PREFERRED over list_events",
       "difficulty": "medium",
@@ -48,6 +60,12 @@
         "dtstart": "2025-10-08T09:00:00Z",
         "dtend": "2025-10-08T09:30:00Z"
       },
+      "optimal_route": {
+        "tools": ["create_event"],
+        "call_count": 1,
+        "estimated_time_ms": 500,
+        "rationale": "Direct event creation - no lookup needed"
+      },
       "rationale": "Creating new event requires create_event tool",
       "difficulty": "easy"
     },
@@ -62,6 +80,12 @@
         "etag": "required",
         "dtstart": "2025-10-08T15:00:00Z"
       },
+      "optimal_route": {
+        "tools": ["calendar_query", "update_event"],
+        "call_count": 2,
+        "estimated_time_ms": 1300,
+        "rationale": "Query to find event URL/etag, then update. Avoid list_events."
+      },
       "rationale": "Modifying existing event requires update_event with ETag",
       "difficulty": "medium"
     },
@@ -75,6 +99,12 @@
         "event_url": "https://dav.philflow.io/admin/calendar1/lunch-friday.ics",
         "etag": "required"
       },
+      "optimal_route": {
+        "tools": ["calendar_query", "delete_event"],
+        "call_count": 2,
+        "estimated_time_ms": 1200,
+        "rationale": "First query to find event URL, then delete. Avoid list_events anti-pattern."
+      },
       "rationale": "Deleting event requires delete_event tool",
       "difficulty": "easy"
     },
@@ -87,6 +117,12 @@
       "expected_parameters": {
         "time_range_start": "2025-10-07T00:00:00Z",
         "time_range_end": "2025-10-13T23:59:59Z"
+      },
+      "optimal_route": {
+        "tools": ["calendar_query"],
+        "call_count": 1,
+        "estimated_time_ms": 700,
+        "rationale": "Single query with date range filter - efficient, avoids expensive list_events"
       },
       "rationale": "Date range filter - use calendar_query, not list_events",
       "difficulty": "medium",
@@ -114,6 +150,12 @@
         "url": "https://dav.philflow.io/admin/",
         "display_name": "Work Projects"
       },
+      "optimal_route": {
+        "tools": ["make_calendar"],
+        "call_count": 1,
+        "estimated_time_ms": 800,
+        "rationale": "Direct calendar creation - no lookup needed"
+      },
       "rationale": "Creating calendar collection requires make_calendar",
       "difficulty": "easy"
     },
@@ -127,6 +169,12 @@
         "calendar_url": "https://dav.philflow.io/admin/calendar1/",
         "time_range_start": "2025-10-08T14:00:00Z",
         "time_range_end": "2025-10-08T16:00:00Z"
+      },
+      "optimal_route": {
+        "tools": ["free_busy_query"],
+        "call_count": 1,
+        "estimated_time_ms": 700,
+        "rationale": "Single free/busy check - privacy-preserving, no event details exposed"
       },
       "rationale": "Availability check without exposing details requires free_busy_query",
       "difficulty": "medium"
@@ -145,6 +193,12 @@
           "https://dav.philflow.io/admin/calendar1/event3.ics"
         ]
       },
+      "optimal_route": {
+        "tools": ["calendar_multi_get"],
+        "call_count": 1,
+        "estimated_time_ms": 900,
+        "rationale": "Batch fetch by URLs - efficient when URLs are known (1 request for 3 events)"
+      },
       "rationale": "Batch fetch by URLs requires calendar_multi_get",
       "difficulty": "hard"
     },
@@ -157,6 +211,12 @@
       "expected_parameters": {
         "calendar_url": "https://dav.philflow.io/admin/calendar1/",
         "sync_token": "previous-sync-token"
+      },
+      "optimal_route": {
+        "tools": ["is_collection_dirty"],
+        "call_count": 1,
+        "estimated_time_ms": 400,
+        "rationale": "Lightweight sync check - very fast, avoids fetching all data"
       },
       "rationale": "Sync status check requires is_collection_dirty",
       "difficulty": "hard"
@@ -183,6 +243,12 @@
       "expected_tool": "list_events",
       "expected_parameters": {
         "calendar_url": "https://dav.philflow.io/admin/calendar1/"
+      },
+      "optimal_route": {
+        "tools": ["list_events"],
+        "call_count": 1,
+        "estimated_time_ms": 2000,
+        "rationale": "User explicitly wants ALL events - list_events is justified here (rare case)"
       },
       "rationale": "Explicit request for ALL events - list_events is appropriate",
       "difficulty": "easy"
@@ -289,6 +355,12 @@
       "user_query": "Show me all my address books",
       "expected_tool": "list_addressbooks",
       "expected_parameters": {},
+      "optimal_route": {
+        "tools": ["list_addressbooks"],
+        "call_count": 1,
+        "estimated_time_ms": 500,
+        "rationale": "Simple list operation - no filtering needed"
+      },
       "rationale": "Listing all address books requires list_addressbooks",
       "difficulty": "easy"
     },
@@ -301,6 +373,12 @@
       "expected_parameters": {
         "addressbook_url": "https://dav.philflow.io/admin/contacts/",
         "name_filter": "Smith"
+      },
+      "optimal_route": {
+        "tools": ["addressbook_query"],
+        "call_count": 1,
+        "estimated_time_ms": 600,
+        "rationale": "Single query with name filter - efficient, avoids list_contacts"
       },
       "rationale": "Name-based search uses addressbook_query, not list_contacts",
       "difficulty": "medium",
@@ -316,6 +394,12 @@
         "addressbook_url": "https://dav.philflow.io/admin/contacts/",
         "vcard_data": "BEGIN:VCARD\nVERSION:3.0\nFN:John Doe\nEMAIL:john@example.com\nEND:VCARD"
       },
+      "optimal_route": {
+        "tools": ["create_contact"],
+        "call_count": 1,
+        "estimated_time_ms": 500,
+        "rationale": "Direct contact creation - no lookup needed"
+      },
       "rationale": "Creating contact requires create_contact with vCard data",
       "difficulty": "medium"
     },
@@ -330,6 +414,12 @@
         "etag": "required",
         "vcard_data": "updated vCard"
       },
+      "optimal_route": {
+        "tools": ["addressbook_query", "update_contact"],
+        "call_count": 2,
+        "estimated_time_ms": 1100,
+        "rationale": "Query to find contact URL/etag, then update. Avoid list_contacts."
+      },
       "rationale": "Updating contact requires update_contact with ETag",
       "difficulty": "medium"
     },
@@ -342,6 +432,12 @@
       "expected_parameters": {
         "contact_url": "https://dav.philflow.io/admin/contacts/michael-johnson.vcf",
         "etag": "required"
+      },
+      "optimal_route": {
+        "tools": ["addressbook_query", "delete_contact"],
+        "call_count": 2,
+        "estimated_time_ms": 1000,
+        "rationale": "Query to find contact URL/etag, then delete. Avoid list_contacts anti-pattern."
       },
       "rationale": "Deleting contact requires delete_contact",
       "difficulty": "easy"
@@ -381,6 +477,12 @@
       "expected_parameters": {
         "addressbook_url": "https://dav.philflow.io/admin/contacts/"
       },
+      "optimal_route": {
+        "tools": ["list_contacts"],
+        "call_count": 1,
+        "estimated_time_ms": 1500,
+        "rationale": "User explicitly wants ALL contacts - list_contacts is justified (rare case)"
+      },
       "rationale": "Explicit request for ALL contacts - list_contacts is appropriate",
       "difficulty": "easy"
     },
@@ -398,6 +500,12 @@
           "https://dav.philflow.io/admin/contacts/carol.vcf",
           "https://dav.philflow.io/admin/contacts/dave.vcf"
         ]
+      },
+      "optimal_route": {
+        "tools": ["addressbook_multi_get"],
+        "call_count": 1,
+        "estimated_time_ms": 800,
+        "rationale": "Batch fetch by URLs - efficient when URLs are known (1 request for 4 contacts)"
       },
       "rationale": "Batch fetch by URLs requires addressbook_multi_get",
       "difficulty": "hard"
@@ -491,6 +599,12 @@
       "expected_parameters": {
         "calendar_url": "https://dav.philflow.io/admin/calendar1/"
       },
+      "optimal_route": {
+        "tools": ["list_todos"],
+        "call_count": 1,
+        "estimated_time_ms": 1000,
+        "rationale": "User wants ALL todos - list_todos appropriate here (ambiguous query)"
+      },
       "rationale": "Listing all todos without filter - list_todos is appropriate",
       "difficulty": "easy"
     },
@@ -503,6 +617,12 @@
       "expected_parameters": {
         "calendar_url": "https://dav.philflow.io/admin/calendar1/",
         "status_filter": "NEEDS-ACTION"
+      },
+      "optimal_route": {
+        "tools": ["todo_query"],
+        "call_count": 1,
+        "estimated_time_ms": 700,
+        "rationale": "Single query with status filter - efficient, avoids list_todos"
       },
       "rationale": "Status-based filtering uses todo_query, not list_todos",
       "difficulty": "medium",
@@ -519,6 +639,12 @@
         "summary": "Buy groceries",
         "due_date": "2025-10-08T23:59:59Z"
       },
+      "optimal_route": {
+        "tools": ["create_todo"],
+        "call_count": 1,
+        "estimated_time_ms": 500,
+        "rationale": "Direct todo creation - no lookup needed"
+      },
       "rationale": "Creating new task requires create_todo",
       "difficulty": "easy"
     },
@@ -534,6 +660,12 @@
         "status": "COMPLETED",
         "percent_complete": 100
       },
+      "optimal_route": {
+        "tools": ["todo_query", "update_todo"],
+        "call_count": 2,
+        "estimated_time_ms": 1100,
+        "rationale": "First query to find todo URL/etag, then update. Avoid list_todos anti-pattern."
+      },
       "rationale": "Updating task status requires update_todo",
       "difficulty": "medium"
     },
@@ -546,6 +678,12 @@
       "expected_parameters": {
         "todo_url": "https://dav.philflow.io/admin/calendar1/clean-garage.ics",
         "etag": "required"
+      },
+      "optimal_route": {
+        "tools": ["todo_query", "delete_todo"],
+        "call_count": 2,
+        "estimated_time_ms": 1200,
+        "rationale": "Query to find todo URL/etag, then delete. Avoid list_todos anti-pattern."
       },
       "rationale": "Deleting task requires delete_todo",
       "difficulty": "easy"
@@ -632,6 +770,12 @@
           "https://dav.philflow.io/admin/calendar1/task2.ics",
           "https://dav.philflow.io/admin/calendar1/task3.ics"
         ]
+      },
+      "optimal_route": {
+        "tools": ["todo_multi_get"],
+        "call_count": 1,
+        "estimated_time_ms": 850,
+        "rationale": "Batch fetch by URLs - efficient when URLs are known (1 request for 3 todos)"
       },
       "rationale": "Batch fetch by URLs requires todo_multi_get",
       "difficulty": "hard"
@@ -768,6 +912,12 @@
         "calendar_url": "https://dav.philflow.io/admin/calendar1/",
         "color": "#FF0000"
       },
+      "optimal_route": {
+        "tools": ["update_calendar"],
+        "call_count": 1,
+        "estimated_time_ms": 600,
+        "rationale": "Direct calendar property update via PROPPATCH"
+      },
       "rationale": "Calendar property update - use update_calendar for renaming, color changes, etc.",
       "difficulty": "medium"
     },
@@ -779,6 +929,12 @@
       "expected_tool": "delete_calendar",
       "expected_parameters": {
         "calendar_url": "https://dav.philflow.io/admin/calendar1/"
+      },
+      "optimal_route": {
+        "tools": ["delete_calendar"],
+        "call_count": 1,
+        "estimated_time_ms": 700,
+        "rationale": "Direct calendar deletion - destructive operation, deletes all events"
       },
       "rationale": "Permanent calendar deletion - use delete_calendar, warns about deleting all events",
       "difficulty": "easy"
