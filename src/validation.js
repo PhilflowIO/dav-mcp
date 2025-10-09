@@ -76,20 +76,9 @@ export const deleteCalendarSchema = z.object({
   calendar_url: z.string().url('Invalid calendar URL'),
 });
 
-export const freeBusyQuerySchema = z.object({
-  calendar_url: z.string().url('Invalid calendar URL'),
-  time_range_start: dateTimeWithOptionalOffset,
-  time_range_end: dateTimeWithOptionalOffset,
-});
-
 export const calendarMultiGetSchema = z.object({
   calendar_url: z.string().url('Invalid calendar URL'),
   event_urls: z.array(z.string().url('Invalid event URL')).min(1, 'At least one event URL required'),
-});
-
-export const isCollectionDirtySchema = z.object({
-  collection_url: z.string().url('Invalid collection URL'),
-  previous_ctag: z.string().min(1, 'Previous CTag is required'),
 });
 
 // CardDAV Schemas
