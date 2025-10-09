@@ -12,9 +12,7 @@ import {
   makeCalendarSchema,
   updateCalendarSchema,
   deleteCalendarSchema,
-  freeBusyQuerySchema,
   calendarMultiGetSchema,
-  isCollectionDirtySchema,
   listContactsSchema,
   createContactSchema,
   updateContactSchema,
@@ -418,17 +416,22 @@ END:VCALENDAR`;
       const validated = validateInput(makeCalendarSchema, args);
       const client = tsdavManager.getCalDavClient();
 
-      // Get existing calendars to find the calendar home URL
-      const calendars = await client.fetchCalendars();
+      // Get calendar home URL from account (works even without existing calendars!)
+      let calendarHome = client.account?.homeUrl;
 
-      if (!calendars || calendars.length === 0) {
-        throw new Error('Cannot create calendar: No calendar home found. Please ensure you have at least one calendar or proper CalDAV permissions.');
+      // Fallback: Extract from existing calendar if homeUrl not available
+      if (!calendarHome) {
+        const calendars = await client.fetchCalendars();
+
+        if (!calendars || calendars.length === 0) {
+          throw new Error('Cannot create calendar: No calendar home found. Please ensure you have at least one calendar or proper CalDAV permissions.');
+        }
+
+        // Extract calendar home from an existing calendar URL
+        // Example: https://dav.example.com/calendars/user/calendar-name/ -> https://dav.example.com/calendars/user/
+        const existingCalendarUrl = calendars[0].url;
+        calendarHome = existingCalendarUrl.substring(0, existingCalendarUrl.lastIndexOf('/', existingCalendarUrl.length - 2) + 1);
       }
-
-      // Extract calendar home from an existing calendar URL
-      // Example: https://dav.example.com/calendars/user/calendar-name/ -> https://dav.example.com/calendars/user/
-      const existingCalendarUrl = calendars[0].url;
-      const calendarHome = existingCalendarUrl.substring(0, existingCalendarUrl.lastIndexOf('/', existingCalendarUrl.length - 2) + 1);
 
       // Generate new calendar URL with sanitized name
       const sanitizedName = validated.display_name
@@ -501,33 +504,53 @@ END:VCALENDAR`;
       const client = tsdavManager.getCalDavClient();
 
       // Build WebDAV PROPPATCH XML
-      let proppatchBody = '<?xml version="1.0" encoding="UTF-8"?>';
-      proppatchBody += '<d:propertyupdate xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:x="http://apple.com/ns/ical/">';
-      proppatchBody += '<d:set><d:prop>';
+      let proppatchXml = '<?xml version="1.0" encoding="UTF-8"?>\n';
+      proppatchXml += '<d:propertyupdate xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:x="http://apple.com/ns/ical/">\n';
+      proppatchXml += '  <d:set>\n';
+      proppatchXml += '    <d:prop>\n';
 
       if (validated.display_name) {
-        proppatchBody += `<d:displayname>${validated.display_name}</d:displayname>`;
+        proppatchXml += `      <d:displayname>${validated.display_name}</d:displayname>\n`;
       }
       if (validated.description) {
-        proppatchBody += `<c:calendar-description>${validated.description}</c:calendar-description>`;
+        proppatchXml += `      <c:calendar-description>${validated.description}</c:calendar-description>\n`;
       }
       if (validated.color) {
-        proppatchBody += `<x:calendar-color>${validated.color}</x:calendar-color>`;
+        proppatchXml += `      <x:calendar-color>${validated.color}</x:calendar-color>\n`;
       }
       if (validated.timezone) {
-        proppatchBody += `<c:calendar-timezone>${validated.timezone}</c:calendar-timezone>`;
+        // Validate timezone format (basic check)
+        if (!validated.timezone.includes('/')) {
+          throw new Error(`Invalid timezone format: ${validated.timezone}. Expected format: "Europe/Berlin", "America/New_York", etc.`);
+        }
+        proppatchXml += `      <c:calendar-timezone>${validated.timezone}</c:calendar-timezone>\n`;
       }
 
-      proppatchBody += '</d:prop></d:set></d:propertyupdate>';
+      proppatchXml += '    </d:prop>\n';
+      proppatchXml += '  </d:set>\n';
+      proppatchXml += '</d:propertyupdate>';
 
-      // Use updateObject to send PROPPATCH
-      await client.updateObject({
-        url: validated.calendar_url,
-        data: proppatchBody,
+      // ✅ FIX: Use raw fetch with HTTP PROPPATCH method (not updateObject which uses PUT!)
+      const response = await fetch(validated.calendar_url, {
+        method: 'PROPPATCH',  // ← CRITICAL: PROPPATCH for properties, not PUT!
         headers: {
-          'Content-Type': 'application/xml; charset=utf-8',
+          'Content-Type': 'text/xml; charset=utf-8',
+          ...client.authHeaders,
         },
+        body: proppatchXml,
       });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(
+          `PROPPATCH failed with status ${response.status} ${response.statusText}\n` +
+          `Response: ${errorText}\n\n` +
+          `This may indicate:\n` +
+          `- Invalid property value (check timezone format if specified)\n` +
+          `- Server does not support calendar property updates\n` +
+          `- Permission denied for this calendar`
+        );
+      }
 
       // Fetch updated calendar to confirm
       const calendars = await client.fetchCalendars();
@@ -578,61 +601,6 @@ END:VCALENDAR`;
   },
 
   {
-    name: 'free_busy_query',
-    description: 'Query free/busy time without exposing private event details. Privacy-friendly alternative to listing all events',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        calendar_url: {
-          type: 'string',
-          description: 'The URL of the calendar to query',
-        },
-        time_range_start: {
-          type: 'string',
-          description: 'Start date in ISO 8601 format (e.g., 2025-01-01T00:00:00.000Z)',
-        },
-        time_range_end: {
-          type: 'string',
-          description: 'End date in ISO 8601 format',
-        },
-      },
-      required: ['calendar_url', 'time_range_start', 'time_range_end'],
-    },
-    handler: async (args) => {
-      const validated = validateInput(freeBusyQuerySchema, args);
-      const client = tsdavManager.getCalDavClient();
-
-      const freeBusy = await client.freeBusyQuery({
-        url: validated.calendar_url,
-        timeRange: {
-          start: validated.time_range_start,
-          end: validated.time_range_end,
-        },
-      });
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `## Free/Busy Information
-
-**Time Range:** ${validated.time_range_start} to ${validated.time_range_end}
-
----
-<details>
-<summary>Raw Data (Click to expand)</summary>
-
-\`\`\`json
-${JSON.stringify(freeBusy, null, 2)}
-\`\`\`
-</details>`,
-          },
-        ],
-      };
-    },
-  },
-
-  {
     name: 'calendar_multi_get',
     description: 'Batch fetch multiple specific calendar events by their URLs. Use when you have exact event URLs and want to retrieve their details',
     inputSchema: {
@@ -661,58 +629,6 @@ ${JSON.stringify(freeBusy, null, 2)}
       });
 
       return formatEventList(events, { url: validated.calendar_url });
-    },
-  },
-
-  {
-    name: 'is_collection_dirty',
-    description: 'Check if calendar or address book collection has changed since last sync (via ctag comparison). Useful for efficient synchronization without fetching all data',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        collection_url: {
-          type: 'string',
-          description: 'The URL of the calendar or address book collection',
-        },
-        collection_ctag: {
-          type: 'string',
-          description: 'The last known ctag value',
-        },
-      },
-      required: ['collection_url', 'collection_ctag'],
-    },
-    handler: async (args) => {
-      const validated = validateInput(isCollectionDirtySchema, args);
-      const client = tsdavManager.getCalDavClient();
-
-      const isDirty = await client.isCollectionDirty({
-        url: validated.collection_url,
-        props: [{ name: 'getctag', namespace: 'http://calendarserver.org/ns/' }],
-      });
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `## Collection Status
-
-**Collection URL:** ${validated.collection_url}
-**Last Known CTag:** ${validated.collection_ctag}
-**Has Changed:** ${isDirty ? '✅ Yes' : '❌ No'}
-
-${isDirty ? '**Action Needed:** Collection has changed. Perform sync to get latest data.' : '**Status:** Collection is up-to-date. No sync needed.'}
-
----
-<details>
-<summary>Raw Data (Click to expand)</summary>
-
-\`\`\`json
-${JSON.stringify({ isDirty }, null, 2)}
-\`\`\`
-</details>`,
-          },
-        ],
-      };
     },
   },
 
