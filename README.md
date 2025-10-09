@@ -4,17 +4,20 @@ MCP (Model Context Protocol) SSE Server for tsdav - CalDAV/CardDAV integration f
 
 ## 🚀 Features
 
-- **CalDAV Integration**: Complete calendar and event management (~91% tsdav coverage)
+- **CalDAV Integration**: Complete calendar and event management with full lifecycle support (~96% tsdav coverage)
 - **CardDAV Integration**: Complete address book and contact management (100% tsdav coverage)
+- **VTODO Support**: Full task/todo management with status, priorities, and due dates
 - **MCP SSE Protocol**: Compatible with n8n, Claude Desktop, and other MCP clients
-- **17 Tools**: All essential CRUD operations + advanced query & management features
+- **23 Tools**: All essential CRUD operations + advanced query & management features
 - **LLM-Optimized Outputs**: Markdown-formatted, structured responses for best AI integration
 - **RFC-Compliant**: ical.js for RFC 5545 (iCalendar) and RFC 6350 (vCard) support
-- **Token-Efficient**: Smart filtering (calendar_query, addressbook_query) avoids loading thousands of events unnecessarily
+- **Token-Efficient**: Smart filtering (calendar_query, addressbook_query, todo_query) avoids loading thousands of items unnecessarily
+- **Multi-Server Tested**: 100% compatibility with Radicale, Baikal, Nextcloud (see [COMPATIBILITY.md](COMPATIBILITY.md))
+- **Custom JSON Logger**: Lightweight structured logging with millisecond precision
 - **Bearer Auth**: Optional for secure connections
 - **Multi-Session**: Supports multiple concurrent client connections
 
-## 📋 Available Tools
+## 📋 Available Tools (23 total)
 
 ### CalDAV Tools (10 tools)
 
@@ -25,9 +28,9 @@ MCP (Model Context Protocol) SSE Server for tsdav - CalDAV/CardDAV integration f
 5. **delete_event** - Delete an event permanently
 6. **calendar_query** - ⭐ PREFERRED: Search and filter events efficiently by text, date range, or location
 7. **make_calendar** - Create a new calendar collection
-8. **free_busy_query** - Check availability without exposing private event details
-9. **calendar_multi_get** - Batch fetch multiple specific events by URLs
-10. **is_collection_dirty** - Check if calendar has changed since last sync
+8. **update_calendar** - Update calendar properties (display name, description, color, timezone)
+9. **delete_calendar** - Permanently delete a calendar and all its events
+10. **calendar_multi_get** - Batch fetch multiple specific events by URLs
 
 ### CardDAV Tools (7 tools)
 
@@ -38,6 +41,15 @@ MCP (Model Context Protocol) SSE Server for tsdav - CalDAV/CardDAV integration f
 15. **delete_contact** - Delete a contact permanently
 16. **addressbook_query** - ⭐ PREFERRED: Search and filter contacts efficiently by name, email, or organization
 17. **addressbook_multi_get** - Batch fetch multiple specific contacts by URLs
+
+### VTODO Tools (6 tools)
+
+18. **list_todos** - List ALL todos/tasks (WARNING: use todo_query for filtered searches to save tokens)
+19. **create_todo** - Create a new todo/task with optional due date, priority, status
+20. **update_todo** - Update existing todo (e.g., mark completed, change status)
+21. **delete_todo** - Delete a todo/task permanently
+22. **todo_query** - ⭐ PREFERRED: Search and filter todos efficiently by status/due date
+23. **todo_multi_get** - Batch fetch multiple specific todos by URLs
 
 ## 🛠️ Installation
 
@@ -69,7 +81,7 @@ CALDAV_PASSWORD=your_password
 # MCP Server
 PORT=3000
 MCP_SERVER_NAME=tsdav-mcp-server
-MCP_SERVER_VERSION=1.0.0
+MCP_SERVER_VERSION=2.3.0
 
 # Authentication (optional)
 BEARER_TOKEN=your-secure-token-here
@@ -226,11 +238,21 @@ cat .env
 2. Calendar/addressbook exists? → Check URLs
 3. Credentials correct? → Check `.env`
 
+## 🌐 Provider Compatibility
+
+See **[COMPATIBILITY.md](COMPATIBILITY.md)** for detailed information about:
+- Tested CalDAV/CardDAV providers (Radicale, Baikal, Nextcloud)
+- Provider-specific quirks and workarounds
+- Performance benchmarks
+- Recommendations for different use cases
+
 ## 📚 Resources
 
 - [tsdav Documentation](https://tsdav.vercel.app/docs/intro)
 - [MCP Specification](https://modelcontextprotocol.io/specification/2025-03-26)
 - [n8n MCP Client Docs](https://docs.n8n.io/integrations/builtin/cluster-nodes/sub-nodes/n8n-nodes-langchain.toolmcp/)
+- [CalDAV RFC 4791](https://datatracker.ietf.org/doc/html/rfc4791)
+- [CardDAV RFC 6352](https://datatracker.ietf.org/doc/html/rfc6352)
 
 ## 📄 License
 

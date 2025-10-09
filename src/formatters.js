@@ -379,6 +379,19 @@ export function formatContactList(contacts, addressBookName = 'Unknown Address B
 }
 
 /**
+ * Helper: Extract string value from property (handles both string and object)
+ * tsdav sometimes returns { _text: "value" } instead of "value"
+ */
+function extractPropertyValue(prop) {
+  if (!prop) return '';
+  if (typeof prop === 'string') return prop;
+  if (typeof prop === 'object') {
+    return prop._text || prop.value || String(prop);
+  }
+  return String(prop);
+}
+
+/**
  * Format calendar list to LLM-friendly Markdown
  */
 export function formatCalendarList(calendars) {
@@ -394,7 +407,8 @@ export function formatCalendarList(calendars) {
   let output = `Available calendars: **${calendars.length}**\n\n`;
 
   calendars.forEach((cal, index) => {
-    output += `### ${index + 1}. ${cal.displayName || 'Unnamed Calendar'}\n\n`;
+    const displayName = extractPropertyValue(cal.displayName) || 'Unnamed Calendar';
+    output += `### ${index + 1}. ${displayName}\n\n`;
 
     if (cal.description) {
       output += `- **Description**: ${cal.description}\n`;
@@ -503,7 +517,8 @@ export function formatSuccess(operation, details = {}) {
 export function formatCalendarUpdateSuccess(calendar, updatedFields) {
   let output = `✅ **Calendar updated successfully**\n\n`;
 
-  output += `- **Calendar**: ${calendar.displayName || 'Unnamed Calendar'}\n`;
+  const displayName = extractPropertyValue(calendar.displayName) || 'Unnamed Calendar';
+  output += `- **Calendar**: ${displayName}\n`;
   output += `- **URL**: ${calendar.url}\n`;
 
   if (updatedFields && Object.keys(updatedFields).length > 0) {
