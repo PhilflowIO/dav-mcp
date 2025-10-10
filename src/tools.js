@@ -106,18 +106,20 @@ export const tools = [
       const options = { calendar };
 
       // If only start date provided, default end date to 1 year from start
+      // ✅ FIX: Convert all time ranges to UTC (Z format) because tsdav/Radicale
+      // don't handle timezone-aware queries correctly (e.g., +02:00)
       if (validated.time_range_start && !validated.time_range_end) {
         const startDate = new Date(validated.time_range_start);
         const endDate = new Date(startDate);
         endDate.setFullYear(endDate.getFullYear() + 1);
         options.timeRange = {
-          start: validated.time_range_start,
+          start: startDate.toISOString(),  // Convert to UTC
           end: endDate.toISOString(),
         };
       } else if (validated.time_range_start && validated.time_range_end) {
         options.timeRange = {
-          start: validated.time_range_start,
-          end: validated.time_range_end,
+          start: new Date(validated.time_range_start).toISOString(),  // Convert to UTC
+          end: new Date(validated.time_range_end).toISOString(),      // Convert to UTC
         };
       }
 
@@ -324,19 +326,21 @@ END:VCALENDAR`;
       }
 
       // Build timeRange options
+      // ✅ FIX: Convert all time ranges to UTC (Z format) because tsdav/Radicale
+      // don't handle timezone-aware queries correctly (e.g., +02:00)
       const timeRangeOptions = {};
       if (validated.time_range_start && !validated.time_range_end) {
         const startDate = new Date(validated.time_range_start);
         const endDate = new Date(startDate);
         endDate.setFullYear(endDate.getFullYear() + 1);
         timeRangeOptions.timeRange = {
-          start: validated.time_range_start,
+          start: startDate.toISOString(),  // Convert to UTC
           end: endDate.toISOString(),
         };
       } else if (validated.time_range_start && validated.time_range_end) {
         timeRangeOptions.timeRange = {
-          start: validated.time_range_start,
-          end: validated.time_range_end,
+          start: new Date(validated.time_range_start).toISOString(),  // Convert to UTC
+          end: new Date(validated.time_range_end).toISOString(),      // Convert to UTC
         };
       }
 
