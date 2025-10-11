@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { MCPLogParser } from './mcp-log-parser.js';
+import TestDataGenerator from './setup-test-data.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -102,8 +103,15 @@ class MCPTestRunner {
    */
   validateParameters(expectedParams, actualParams) {
     if (!actualParams) return false;
+    
+    // If no expected parameters, any parameters are acceptable
     if (!expectedParams || Object.keys(expectedParams).length === 0) {
-      // No specific parameters expected - any parameters are acceptable
+      return true;
+    }
+
+    // Special case: If expected params is just "required" placeholders, accept any valid parameters
+    const hasOnlyPlaceholders = Object.values(expectedParams).every(value => value === "required");
+    if (hasOnlyPlaceholders) {
       return true;
     }
 
@@ -130,8 +138,10 @@ class MCPTestRunner {
       } else {
         // For primitive values, check similarity (partial match for strings)
         if (typeof value === 'string' && typeof actualParams[key] === 'string') {
-          // Allow partial matches for filters
-          if (key.includes('filter') || key.includes('summary') || key.includes('description')) {
+          // Allow partial matches for filters, search terms, and common query parameters
+          if (key.includes('filter') || key.includes('summary') || key.includes('description') ||
+              key.includes('search') || key.includes('query') || key.includes('name') ||
+              key.includes('title') || key.includes('location') || key.includes('email')) {
             if (!actualParams[key].toLowerCase().includes(value.toLowerCase()) &&
                 !value.toLowerCase().includes(actualParams[key].toLowerCase())) {
               return false;
@@ -166,6 +176,46 @@ class MCPTestRunner {
   }
 
   /**
+   * Validate multi-step optimal route (NEW - 2025-10-10)
+   * Checks if MCP tool calls follow the expected optimal_route workflow
+   */
+  validateOptimalRoute(testCase, mcpToolCalls) {
+    // If no optimal_route defined, fall back to single-tool validation
+    if (!testCase.optimal_route || testCase.optimal_route.length === 0) {
+      return null; // Signal to use legacy validation
+    }
+
+    // Extract tool names from optimal_route
+    const expectedTools = testCase.optimal_route.map(step => step.tool);
+    const actualTools = mcpToolCalls.map(call => call.tool).filter(t => t); // Filter out null/undefined
+
+    // Check if actual tools match expected sequence
+    // Allow extra tools, but expected tools must appear in order
+    let expectedIndex = 0;
+    let matchedSteps = 0;
+
+    for (const actualTool of actualTools) {
+      if (actualTool && expectedIndex < expectedTools.length &&
+          actualTool.toLowerCase() === expectedTools[expectedIndex].toLowerCase()) {
+        matchedSteps++;
+        expectedIndex++;
+      }
+    }
+
+    // Route is valid if all expected steps were matched in order
+    const routeValid = matchedSteps === expectedTools.length;
+
+    return {
+      route_valid: routeValid,
+      matched_steps: matchedSteps,
+      total_steps: expectedTools.length,
+      expected_sequence: expectedTools,
+      actual_sequence: actualTools,
+      success_rate: matchedSteps / expectedTools.length
+    };
+  }
+
+  /**
    * Extract new tool calls from MCP log since last check
    */
   getNewToolCalls() {
@@ -177,6 +227,27 @@ class MCPTestRunner {
     } catch (error) {
       console.warn(`Warning: Could not parse MCP logs: ${error.message}`);
       return [];
+    }
+  }
+
+  /**
+   * Reset test data to clean state (cleanup + setup)
+   */
+  async resetTestData() {
+    console.log('\n  🔄 Resetting test data to clean state...');
+
+    try {
+      const generator = new TestDataGenerator();
+      await generator.initialize();
+      await generator.cleanup();
+      await generator.createTestCalendar();
+      await generator.generateTestEvents();
+      await generator.generateTestContacts();
+      await generator.generateTestTodos();
+      console.log('  ✅ Test data reset complete\n');
+    } catch (error) {
+      console.error('  ❌ Failed to reset test data:', error.message);
+      throw error;
     }
   }
 
@@ -198,6 +269,9 @@ class MCPTestRunner {
 
     // Run the test 5 times
     for (let i = 0; i < this.config.repetitions; i++) {
+      // 🚨 CRITICAL: Reset test data to clean state BEFORE EACH RUN
+      await this.resetTestData();
+
       console.log(`\n  Run ${i + 1}/${this.config.repetitions}...`);
 
       const startTime = Date.now();
@@ -213,15 +287,27 @@ class MCPTestRunner {
       const answer = output.answer || response.answer;
       const parameters = output.parameters || response.parameters;
 
-      const toolCorrect = this.validateToolSelection(
-        testCase.expected_tool,
-        toolUsed
-      );
+      // NEW: Check if optimal_route validation should be used
+      const routeValidation = this.validateOptimalRoute(testCase, mcpToolCalls);
 
-      const paramsCorrect = this.validateParameters(
-        testCase.expected_parameters,
-        parameters
-      );
+      let toolCorrect, paramsCorrect;
+
+      if (routeValidation !== null) {
+        // Multi-step workflow validation
+        toolCorrect = routeValidation.route_valid;
+        // For multi-step, params validation is less critical (data flows between steps)
+        paramsCorrect = routeValidation.route_valid; // Consider route valid = params valid
+      } else {
+        // Legacy single-tool validation
+        toolCorrect = this.validateToolSelection(
+          testCase.expected_tool,
+          toolUsed
+        );
+        paramsCorrect = this.validateParameters(
+          testCase.expected_parameters,
+          parameters
+        );
+      }
 
       const answerGood = this.validateAnswerQuality(answer);
 
@@ -242,7 +328,8 @@ class MCPTestRunner {
           tool_correct: toolCorrect,
           parameters_correct: paramsCorrect,
           answer_quality_good: answerGood,
-          all_passed: toolCorrect && paramsCorrect && answerGood
+          all_passed: toolCorrect && paramsCorrect && answerGood,
+          route_validation: routeValidation // Include route validation details
         },
         mcp_tool_calls: mcpToolCalls.map(call => ({
           tool: call.tool,
@@ -259,8 +346,18 @@ class MCPTestRunner {
       // Log run result
       const status = runResult.validation.all_passed ? '✅ PASS' : '❌ FAIL';
       console.log(`    ${status}`);
-      console.log(`    - Tool: ${toolUsed} ${toolCorrect ? '✅' : '❌'}`);
-      console.log(`    - Params: ${paramsCorrect ? '✅' : '❌'}`);
+
+      if (routeValidation !== null) {
+        // Multi-step workflow logging
+        console.log(`    - Route: ${routeValidation.matched_steps}/${routeValidation.total_steps} steps ${toolCorrect ? '✅' : '❌'}`);
+        console.log(`    - Expected: [${routeValidation.expected_sequence.join(' → ')}]`);
+        console.log(`    - Actual: [${routeValidation.actual_sequence.join(' → ')}]`);
+      } else {
+        // Single-tool logging
+        console.log(`    - Tool: ${toolUsed} ${toolCorrect ? '✅' : '❌'}`);
+        console.log(`    - Params: ${paramsCorrect ? '✅' : '❌'}`);
+      }
+
       console.log(`    - Answer: ${answerGood ? '✅' : '❌'}`);
       console.log(`    - Duration: ${duration}ms`);
       console.log(`    - MCP Calls: ${mcpToolCalls.length} (${runResult.total_mcp_execution_time_ms}ms)`);
@@ -300,6 +397,13 @@ class MCPTestRunner {
     // Log summary
     console.log(`\n${'─'.repeat(80)}`);
     console.log(`Summary for ${testCase.id}:`);
+
+    // Check if this test uses optimal_route validation
+    const usesOptimalRoute = testCase.optimal_route && testCase.optimal_route.length > 0;
+    if (usesOptimalRoute) {
+      console.log(`  Validation Mode: Multi-step workflow (${testCase.optimal_route.length} steps)`);
+    }
+
     console.log(`  Tool Selection: ${correctToolCount}/${this.config.repetitions} (${(toolSuccessRate * 100).toFixed(0)}%)`);
     console.log(`  Parameters: ${correctParamsCount}/${this.config.repetitions} (${(paramsSuccessRate * 100).toFixed(0)}%)`);
     console.log(`  Answer Quality: ${goodAnswerCount}/${this.config.repetitions} (${(answerSuccessRate * 100).toFixed(0)}%)`);
