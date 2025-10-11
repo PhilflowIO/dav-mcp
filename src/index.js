@@ -280,18 +280,39 @@ app.get('/sse', authenticateBearer, async (req, res) => {
     await mcpServer.connect(transport);
     sessionLogger.info('MCP server connected successfully, session active');
 
+    // Keep-Alive Heartbeat (every 30 seconds)
+    const heartbeat = setInterval(() => {
+      if (!res.destroyed) {
+        try {
+          res.write('data: {"type":"heartbeat","timestamp":"' + new Date().toISOString() + '"}\n\n');
+          sessionLogger.debug('Heartbeat sent');
+        } catch (error) {
+          sessionLogger.debug('Heartbeat failed, connection likely closed');
+          clearInterval(heartbeat);
+        }
+      } else {
+        clearInterval(heartbeat);
+      }
+    }, 30000);
+
     // Cleanup on disconnect
     req.on('close', () => {
       sessionLogger.info('SSE connection closed by client');
+      clearInterval(heartbeat);
       delete transports[sessionId];
       sessionActivity.delete(sessionId);
     });
 
     req.on('error', (error) => {
-      sessionLogger.error({
-        error: error.message,
-        code: error.code,
-      }, 'SSE connection error');
+      if (error.code === 'ECONNRESET') {
+        sessionLogger.info('SSE connection closed by client (normal)');
+      } else {
+        sessionLogger.error({
+          error: error.message,
+          code: error.code,
+        }, 'SSE connection error');
+      }
+      clearInterval(heartbeat);
       delete transports[sessionId];
       sessionActivity.delete(sessionId);
     });
