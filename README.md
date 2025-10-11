@@ -28,7 +28,7 @@ MCP (Model Context Protocol) SSE Server for tsdav - CalDAV/CardDAV integration f
 3. **create_event** - Create a new calendar event
 4. **update_event** - Update an existing event
 5. **delete_event** - Delete an event permanently (REQUIRES: Get event URL and ETAG from calendar_query first)
-6. **calendar_query** - ⭐ PREFERRED: Search and filter events efficiently by text, date range, or location
+6. **calendar_query** - ⭐ PREFERRED: Search and filter events efficiently by text, date range, or location (searches ALL calendars when calendar_url omitted)
 7. **make_calendar** - Create a new calendar collection
 8. **update_calendar** - Update calendar properties (display name, description, color, timezone)
 9. **delete_calendar** - Permanently delete a calendar and all its events
