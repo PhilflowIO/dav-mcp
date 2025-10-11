@@ -480,6 +480,18 @@ class TestDataGenerator {
     vcard += 'VERSION:3.0\n';
     vcard += `FN:${contact.fn}\n`;
 
+    // Add structured name (N: field) for better search compatibility
+    // Format: "Family;Given;Additional;Prefix;Suffix"
+    const nameParts = contact.fn.split(' ');
+    if (nameParts.length >= 2) {
+      const familyName = nameParts[nameParts.length - 1]; // Last part = family name
+      const givenName = nameParts.slice(0, -1).join(' '); // Rest = given name
+      vcard += `N:${familyName};${givenName};;;\n`;
+    } else {
+      // Single name - treat as given name
+      vcard += `N:;${contact.fn};;;\n`;
+    }
+
     if (contact.email) vcard += `EMAIL:${contact.email}\n`;
     if (contact.tel) vcard += `TEL:${contact.tel}\n`;
     if (contact.org) vcard += `ORG:${contact.org}\n`;

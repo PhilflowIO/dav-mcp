@@ -350,7 +350,14 @@ export function formatContactList(contacts, addressBookName = 'Unknown Address B
     return {
       content: [{
         type: 'text',
-        text: 'No contacts found.'
+        text: `No contacts found in ${addressBookName}.
+
+💡 **Next steps**:
+- Try broader search: use addressbook_query with partial name
+- List all contacts: use list_contacts to see available names  
+- Create new contact: use create_contact if contact doesn't exist yet
+
+📝 **Available address books**: Use list_addressbooks to see all address books`
       }]
     };
   }
@@ -369,6 +376,12 @@ export function formatContactList(contacts, addressBookName = 'Unknown Address B
     data: c.data
   })), null, 2);
   output += '\n```\n</details>';
+
+  // Add next action hints
+  output += `\n💡 **What you can do next**:
+- Update contact: use update_contact with URL and ETAG from above
+- Delete contact: use delete_contact with URL and ETAG from above
+- Get full details: Contact data already complete above`;
 
   return {
     content: [{

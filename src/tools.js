@@ -53,7 +53,17 @@ export const tools = [
   // ================================
   {
     name: 'list_calendars',
-    description: 'List all available calendars from the CalDAV server. Use this to get calendar URLs needed for other operations',
+    description: `<usecase>
+Lists all available calendars from the CalDAV server.
+Use when user asks to see all calendars or needs calendar URLs for other operations.
+</usecase>
+
+<instructions>
+- Use when user says "show me my calendars" or "list all calendars"
+- Returns calendar URLs needed for create_event, calendar_query, etc.
+- Essential first step for most calendar operations
+- Returns display names, URLs, and descriptions
+</instructions>`,
     inputSchema: {
       type: 'object',
       properties: {},
@@ -69,7 +79,18 @@ export const tools = [
 
   {
     name: 'list_events',
-    description: 'List ALL events from a single calendar without filtering. WARNING: Returns all events which can be many thousands - use calendar_query instead for searching with filters (supports multi-calendar search).',
+    description: `<usecase>
+Lists ALL events from a single calendar without any filtering.
+Use ONLY when user explicitly asks for "all events" or "every single event".
+</usecase>
+
+<instructions>
+⚠️ WARNING: This loads ALL events (can be thousands) - very expensive!
+✅ PREFERRED: Use calendar_query for filtered searches instead
+- Use calendar_query for "find events with X" or "show me meetings"
+- Use calendar_query for date ranges like "tomorrow" or "next week"
+- Only use list_events for explicit "show me literally everything"
+</instructions>`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -246,7 +267,18 @@ END:VCALENDAR`;
 
   {
     name: 'delete_event',
-    description: 'Delete a calendar event permanently. Requires event URL and etag',
+    description: `<usecase>
+Deletes a calendar event permanently.
+Use when user asks to cancel, delete, or remove an event.
+</usecase>
+
+<instructions>
+- REQUIRES: Get event URL and ETAG from calendar_query first
+- Use when user says "cancel my meeting" or "delete event X"
+- If you don't have event URL/ETAG, use calendar_query to find the event first
+- Much more efficient than using list_events to find the event
+- PREFERRED workflow: calendar_query → delete_event
+</instructions>`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -278,29 +310,44 @@ END:VCALENDAR`;
 
   {
     name: 'calendar_query',
-    description: 'PREFERRED: Search and filter calendar events efficiently by text (summary/title), date range, or location. Use this instead of list_events when user asks "find events with X" or "show me events containing Y" to avoid loading thousands of events. Much more token-efficient than list_events. IMPORTANT: When user asks about "today", "tomorrow", "this week" etc., you MUST calculate the correct date range in ISO 8601 format (e.g., 2025-10-08T00:00:00.000Z for tomorrow). If calendar_url is not provided, searches across ALL calendars automatically.',
+    description: `<usecase>
+Searches for calendar events by text, date range, or location.
+Use when user asks to find, search, filter, or SHOW events.
+Returns matching events with URLs and ETAGs for further operations.
+</usecase>
+
+<instructions>
+- Use for "show me my events", "find events", "search events", "list events"
+- Omit calendar_url to search ALL calendars automatically
+- Use time_range for "tomorrow", "next week" (calculate ISO 8601 dates)
+- Use summary_filter for title/keyword searches
+- Use location_filter for room/location searches
+- Returns events ready for update_event or delete_event
+- For specific times like "3pm meeting", use 1-hour windows (15:00-16:00)
+- PREFERRED over list_events for any search/filter/show request
+</instructions>`,
     inputSchema: {
       type: 'object',
       properties: {
         calendar_url: {
           type: 'string',
-          description: 'Optional: The URL of a specific calendar to query. If omitted, searches across ALL available calendars.',
+          description: 'Optional: Specific calendar URL from list_calendars. If omitted, searches ALL calendars automatically.',
         },
         time_range_start: {
           type: 'string',
-          description: 'Optional: Start date in ISO 8601 format (e.g., 2025-10-08T00:00:00.000Z). When user asks "tomorrow", calculate tomorrow\'s date. When user asks "this week", use start of current week.',
+          description: 'Start date/time in ISO 8601 format. For "tomorrow" use 2025-10-08T00:00:00Z. For "3pm meeting" use 2025-10-08T15:00:00+02:00 (1-hour window).',
         },
         time_range_end: {
           type: 'string',
-          description: 'Optional: End date in ISO 8601 format. If omitted but time_range_start is provided, defaults to 1 year from start date.',
+          description: 'End date/time in ISO 8601 format. For "3pm meeting" use 2025-10-08T16:00:00+02:00. If omitted, defaults to 1 year from start.',
         },
         summary_filter: {
           type: 'string',
-          description: 'Optional: Filter events by summary/title (case-insensitive substring match). Use this when user asks "find events with X in title" or "show me meeting events"',
+          description: 'Filter by event title/summary (partial match). Use for "find events with X" or "show me meeting events".',
         },
         location_filter: {
           type: 'string',
-          description: 'Optional: Filter events by location (case-insensitive substring match). Use when user asks "events in room X" or "meetings at location Y"',
+          description: 'Filter by event location (partial match). Use for "events in room X" or "meetings at location Y".',
         },
       },
       required: [],
@@ -385,7 +432,17 @@ END:VCALENDAR`;
 
   {
     name: 'make_calendar',
-    description: 'Create a new calendar collection on the CalDAV server with optional color, description, timezone, and component types',
+    description: `<usecase>
+Creates a new calendar collection on the CalDAV server.
+Use when user asks to create, add, or make a new calendar.
+</usecase>
+
+<instructions>
+- Use when user says "create a new calendar" or "add calendar for work"
+- Get calendar URLs from list_calendars first to avoid duplicates
+- Optional: Set color, description, timezone for better organization
+- Returns new calendar URL for immediate use
+</instructions>`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -576,7 +633,18 @@ END:VCALENDAR`;
 
   {
     name: 'delete_calendar',
-    description: 'Permanently delete a calendar and all its events. WARNING: This action cannot be undone! Use this when user explicitly asks to "delete calendar" or "remove calendar"',
+    description: `<usecase>
+Permanently deletes a calendar and ALL its events.
+Use ONLY when user explicitly asks to delete or remove a calendar.
+</usecase>
+
+<instructions>
+⚠️ DANGER: This permanently deletes the calendar and ALL events - cannot be undone!
+- Use ONLY when user says "delete calendar X" or "remove calendar Y"
+- Get calendar URL from list_calendars first
+- Confirm with user before proceeding if not explicitly requested
+- Consider backing up important events first
+</instructions>`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -657,7 +725,18 @@ END:VCALENDAR`;
 
   {
     name: 'list_contacts',
-    description: 'List ALL contacts from an address book without filtering. WARNING: Returns all contacts which can be thousands - use addressbook_query instead when searching for specific contacts by name, email, or organization to save tokens',
+    description: `<usecase>
+Lists ALL contacts from an address book without any filtering.
+Use ONLY when user explicitly asks for "all contacts" or "every single contact".
+</usecase>
+
+<instructions>
+⚠️ WARNING: This loads ALL contacts (can be thousands) - very expensive!
+✅ PREFERRED: Use addressbook_query for filtered searches instead
+- Use addressbook_query for "find contact John" or "show me people at Google"
+- Use addressbook_query for email searches like "find Gmail contacts"
+- Only use list_contacts for explicit "show me literally everything"
+</instructions>`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -686,7 +765,17 @@ END:VCALENDAR`;
 
   {
     name: 'create_contact',
-    description: 'Create a new contact (vCard) with name, email, phone, organization, and other details',
+    description: `<usecase>
+Creates a new contact with name, email, phone, and other details.
+Use when user asks to add a new person to contacts.
+</usecase>
+
+<instructions>
+- Use when user says "create contact for John" or "add new person"
+- Get addressbook_url from list_addressbooks first
+- Only use if contact doesn't already exist (check with addressbook_query first)
+- If contact exists, use update_contact instead
+</instructions>`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -767,21 +856,31 @@ END:VCARD`;
 
   {
     name: 'update_contact',
-    description: 'Update an existing contact (vCard). Requires contact URL, etag, and complete updated vCard data',
+    description: `<usecase>
+Updates an existing contact with new information.
+Use when user asks to modify, change, or update contact details.
+</usecase>
+
+<instructions>
+- REQUIRES: Get contact URL and ETAG from addressbook_query first
+- Use when user says "update Sarah's phone" or "change John's email"
+- If multiple contacts found, ask user to specify which one
+- Must provide complete updated vCard data
+</instructions>`,
     inputSchema: {
       type: 'object',
       properties: {
         vcard_url: {
           type: 'string',
-          description: 'The URL of the vCard to update',
+          description: 'Contact URL from addressbook_query response (required)',
         },
         vcard_etag: {
           type: 'string',
-          description: 'The etag of the vCard',
+          description: 'ETag from addressbook_query response (required for conflict detection)',
         },
         updated_vcard_data: {
           type: 'string',
-          description: 'The complete updated vCard data',
+          description: 'Complete updated vCard data with new information',
         },
       },
       required: ['vcard_url', 'vcard_etag', 'updated_vcard_data'],
@@ -838,69 +937,137 @@ END:VCARD`;
 
   {
     name: 'addressbook_query',
-    description: 'PREFERRED: Search and filter contacts efficiently by name (full/given/family), email, or organization. Use this instead of list_contacts when user asks "find contacts with X" or "show me contacts at Y company" to avoid loading thousands of contacts. Much more token-efficient than list_contacts',
+    description: `<usecase>
+Searches for contacts by name, email, or organization.
+Use when user asks to find, search, filter, or SHOW contacts.
+Returns ALL matching contacts with URLs and ETAGs for further operations.
+</usecase>
+
+<instructions>
+- Use for "show me my contacts", "find contacts", "search contacts", "list contacts"
+- Omit addressbook_url to search ALL addressbooks automatically
+- Use name_filter for "find contact John" or "show me people named Smith"
+- Use email_filter for "find contact with email X" or "show me Gmail contacts"
+- Use organization_filter for "find contacts at company X" or "show me people at Google"
+- Returns ALL matching contacts (may be multiple) - let user choose which one
+- Returns contacts ready for update_contact or delete_contact
+- Much more efficient than list_contacts
+- PREFERRED over list_contacts for any search/filter/show request
+</instructions>`,
     inputSchema: {
       type: 'object',
       properties: {
         addressbook_url: {
           type: 'string',
-          description: 'The URL of the address book to query',
+          description: 'Optional: Specific address book URL from list_addressbooks. If omitted, searches ALL addressbooks automatically.',
         },
         name_filter: {
           type: 'string',
-          description: 'Optional: Filter by name (case-insensitive substring match against FN, given name, or family name). Use when user asks "find contact John" or "show me people named Smith"',
+          description: 'Filter by contact name (partial match). Use for "find contact John" or "show me people named Smith".',
         },
         email_filter: {
           type: 'string',
-          description: 'Optional: Filter by email address (case-insensitive substring match). Use when user asks "find contact with email X" or "show me Gmail contacts"',
+          description: 'Filter by email address (partial match). Use for "find contact with email X" or "show me Gmail contacts".',
         },
         organization_filter: {
           type: 'string',
-          description: 'Optional: Filter by organization/company (case-insensitive substring match). Use when user asks "find contacts at company X" or "show me people at Google"',
+          description: 'Filter by company/organization (partial match). Use for "find contacts at company X" or "show me people at Google".',
         },
       },
-      required: ['addressbook_url'],
+      required: [],
     },
     handler: async (args) => {
       const validated = validateInput(addressBookQuerySchema, args);
       const client = tsdavManager.getCardDavClient();
       const addressBooks = await client.fetchAddressBooks();
-      const addressBook = addressBooks.find(ab => ab.url === validated.addressbook_url);
 
-      if (!addressBook) {
-        throw new Error(`Address book not found: ${validated.addressbook_url}`);
+      // If specific addressbook requested, use it
+      let addressBooksToSearch = addressBooks;
+      if (validated.addressbook_url) {
+        const addressBook = addressBooks.find(ab => ab.url === validated.addressbook_url);
+        if (!addressBook) {
+          const availableUrls = addressBooks.map(ab => ab.url).join('\n- ');
+          throw new Error(
+            `Address book not found: ${validated.addressbook_url}\n\n` +
+            `Available address book URLs:\n- ${availableUrls}\n\n` +
+            `Tip: Omit addressbook_url to search across all addressbooks automatically.`
+          );
+        }
+        addressBooksToSearch = [addressBook];
       }
 
-      const vcards = await client.fetchVCards({ addressBook });
+      // Fetch contacts from all selected addressbooks
+      let allContacts = [];
+      for (const addressBook of addressBooksToSearch) {
+        const vcards = await client.fetchVCards({ addressBook });
+        // Add addressbook info to each contact
+        vcards.forEach(contact => {
+          contact._addressBookName = addressBook.displayName || addressBook.url;
+        });
+        allContacts = allContacts.concat(vcards);
+      }
 
-      let filteredContacts = vcards;
+      let filteredContacts = allContacts;
 
       if (validated.name_filter) {
         const nameLower = validated.name_filter.toLowerCase();
         filteredContacts = filteredContacts.filter(vcard => {
+          // Extract all name-related fields from vCard
           const fn = vcard.data?.match(/FN:(.+)/)?.[1] || '';
           const n = vcard.data?.match(/N:(.+)/)?.[1] || '';
-          return fn.toLowerCase().includes(nameLower) || n.toLowerCase().includes(nameLower);
+          
+          // Parse structured name (N: field format: "Family;Given;Additional;Prefix;Suffix")
+          const nameParts = n.split(';');
+          const familyName = nameParts[0] || '';
+          const givenName = nameParts[1] || '';
+          const additionalName = nameParts[2] || '';
+          
+          // Create searchable name combinations
+          const searchableNames = [
+            fn,                    // Full name: "Sarah Johnson"
+            familyName,           // Family: "Johnson"
+            givenName,            // Given: "Sarah"
+            additionalName,       // Additional: ""
+            `${givenName} ${familyName}`,  // "Sarah Johnson"
+            `${familyName} ${givenName}`,  // "Johnson Sarah"
+            n                     // Raw N field: "Johnson;Sarah;;;"
+          ].filter(name => name.trim() !== '');
+          
+          // Check if any name part contains the search term
+          return searchableNames.some(name => 
+            name.toLowerCase().includes(nameLower)
+          );
         });
       }
 
       if (validated.email_filter) {
         const emailLower = validated.email_filter.toLowerCase();
         filteredContacts = filteredContacts.filter(vcard => {
-          const email = vcard.data?.match(/EMAIL[^:]*:(.+)/)?.[1] || '';
-          return email.toLowerCase().includes(emailLower);
+          // Search in all email fields (EMAIL, EMAIL;TYPE=INTERNET, etc.)
+          const emailMatches = vcard.data?.match(/EMAIL[^:]*:(.+)/g) || [];
+          return emailMatches.some(emailLine => {
+            const email = emailLine.split(':')[1] || '';
+            return email.toLowerCase().includes(emailLower);
+          });
         });
       }
 
       if (validated.organization_filter) {
         const orgLower = validated.organization_filter.toLowerCase();
         filteredContacts = filteredContacts.filter(vcard => {
+          // Search in ORG field and also in TITLE field (job title often contains company info)
           const org = vcard.data?.match(/ORG:(.+)/)?.[1] || '';
-          return org.toLowerCase().includes(orgLower);
+          const title = vcard.data?.match(/TITLE:(.+)/)?.[1] || '';
+          return org.toLowerCase().includes(orgLower) || title.toLowerCase().includes(orgLower);
         });
       }
 
-      return formatContactList(filteredContacts, addressBook);
+      // Determine addressbook name for display
+      const addressBookName = addressBooksToSearch.length === 1
+        ? (addressBooksToSearch[0].displayName || addressBooksToSearch[0].url)
+        : `All Addressbooks (${addressBooksToSearch.length})`;
+
+      return formatContactList(filteredContacts, addressBookName);
     },
   },
 
@@ -941,7 +1108,18 @@ END:VCARD`;
   // ================================
   {
     name: 'list_todos',
-    description: 'List ALL todos/tasks from a calendar. WARNING: Returns all todos without filtering - use todo_query for searches with filters by status, summary, or due date.',
+    description: `<usecase>
+Lists ALL todos/tasks from a calendar without any filtering.
+Use ONLY when user explicitly asks for "all todos" or "every single task".
+</usecase>
+
+<instructions>
+⚠️ WARNING: This loads ALL todos (can be thousands) - very expensive!
+✅ PREFERRED: Use todo_query for filtered searches instead
+- Use todo_query for "show my tasks", "incomplete tasks", "what's due this week"
+- Use todo_query for status filters like "completed tasks" or "pending tasks"
+- Only use list_todos for explicit "show me literally everything"
+</instructions>`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -1131,30 +1309,43 @@ END:VCARD`;
 
   {
     name: 'todo_query',
-    description: '⭐ PREFERRED: Search and filter todos efficiently by status, summary text, or due date range. Use this instead of list_todos when user asks "show my tasks", "what\'s due this week", "incomplete tasks". Much more token-efficient than list_todos. If calendar_url is not provided, searches across ALL calendars automatically.',
+    description: `<usecase>
+Searches for todos/tasks by status, summary text, or due date range.
+Use when user asks to find, search, or filter tasks/todos.
+Returns matching todos with URLs and ETAGs for further operations.
+</usecase>
+
+<instructions>
+- Omit calendar_url to search ALL calendars automatically
+- Use status_filter for "show my tasks", "incomplete tasks", "completed tasks"
+- Use summary_filter for "find tasks with X" or "show me project tasks"
+- Use time_range for "what's due this week" or "tasks due tomorrow"
+- Returns todos ready for update_todo or delete_todo
+- Much more efficient than list_todos
+</instructions>`,
     inputSchema: {
       type: 'object',
       properties: {
         calendar_url: {
           type: 'string',
-          description: 'Optional: The URL of a specific calendar containing todos. If omitted, searches across ALL calendars.',
+          description: 'Optional: Specific calendar URL from list_calendars. If omitted, searches ALL calendars automatically.',
         },
         summary_filter: {
           type: 'string',
-          description: 'Optional: Filter by summary text (partial match, case-insensitive)',
+          description: 'Filter by task summary/title (partial match). Use for "find tasks with X" or "show me project tasks".',
         },
         status_filter: {
           type: 'string',
           enum: ['NEEDS-ACTION', 'IN-PROCESS', 'COMPLETED', 'CANCELLED'],
-          description: 'Optional: Filter by specific status',
+          description: 'Filter by task status. Use for "show my tasks", "incomplete tasks", "completed tasks".',
         },
         time_range_start: {
           type: 'string',
-          description: 'Optional: Start of due date range (ISO 8601 format)',
+          description: 'Start of due date range in ISO 8601 format. Use for "what\'s due this week" or "tasks due tomorrow".',
         },
         time_range_end: {
           type: 'string',
-          description: 'Optional: End of due date range (ISO 8601 format)',
+          description: 'End of due date range in ISO 8601 format. If omitted, defaults to 1 year from start.',
         },
       },
       required: [],
