@@ -415,6 +415,32 @@ class MCPTestRunner {
   }
 
   /**
+   * Run a single test case
+   */
+  async runSingleTest(testId, options = {}) {
+    const testCases = this.loadTestCases();
+    const testCase = testCases.find(tc => tc.id === testId);
+    
+    if (!testCase) {
+      throw new Error(`Test case '${testId}' not found`);
+    }
+
+    console.log(`\n================================================================================`);
+    console.log(`Testing: ${testId} - ${testCase.name}`);
+    console.log(`Query: "${testCase.user_query}"`);
+    console.log(`Expected tool: ${testCase.expected_tool}`);
+    console.log(`Difficulty: ${testCase.difficulty}`);
+    console.log(`================================================================================`);
+
+    const result = await this.runTestCase(testCase);
+    return {
+      testId,
+      passed: result.passed,
+      result
+    };
+  }
+
+  /**
    * Run all test cases
    */
   async runAllTests(options = {}) {
@@ -672,22 +698,62 @@ class MCPTestRunner {
 // CLI interface
 if (import.meta.url === `file://${process.argv[1]}`) {
   const args = process.argv.slice(2);
+  
+  // Parse command line arguments
+  let repetitions = parseInt(process.env.REPETITIONS) || 5;
+  let testCase = null;
+  let server = null;
+  let categories = process.env.CATEGORIES ? process.env.CATEGORIES.split(',') : null;
+  let testIds = process.env.TEST_IDS ? process.env.TEST_IDS.split(',') : null;
+  let maxTests = process.env.MAX_TESTS ? parseInt(process.env.MAX_TESTS) : null;
+
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--runs' && args[i + 1]) {
+      repetitions = parseInt(args[i + 1]);
+      i++;
+    } else if (args[i] === '--test-case' && args[i + 1]) {
+      testCase = args[i + 1];
+      i++;
+    } else if (args[i] === '--server' && args[i + 1]) {
+      server = args[i + 1];
+      i++;
+    } else if (args[i] === '--category' && args[i + 1]) {
+      categories = [args[i + 1]];
+      i++;
+    } else if (args[i] === '--max-tests' && args[i + 1]) {
+      maxTests = parseInt(args[i + 1]);
+      i++;
+    }
+  }
 
   const config = {
     webhookUrl: process.env.WEBHOOK_URL || 'http://0.0.0.0:5678/webhook/d8bec01d-333d-444e-9573-6e2bafdde560',
-    repetitions: parseInt(process.env.REPETITIONS) || 5,
+    repetitions: repetitions,
     successThreshold: parseFloat(process.env.SUCCESS_THRESHOLD) || 0.8
   };
 
   const options = {
-    categories: process.env.CATEGORIES ? process.env.CATEGORIES.split(',') : null,
-    testIds: process.env.TEST_IDS ? process.env.TEST_IDS.split(',') : null,
-    maxTests: process.env.MAX_TESTS ? parseInt(process.env.MAX_TESTS) : null
+    categories: categories,
+    testIds: testIds,
+    maxTests: maxTests
   };
 
   const runner = new MCPTestRunner(config);
 
-  runner.runAllTests(options)
+  // Handle single test case execution
+  if (testCase) {
+    console.log(`Running single test case: ${testCase}`);
+    runner.runSingleTest(testCase, options)
+      .then(result => {
+        console.log(`Test ${testCase}: ${result.passed ? '✅ PASSED' : '❌ FAILED'}`);
+        process.exit(result.passed ? 0 : 1);
+      })
+      .catch(error => {
+        console.error(`Test ${testCase} failed:`, error);
+        process.exit(1);
+      });
+  } else {
+    runner.runAllTests(options)
     .then(results => {
       runner.saveResults();
       runner.generateHtmlReport();
@@ -705,6 +771,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       console.error('Test runner failed:', error);
       process.exit(1);
     });
+  }
 }
 
 export default MCPTestRunner;
