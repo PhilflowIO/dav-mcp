@@ -102,11 +102,36 @@ export const tools = [
     handler: async (args) => {
       const validated = validateInput(listEventsSchema, args);
       const client = tsdavManager.getCalDavClient();
+      const calendars = await client.fetchCalendars();
+      const calendar = calendars.find(c => c.url === validated.calendar_url);
 
-      const calendar = await getValidatedCalendar(client, validated.calendar_url);
-      const timeRange = buildTimeRangeOptions(validated.time_range_start, validated.time_range_end);
+      if (!calendar) {
+        const availableUrls = calendars.map(c => c.url).join('\n- ');
+        throw new Error(
+          `Calendar not found: ${validated.calendar_url}\n\n` +
+          `Available calendar URLs:\n- ${availableUrls}\n\n` +
+          `Please use list_calendars first to get the correct calendar URLs.`
+        );
+      }
 
-      const options = { calendar, ...timeRange };
+      const options = { calendar };
+
+      // If only start date provided, default end date to 1 year from start
+      if (validated.time_range_start && !validated.time_range_end) {
+        const startDate = new Date(validated.time_range_start);
+        const endDate = new Date(startDate);
+        endDate.setFullYear(endDate.getFullYear() + 1);
+        options.timeRange = {
+          start: validated.time_range_start,
+          end: endDate.toISOString(),
+        };
+      } else if (validated.time_range_start && validated.time_range_end) {
+        options.timeRange = {
+          start: validated.time_range_start,
+          end: validated.time_range_end,
+        };
+      }
+
       const events = await client.fetchCalendarObjects(options);
 
       return formatEventList(events, calendar);
@@ -149,8 +174,12 @@ export const tools = [
     handler: async (args) => {
       const validated = validateInput(createEventSchema, args);
       const client = tsdavManager.getCalDavClient();
+      const calendars = await client.fetchCalendars();
+      const calendar = calendars.find(c => c.url === validated.calendar_url);
 
-      const calendar = await getValidatedCalendar(client, validated.calendar_url);
+      if (!calendar) {
+        throw new Error(`Calendar not found: ${validated.calendar_url}`);
+      }
 
       const now = new Date();
       const uid = `event-${Date.now()}@tsdav-mcp`;
@@ -288,21 +317,75 @@ END:VCALENDAR`;
     handler: async (args) => {
       const validated = validateInput(calendarQuerySchema, args);
       const client = tsdavManager.getCalDavClient();
+      const calendars = await client.fetchCalendars();
 
-      const calendarsToSearch = await resolveCalendarsToSearch(client, validated.calendar_url);
-      const timeRange = buildTimeRangeOptions(validated.time_range_start, validated.time_range_end);
+      // If specific calendar requested, use it
+      let calendarsToSearch = calendars;
+      if (validated.calendar_url) {
+        const calendar = calendars.find(c => c.url === validated.calendar_url);
+        if (!calendar) {
+          const availableUrls = calendars.map(c => c.url).join('\n- ');
+          throw new Error(
+            `Calendar not found: ${validated.calendar_url}\n\n` +
+            `Available calendar URLs:\n- ${availableUrls}\n\n` +
+            `Tip: Omit calendar_url to search across all calendars automatically.`
+          );
+        }
+        calendarsToSearch = [calendar];
+      }
 
-      const allEvents = await searchMultipleCalendars(client, calendarsToSearch, timeRange);
+      // Build timeRange options
+      const timeRangeOptions = {};
+      if (validated.time_range_start && !validated.time_range_end) {
+        const startDate = new Date(validated.time_range_start);
+        const endDate = new Date(startDate);
+        endDate.setFullYear(endDate.getFullYear() + 1);
+        timeRangeOptions.timeRange = {
+          start: validated.time_range_start,
+          end: endDate.toISOString(),
+        };
+      } else if (validated.time_range_start && validated.time_range_end) {
+        timeRangeOptions.timeRange = {
+          start: validated.time_range_start,
+          end: validated.time_range_end,
+        };
+      }
 
-      const filteredEvents = applyFilters(allEvents, {
-        summary_filter: validated.summary_filter,
-        location_filter: validated.location_filter,
-      }, {
-        summary_filter: /SUMMARY:(.+)/,
-        location_filter: /LOCATION:(.+)/,
-      });
+      // Search across all selected calendars
+      let allEvents = [];
+      for (const calendar of calendarsToSearch) {
+        const options = { calendar, ...timeRangeOptions };
+        const events = await client.fetchCalendarObjects(options);
+        // Add calendar info to each event
+        events.forEach(event => {
+          event._calendarName = calendar.displayName || calendar.url;
+        });
+        allEvents = allEvents.concat(events);
+      }
 
-      const calendarName = getCalendarDisplayName(calendarsToSearch);
+      let filteredEvents = allEvents;
+
+      if (validated.summary_filter) {
+        const summaryLower = validated.summary_filter.toLowerCase();
+        filteredEvents = filteredEvents.filter(event => {
+          const summary = event.data?.match(/SUMMARY:(.+)/)?.[1] || '';
+          return summary.toLowerCase().includes(summaryLower);
+        });
+      }
+
+      if (validated.location_filter) {
+        const locationLower = validated.location_filter.toLowerCase();
+        filteredEvents = filteredEvents.filter(event => {
+          const location = event.data?.match(/LOCATION:(.+)/)?.[1] || '';
+          return location.toLowerCase().includes(locationLower);
+        });
+      }
+
+      // Determine calendar name for display
+      const calendarName = calendarsToSearch.length === 1
+        ? (calendarsToSearch[0].displayName || calendarsToSearch[0].url)
+        : `All Calendars (${calendarsToSearch.length})`;
+
       return formatEventList(filteredEvents, calendarName);
     },
   },
@@ -431,12 +514,32 @@ END:VCALENDAR`;
       const validated = validateInput(updateCalendarSchema, args);
       const client = tsdavManager.getCalDavClient();
 
-      const proppatchXml = buildPropPatchXml({
-        display_name: validated.display_name,
-        description: validated.description,
-        color: validated.color,
-        timezone: validated.timezone,
-      });
+      // Build WebDAV PROPPATCH XML
+      let proppatchXml = '<?xml version="1.0" encoding="UTF-8"?>\n';
+      proppatchXml += '<d:propertyupdate xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:x="http://apple.com/ns/ical/">\n';
+      proppatchXml += '  <d:set>\n';
+      proppatchXml += '    <d:prop>\n';
+
+      if (validated.display_name) {
+        proppatchXml += `      <d:displayname>${validated.display_name}</d:displayname>\n`;
+      }
+      if (validated.description) {
+        proppatchXml += `      <c:calendar-description>${validated.description}</c:calendar-description>\n`;
+      }
+      if (validated.color) {
+        proppatchXml += `      <x:calendar-color>${validated.color}</x:calendar-color>\n`;
+      }
+      if (validated.timezone) {
+        // Validate timezone format (basic check)
+        if (!validated.timezone.includes('/')) {
+          throw new Error(`Invalid timezone format: ${validated.timezone}. Expected format: "Europe/Berlin", "America/New_York", etc.`);
+        }
+        proppatchXml += `      <c:calendar-timezone>${validated.timezone}</c:calendar-timezone>\n`;
+      }
+
+      proppatchXml += '    </d:prop>\n';
+      proppatchXml += '  </d:set>\n';
+      proppatchXml += '</d:propertyupdate>';
 
       // ✅ FIX: Use raw fetch with HTTP PROPPATCH method (not updateObject which uses PUT!)
       const response = await fetch(validated.calendar_url, {
@@ -575,8 +678,13 @@ END:VCALENDAR`;
     handler: async (args) => {
       const validated = validateInput(listContactsSchema, args);
       const client = tsdavManager.getCardDavClient();
+      const addressBooks = await client.fetchAddressBooks();
+      const addressBook = addressBooks.find(ab => ab.url === validated.addressbook_url);
 
-      const addressBook = await getValidatedAddressBook(client, validated.addressbook_url);
+      if (!addressBook) {
+        throw new Error(`Address book not found: ${validated.addressbook_url}`);
+      }
+
       const vcards = await client.fetchVCards({ addressBook });
 
       return formatContactList(vcards, addressBook);
@@ -627,8 +735,12 @@ END:VCALENDAR`;
     handler: async (args) => {
       const validated = validateInput(createContactSchema, args);
       const client = tsdavManager.getCardDavClient();
+      const addressBooks = await client.fetchAddressBooks();
+      const addressBook = addressBooks.find(ab => ab.url === validated.addressbook_url);
 
-      const addressBook = await getValidatedAddressBook(client, validated.addressbook_url);
+      if (!addressBook) {
+        throw new Error(`Address book not found: ${validated.addressbook_url}`);
+      }
 
       const uid = `contact-${Date.now()}`;
       const fullName = sanitizeVCardString(validated.full_name);
@@ -759,12 +871,17 @@ END:VCARD`;
     handler: async (args) => {
       const validated = validateInput(addressBookQuerySchema, args);
       const client = tsdavManager.getCardDavClient();
+      const addressBooks = await client.fetchAddressBooks();
+      const addressBook = addressBooks.find(ab => ab.url === validated.addressbook_url);
 
-      const addressBook = await getValidatedAddressBook(client, validated.addressbook_url);
+      if (!addressBook) {
+        throw new Error(`Address book not found: ${validated.addressbook_url}`);
+      }
+
       const vcards = await client.fetchVCards({ addressBook });
 
-      // Custom filter for name_filter (matches FN or N fields)
       let filteredContacts = vcards;
+
       if (validated.name_filter) {
         const nameLower = validated.name_filter.toLowerCase();
         filteredContacts = filteredContacts.filter(vcard => {
@@ -774,14 +891,21 @@ END:VCARD`;
         });
       }
 
-      // Apply remaining filters using helper
-      filteredContacts = applyFilters(filteredContacts, {
-        email_filter: validated.email_filter,
-        organization_filter: validated.organization_filter,
-      }, {
-        email_filter: /EMAIL[^:]*:(.+)/,
-        organization_filter: /ORG:(.+)/,
-      });
+      if (validated.email_filter) {
+        const emailLower = validated.email_filter.toLowerCase();
+        filteredContacts = filteredContacts.filter(vcard => {
+          const email = vcard.data?.match(/EMAIL[^:]*:(.+)/)?.[1] || '';
+          return email.toLowerCase().includes(emailLower);
+        });
+      }
+
+      if (validated.organization_filter) {
+        const orgLower = validated.organization_filter.toLowerCase();
+        filteredContacts = filteredContacts.filter(vcard => {
+          const org = vcard.data?.match(/ORG:(.+)/)?.[1] || '';
+          return org.toLowerCase().includes(orgLower);
+        });
+      }
 
       return formatContactList(filteredContacts, addressBook);
     },
@@ -1045,18 +1169,43 @@ END:VCARD`;
     handler: async (args) => {
       const validated = validateInput(todoQuerySchema, args);
       const client = tsdavManager.getCalDavClient();
+      const calendars = await client.fetchCalendars();
 
-      const calendarsToSearch = await resolveCalendarsToSearch(client, validated.calendar_url);
-      let todos = await searchMultipleTodoCalendars(client, calendarsToSearch);
+      // If specific calendar requested, use it
+      let calendarsToSearch = calendars;
+      if (validated.calendar_url) {
+        const calendar = calendars.find(c => c.url === validated.calendar_url);
+        if (!calendar) {
+          const availableUrls = calendars.map(c => c.url).join('\n- ');
+          throw new Error(
+            `Calendar not found: ${validated.calendar_url}\n\n` +
+            `Available calendar URLs:\n- ${availableUrls}\n\n` +
+            `Tip: Omit calendar_url to search across all calendars automatically.`
+          );
+        }
+        calendarsToSearch = [calendar];
+      }
 
-      // Apply text filters using helper
-      todos = applyFilters(todos, {
-        summary_filter: validated.summary_filter,
-      }, {
-        summary_filter: /SUMMARY:(.+)/,
-      });
+      // Fetch todos from all selected calendars
+      let todos = [];
+      for (const calendar of calendarsToSearch) {
+        const calendarTodos = await client.fetchTodos({ calendar });
+        // Add calendar info to each todo
+        calendarTodos.forEach(todo => {
+          todo._calendarName = calendar.displayName || calendar.url;
+        });
+        todos = todos.concat(calendarTodos);
+      }
 
-      // Apply status filter (custom logic)
+      // Client-side filtering (tsdav doesn't support server-side VTODO filtering yet)
+      if (validated.summary_filter) {
+        const summaryLower = validated.summary_filter.toLowerCase();
+        todos = todos.filter(todo => {
+          const summary = todo.data?.match(/SUMMARY:(.+)/)?.[1] || '';
+          return summary.toLowerCase().includes(summaryLower);
+        });
+      }
+
       if (validated.status_filter) {
         todos = todos.filter(todo => {
           const status = todo.data?.match(/STATUS:(.+)/)?.[1] || 'NEEDS-ACTION';
@@ -1064,7 +1213,6 @@ END:VCARD`;
         });
       }
 
-      // Apply time range filter (custom date parsing logic)
       if (validated.time_range_start && validated.time_range_end) {
         const startTime = new Date(validated.time_range_start).getTime();
         const endTime = new Date(validated.time_range_end).getTime();
@@ -1085,7 +1233,11 @@ END:VCARD`;
         });
       }
 
-      const calendarName = getCalendarDisplayName(calendarsToSearch);
+      // Determine calendar name for display
+      const calendarName = calendarsToSearch.length === 1
+        ? (calendarsToSearch[0].displayName || calendarsToSearch[0].url)
+        : `All Calendars (${calendarsToSearch.length})`;
+
       return formatTodoList(todos, calendarName);
     },
   },

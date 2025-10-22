@@ -7,7 +7,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { tsdavManager } from './tsdav-client.js';
-import { tools } from './tools.js';
+import { tools } from './tools/index.js';
 import { createToolErrorResponse, createHTTPErrorResponse, AuthenticationError, MCP_ERROR_CODES } from './error-handler.js';
 import { logger, createSessionLogger, createRequestLogger } from './logger.js';
 

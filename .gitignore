@@ -35,3 +35,7 @@ tsdav/
 
 # Internal development guides
 CLAUDE.md
+
+# Test artifacts
+tests/integration/test-report-*.html
+tests/integration/test-results-*.json

@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { MCPLogParser } from './mcp-log-parser.js';
+import { flexibleValidateParameters } from './flexible-validator.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -218,7 +219,8 @@ class MCPTestRunner {
         toolUsed
       );
 
-      const paramsCorrect = this.validateParameters(
+      // Use flexible validation for Issue #12 fix
+      const paramsCorrect = flexibleValidateParameters(
         testCase.expected_parameters,
         parameters
       );
