@@ -44,3 +44,7 @@ tests/integration/test-results-*.json
 *.md
 !README.md
 !claude.md
+
+# Backup files
+*.backup
+*.bak
