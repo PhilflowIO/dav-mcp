@@ -111,7 +111,7 @@ export const deleteContactSchema = z.object({
 });
 
 export const addressBookQuerySchema = z.object({
-  addressbook_url: z.string().url('Invalid addressbook URL'),
+  addressbook_url: z.string().url('Invalid addressbook URL').optional(),
   name_filter: z.string().optional(),
   email_filter: z.string().optional(),
   organization_filter: z.string().optional(),

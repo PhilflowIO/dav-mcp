@@ -57,28 +57,77 @@ export class MCPLogParser {
     const timestampMatch = requestLine.match(/\[(\d{2}:\d{2}:\d{2}(?:\.\d{3})?)\]/);
     const timestamp = timestampMatch ? timestampMatch[1] : null;
 
-    // Extract requestId
+    // Try to parse JSON format (single-line)
+    const jsonMatch = requestLine.match(/\{.*\}/);
+    if (jsonMatch) {
+      try {
+        const data = JSON.parse(jsonMatch[0]);
+        const requestId = data.requestId || null;
+        const sessionId = data.sessionId || null;
+        const tool = data.tool || null;
+        const args = data.args || {};
+
+        // Find success/failure
+        let success = null;
+        let executionTime = null;
+
+        // Look ahead for "Tool executed successfully" or error
+        for (let j = startIndex; j < Math.min(startIndex + 20, lines.length); j++) {
+          if (lines[j].includes('Tool executed successfully') && requestId) {
+            // Check if this is the right request by looking for tool name
+            const successJsonMatch = lines[j].match(/\{.*\}/);
+            if (successJsonMatch) {
+              try {
+                const successData = JSON.parse(successJsonMatch[0]);
+                if (successData.requestId === requestId) {
+                  success = true;
+
+                  // Calculate execution time
+                  const successTimestamp = lines[j].match(/\[(\d{2}:\d{2}:\d{2}(?:\.\d{3})?)\]/)?.[1];
+                  if (timestamp && successTimestamp) {
+                    executionTime = this.calculateTimeDiff(timestamp, successTimestamp);
+                  }
+                  break;
+                }
+              } catch {}
+            }
+          } else if (lines[j].includes('ERROR') && lines[j].includes(requestId)) {
+            success = false;
+            break;
+          }
+        }
+
+        return {
+          timestamp,
+          requestId,
+          sessionId,
+          tool,
+          args,
+          success,
+          executionTime
+        };
+      } catch (e) {
+        // Fall back to old parsing method
+      }
+    }
+
+    // Fallback: Multi-line format parsing
     const requestIdMatch = lines[startIndex + 1]?.match(/requestId.*: "([^"]+)"/);
     const requestId = requestIdMatch ? requestIdMatch[1] : null;
 
-    // Extract sessionId
     const sessionIdMatch = lines[startIndex + 2]?.match(/sessionId.*: "([^"]+)"/);
     const sessionId = sessionIdMatch ? sessionIdMatch[1] : null;
 
-    // Extract tool name
     const toolMatch = lines[startIndex + 3]?.match(/tool.*: "([^"]+)"/);
     const tool = toolMatch ? toolMatch[1] : null;
 
-    // Extract args (can span multiple lines)
     let args = {};
     const argsStartIndex = startIndex + 4;
 
     if (lines[argsStartIndex]?.includes('args')) {
-      // Check if args is empty object
       if (lines[argsStartIndex].includes('{}')) {
         args = {};
       } else {
-        // Parse multi-line args
         args = this.parseArgs(lines, argsStartIndex);
       }
     }

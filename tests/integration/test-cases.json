@@ -63,7 +63,28 @@
         "dtstart": "2025-10-08T15:00:00Z"
       },
       "rationale": "Modifying existing event requires update_event with ETag",
-      "difficulty": "medium"
+      "difficulty": "medium",
+      "optimal_route": [
+        {
+          "step": 1,
+          "tool": "calendar_query",
+          "purpose": "Find dentist appointment to get URL and ETAG",
+          "expected_params": {
+            "calendar_url": "https://dav.philflow.io/admin/calendar1/",
+            "summary_filter": "dentist"
+          }
+        },
+        {
+          "step": 2,
+          "tool": "update_event",
+          "purpose": "Update event start time to 3pm",
+          "expected_params": {
+            "event_url": "from_step_1",
+            "event_etag": "from_step_1",
+            "dtstart": "2025-10-08T15:00:00Z"
+          }
+        }
+      ]
     },
     {
       "id": "caldav-005",
@@ -76,7 +97,29 @@
         "etag": "required"
       },
       "rationale": "Deleting event requires delete_event tool",
-      "difficulty": "easy"
+      "difficulty": "easy",
+      "optimal_route": [
+        {
+          "step": 1,
+          "tool": "calendar_query",
+          "purpose": "Find Friday lunch meeting to get URL and ETAG",
+          "expected_params": {
+            "calendar_url": "https://dav.philflow.io/admin/calendar1/",
+            "summary_filter": "lunch",
+            "time_range_start": "2025-10-10T00:00:00Z",
+            "time_range_end": "2025-10-10T23:59:59Z"
+          }
+        },
+        {
+          "step": 2,
+          "tool": "delete_event",
+          "purpose": "Delete the event",
+          "expected_params": {
+            "event_url": "from_step_1",
+            "event_etag": "from_step_1"
+          }
+        }
+      ]
     },
     {
       "id": "caldav-006",
@@ -266,7 +309,29 @@
         "location": "Zoom"
       },
       "rationale": "Updating event properties requires update_event",
-      "difficulty": "medium"
+      "difficulty": "medium",
+      "optimal_route": [
+        {
+          "step": 1,
+          "tool": "calendar_query",
+          "purpose": "Find 3pm meeting to get URL and ETAG",
+          "expected_params": {
+            "calendar_url": "https://dav.philflow.io/admin/calendar1/",
+            "time_range_start": "2025-10-07T14:00:00Z",
+            "time_range_end": "2025-10-07T16:00:00Z"
+          }
+        },
+        {
+          "step": 2,
+          "tool": "update_event",
+          "purpose": "Update event location to Zoom",
+          "expected_params": {
+            "event_url": "from_step_1",
+            "event_etag": "from_step_1",
+            "location": "Zoom"
+          }
+        }
+      ]
     },
     {
       "id": "caldav-020",
@@ -331,7 +396,28 @@
         "vcard_data": "updated vCard"
       },
       "rationale": "Updating contact requires update_contact with ETag",
-      "difficulty": "medium"
+      "difficulty": "medium",
+      "optimal_route": [
+        {
+          "step": 1,
+          "tool": "addressbook_query",
+          "purpose": "Find Sarah's contact to get URL, ETAG, and current vCard",
+          "expected_params": {
+            "addressbook_url": "https://dav.philflow.io/admin/contacts/",
+            "name_filter": "Sarah"
+          }
+        },
+        {
+          "step": 2,
+          "tool": "update_contact",
+          "purpose": "Update contact with new phone number",
+          "expected_params": {
+            "contact_url": "from_step_1",
+            "contact_etag": "from_step_1",
+            "vcard_data": "modified_vcard_with_new_phone"
+          }
+        }
+      ]
     },
     {
       "id": "carddav-005",
@@ -344,7 +430,27 @@
         "etag": "required"
       },
       "rationale": "Deleting contact requires delete_contact",
-      "difficulty": "easy"
+      "difficulty": "easy",
+      "optimal_route": [
+        {
+          "step": 1,
+          "tool": "addressbook_query",
+          "purpose": "Find Michael Johnson's contact to get URL and ETAG",
+          "expected_params": {
+            "addressbook_url": "https://dav.philflow.io/admin/contacts/",
+            "name_filter": "Michael Johnson"
+          }
+        },
+        {
+          "step": 2,
+          "tool": "delete_contact",
+          "purpose": "Delete the contact",
+          "expected_params": {
+            "contact_url": "from_step_1",
+            "contact_etag": "from_step_1"
+          }
+        }
+      ]
     },
     {
       "id": "carddav-006",
@@ -454,7 +560,28 @@
         "vcard_data": "updated vCard with new email"
       },
       "rationale": "Email update requires update_contact",
-      "difficulty": "medium"
+      "difficulty": "medium",
+      "optimal_route": [
+        {
+          "step": 1,
+          "tool": "addressbook_query",
+          "purpose": "Find Tom's contact to get URL, ETAG, and current vCard",
+          "expected_params": {
+            "addressbook_url": "https://dav.philflow.io/admin/contacts/",
+            "name_filter": "Tom"
+          }
+        },
+        {
+          "step": 2,
+          "tool": "update_contact",
+          "purpose": "Update contact with new email address",
+          "expected_params": {
+            "contact_url": "from_step_1",
+            "contact_etag": "from_step_1",
+            "vcard_data": "modified_vcard_with_new_email"
+          }
+        }
+      ]
     },
     {
       "id": "carddav-014",
@@ -535,7 +662,30 @@
         "percent_complete": 100
       },
       "rationale": "Updating task status requires update_todo",
-      "difficulty": "medium"
+      "difficulty": "medium",
+      "optimal_route": [
+        {
+          "step": 1,
+          "tool": "todo_query",
+          "purpose": "Find 'Call dentist' task to get URL and ETAG",
+          "expected_params": {
+            "calendar_url": "https://dav.philflow.io/admin/calendar1/",
+            "summary_filter": "Call dentist",
+            "status_filter": "NEEDS-ACTION"
+          }
+        },
+        {
+          "step": 2,
+          "tool": "update_todo",
+          "purpose": "Update task status to completed",
+          "expected_params": {
+            "todo_url": "from_step_1",
+            "todo_etag": "from_step_1",
+            "status": "COMPLETED",
+            "percent_complete": 100
+          }
+        }
+      ]
     },
     {
       "id": "vtodo-005",
@@ -548,7 +698,27 @@
         "etag": "required"
       },
       "rationale": "Deleting task requires delete_todo",
-      "difficulty": "easy"
+      "difficulty": "easy",
+      "optimal_route": [
+        {
+          "step": 1,
+          "tool": "todo_query",
+          "purpose": "Find 'Clean garage' task to get URL and ETAG",
+          "expected_params": {
+            "calendar_url": "https://dav.philflow.io/admin/calendar1/",
+            "summary_filter": "Clean garage"
+          }
+        },
+        {
+          "step": 2,
+          "tool": "delete_todo",
+          "purpose": "Delete the task",
+          "expected_params": {
+            "todo_url": "from_step_1",
+            "todo_etag": "from_step_1"
+          }
+        }
+      ]
     },
     {
       "id": "vtodo-006",
@@ -604,7 +774,28 @@
         "priority": 1
       },
       "rationale": "Updating task properties requires update_todo",
-      "difficulty": "medium"
+      "difficulty": "medium",
+      "optimal_route": [
+        {
+          "step": 1,
+          "tool": "todo_query",
+          "purpose": "Find 'Review code' task to get URL and ETAG",
+          "expected_params": {
+            "calendar_url": "https://dav.philflow.io/admin/calendar1/",
+            "summary_filter": "Review code"
+          }
+        },
+        {
+          "step": 2,
+          "tool": "update_todo",
+          "purpose": "Update task priority to high",
+          "expected_params": {
+            "todo_url": "from_step_1",
+            "todo_etag": "from_step_1",
+            "priority": 1
+          }
+        }
+      ]
     },
     {
       "id": "vtodo-010",
@@ -689,7 +880,29 @@
         "percent_complete": 50
       },
       "rationale": "Status update to in-progress",
-      "difficulty": "medium"
+      "difficulty": "medium",
+      "optimal_route": [
+        {
+          "step": 1,
+          "tool": "todo_query",
+          "purpose": "Find 'Write blog post' task to get URL and ETAG",
+          "expected_params": {
+            "calendar_url": "https://dav.philflow.io/admin/calendar1/",
+            "summary_filter": "Write blog post"
+          }
+        },
+        {
+          "step": 2,
+          "tool": "update_todo",
+          "purpose": "Update task status to in-progress",
+          "expected_params": {
+            "todo_url": "from_step_1",
+            "todo_etag": "from_step_1",
+            "status": "IN-PROCESS",
+            "percent_complete": 50
+          }
+        }
+      ]
     },
     {
       "id": "edge-001",
