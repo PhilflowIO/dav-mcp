@@ -8,7 +8,7 @@ MCP (Model Context Protocol) SSE Server for tsdav - CalDAV/CardDAV integration f
 - **CardDAV Integration**: Complete address book and contact management (100% tsdav coverage)
 - **VTODO Support**: Full task/todo management with status, priorities, and due dates
 - **MCP SSE Protocol**: Compatible with n8n, Claude Desktop, and other MCP clients
-- **23 Tools**: All essential CRUD operations + advanced query & management features
+- **25 Tools**: All essential CRUD operations + advanced query & management features
 - **LLM-Optimized Outputs**: Markdown-formatted, structured responses for best AI integration
 - **RFC-Compliant**: ical.js for RFC 5545 (iCalendar) and RFC 6350 (vCard) support
 - **Token-Efficient**: Smart filtering (calendar_query, addressbook_query, todo_query) avoids loading thousands of items unnecessarily
@@ -16,8 +16,10 @@ MCP (Model Context Protocol) SSE Server for tsdav - CalDAV/CardDAV integration f
 - **Custom JSON Logger**: Lightweight structured logging with millisecond precision
 - **Bearer Auth**: Optional for secure connections
 - **Multi-Session**: Supports multiple concurrent client connections
+- **Keep-Alive Heartbeats**: Maintains stable SSE connections with n8n and other clients
+- **LLM-Optimized Tool Descriptions**: XML-structured descriptions with PREFERRED/WARNING labels for optimal AI tool selection
 
-## 📋 Available Tools (23 total)
+## 📋 Available Tools (25 total)
 
 ### CalDAV Tools (10 tools)
 
@@ -25,8 +27,8 @@ MCP (Model Context Protocol) SSE Server for tsdav - CalDAV/CardDAV integration f
 2. **list_events** - List ALL events (WARNING: use calendar_query for filtered searches to save tokens)
 3. **create_event** - Create a new calendar event
 4. **update_event** - Update an existing event
-5. **delete_event** - Delete an event permanently
-6. **calendar_query** - ⭐ PREFERRED: Search and filter events efficiently by text, date range, or location
+5. **delete_event** - Delete an event permanently (REQUIRES: Get event URL and ETAG from calendar_query first)
+6. **calendar_query** - ⭐ PREFERRED: Search and filter events efficiently by text, date range, or location (searches ALL calendars when calendar_url omitted)
 7. **make_calendar** - Create a new calendar collection
 8. **update_calendar** - Update calendar properties (display name, description, color, timezone)
 9. **delete_calendar** - Permanently delete a calendar and all its events
@@ -39,7 +41,7 @@ MCP (Model Context Protocol) SSE Server for tsdav - CalDAV/CardDAV integration f
 13. **create_contact** - Create a new contact (vCard)
 14. **update_contact** - Update an existing contact
 15. **delete_contact** - Delete a contact permanently
-16. **addressbook_query** - ⭐ PREFERRED: Search and filter contacts efficiently by name, email, or organization
+16. **addressbook_query** - ⭐ PREFERRED: Search and filter contacts efficiently by name, email, or organization (searches ALL addressbooks when addressbook_url omitted)
 17. **addressbook_multi_get** - Batch fetch multiple specific contacts by URLs
 
 ### VTODO Tools (6 tools)
@@ -48,7 +50,7 @@ MCP (Model Context Protocol) SSE Server for tsdav - CalDAV/CardDAV integration f
 19. **create_todo** - Create a new todo/task with optional due date, priority, status
 20. **update_todo** - Update existing todo (e.g., mark completed, change status)
 21. **delete_todo** - Delete a todo/task permanently
-22. **todo_query** - ⭐ PREFERRED: Search and filter todos efficiently by status/due date
+22. **todo_query** - ⭐ PREFERRED: Search and filter todos efficiently by status/due date (searches ALL calendars when calendar_url omitted)
 23. **todo_multi_get** - Batch fetch multiple specific todos by URLs
 
 ## 🛠️ Installation
@@ -81,7 +83,7 @@ CALDAV_PASSWORD=your_password
 # MCP Server
 PORT=3000
 MCP_SERVER_NAME=tsdav-mcp-server
-MCP_SERVER_VERSION=2.3.0
+MCP_SERVER_VERSION=2.5.1
 
 # Authentication (optional)
 BEARER_TOKEN=your-secure-token-here

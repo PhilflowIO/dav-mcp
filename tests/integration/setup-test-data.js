@@ -47,7 +47,7 @@ class TestDataGenerator {
       defaultAccountType: 'caldav',
     });
 
-    await this.client.login();
+    // Note: createDAVClient already authenticates, no separate login() needed
     console.log('✅ Successfully connected to DAV server\n');
   }
 
@@ -67,21 +67,26 @@ class TestDataGenerator {
         return;
       }
 
+      // Build calendar home URL manually (client.account.homeUrl is undefined after cleanup!)
+      const calendarHomeUrl = `${this.config.serverUrl}/${this.config.username}/`;
+      const newCalendarUrl = `${calendarHomeUrl}mcp-test-calendar/`;
+
+      console.log(`  Creating calendar at: ${newCalendarUrl}`);
+
       // Create new calendar
-      const calendar = await this.client.makeCalendar({
-        url: `${this.config.serverUrl}/${this.config.username}/`,
+      await this.client.makeCalendar({
+        url: newCalendarUrl,
         props: {
           displayName: 'MCP Test Calendar',
           description: 'Test calendar for MCP integration tests',
         },
       });
 
-      this.testCalendarUrl = calendar.url || `${this.config.serverUrl}/${this.config.username}/mcp-test-calendar/`;
+      this.testCalendarUrl = newCalendarUrl;
       console.log(`✅ Test calendar created: ${this.testCalendarUrl}\n`);
     } catch (error) {
       console.error('❌ Failed to create test calendar:', error.message);
-      // Use default URL
-      this.testCalendarUrl = `${this.config.serverUrl}/${this.config.username}/calendar1/`;
+      throw error; // Don't silently fail - we need this to work!
     }
   }
 
@@ -110,29 +115,29 @@ class TestDataGenerator {
         categories: 'personal,health'
       },
 
-      // Today's events
+      // Today's events (2025-10-10 = Friday)
       {
         summary: 'Team Standup',
         description: 'Daily team sync',
         location: 'Zoom',
-        dtstart: '2025-10-07T09:00:00Z',
-        dtend: '2025-10-07T09:30:00Z',
+        dtstart: '2025-10-10T09:00:00Z',
+        dtend: '2025-10-10T09:30:00Z',
         categories: 'work,meeting'
       },
       {
         summary: 'Lunch with John',
         description: 'Catch up lunch',
         location: 'Downtown Cafe',
-        dtstart: '2025-10-07T12:00:00Z',
-        dtend: '2025-10-07T13:00:00Z',
+        dtstart: '2025-10-10T12:00:00Z', // TODAY = Friday (matches "Friday lunch" query)
+        dtend: '2025-10-10T13:00:00Z',
         categories: 'personal'
       },
       {
         summary: 'Project Review with Sarah',
         description: 'Review quarterly project progress',
         location: 'Conference Room B',
-        dtstart: '2025-10-07T15:00:00Z',
-        dtend: '2025-10-07T16:00:00Z',
+        dtstart: '2025-10-10T13:00:00Z', // 13:00 UTC = 15:00 Berlin = 3pm local
+        dtend: '2025-10-10T14:00:00Z',   // 14:00 UTC = 16:00 Berlin = 4pm local
         categories: 'work,project'
       },
 
@@ -151,8 +156,8 @@ class TestDataGenerator {
         location: 'Zoom',
         dtstart: '2025-10-13T10:00:00Z',
         dtend: '2025-10-13T11:00:00Z',
-        categories: 'work,meeting',
-        rrule: 'FREQ=WEEKLY;BYDAY=MO'
+        categories: 'work,meeting'
+        // Note: RRULE removed - Radicale rejects recurring events silently
       },
 
       // Next week
@@ -184,8 +189,12 @@ class TestDataGenerator {
       }
     ];
 
+    console.log(`  📋 Total events to create: ${events.length}`);
     let created = 0;
+    let eventNum = 0;
     for (const event of events) {
+      eventNum++;
+      console.log(`  🔄 [${eventNum}/${events.length}] Creating: ${event.summary}...`);
       try {
         const ical = this.buildEventIcal(event);
         await this.client.createCalendarObject({
@@ -194,9 +203,9 @@ class TestDataGenerator {
           iCalString: ical,
         });
         created++;
-        console.log(`  ✅ Created: ${event.summary}`);
+        console.log(`  ✅ [${eventNum}/${events.length}] Created: ${event.summary}`);
       } catch (error) {
-        console.log(`  ⚠️  Failed to create ${event.summary}: ${error.message}`);
+        console.log(`  ❌ [${eventNum}/${events.length}] Failed to create ${event.summary}: ${error.message}`);
       }
     }
 
@@ -471,6 +480,18 @@ class TestDataGenerator {
     vcard += 'VERSION:3.0\n';
     vcard += `FN:${contact.fn}\n`;
 
+    // Add structured name (N: field) for better search compatibility
+    // Format: "Family;Given;Additional;Prefix;Suffix"
+    const nameParts = contact.fn.split(' ');
+    if (nameParts.length >= 2) {
+      const familyName = nameParts[nameParts.length - 1]; // Last part = family name
+      const givenName = nameParts.slice(0, -1).join(' '); // Rest = given name
+      vcard += `N:${familyName};${givenName};;;\n`;
+    } else {
+      // Single name - treat as given name
+      vcard += `N:;${contact.fn};;;\n`;
+    }
+
     if (contact.email) vcard += `EMAIL:${contact.email}\n`;
     if (contact.tel) vcard += `TEL:${contact.tel}\n`;
     if (contact.org) vcard += `ORG:${contact.org}\n`;
@@ -520,12 +541,70 @@ class TestDataGenerator {
   }
 
   /**
-   * Clean up test data (optional)
+   * Clean up test data - Delete all test calendars, events, contacts, todos
+   * 🚨 SAFETY: Only works on philflow.me domains (test servers)
    */
   async cleanup() {
     console.log('Cleaning up test data...');
-    // TODO: Implement cleanup if needed
-    console.log('⚠️  Cleanup not yet implemented - manually delete test calendar if needed');
+
+    // 🚨 SAFETY CHECK: Only allow cleanup on philflow.me test servers
+    if (!this.config.serverUrl.includes('philflow.me')) {
+      console.error('❌ SAFETY CHECK FAILED!');
+      console.error(`❌ Cleanup is ONLY allowed on philflow.me test servers`);
+      console.error(`❌ Current server: ${this.config.serverUrl}`);
+      console.error('❌ Refusing to delete data - this could be production data!');
+      throw new Error('Cleanup blocked: Not a philflow.me test server');
+    }
+
+    console.log(`✅ Safety check passed: ${this.config.serverUrl} is a philflow.me test server`);
+
+    try {
+      // Delete ALL calendars (which automatically deletes all events, todos inside them)
+      const calendars = await this.client.fetchCalendars();
+      console.log(`  Found ${calendars.length} calendars to delete`);
+
+      for (const calendar of calendars) {
+        // Use raw HTTP DELETE (not tsdav client - it might be cached/broken)
+        const response = await fetch(calendar.url, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Basic ${Buffer.from(`${this.config.username}:${this.config.password}`).toString('base64')}`,
+            'Content-Type': 'text/calendar; charset=utf-8',
+          },
+        });
+
+        if (response.ok || response.status === 204 || response.status === 404) {
+          console.log(`  ✅ Deleted calendar: ${calendar.displayName} (${response.status})`);
+        } else {
+          const errorText = await response.text();
+          console.log(`  ❌ Failed to delete ${calendar.displayName}: ${response.status} ${response.statusText}`);
+          console.log(`     Response: ${errorText.substring(0, 200)}`);
+        }
+      }
+
+      // Delete all contacts
+      try {
+        const addressBooks = await this.client.fetchAddressBooks();
+        for (const addressBook of addressBooks) {
+          const contacts = await this.client.fetchVCards({ addressBook });
+          for (const contact of contacts) {
+            try {
+              await this.client.deleteVCard({ vCard: contact });
+              console.log(`  ✅ Deleted contact: ${contact.url}`);
+            } catch (error) {
+              console.log(`  ⚠️  Failed to delete contact: ${error.message}`);
+            }
+          }
+        }
+      } catch (error) {
+        console.log(`  ⚠️  Failed to delete contacts: ${error.message}`);
+      }
+
+      console.log('✅ Test data cleanup complete\n');
+    } catch (error) {
+      console.error('❌ Cleanup failed:', error.message);
+      throw error;
+    }
   }
 }
 
