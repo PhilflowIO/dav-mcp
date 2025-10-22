@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { MCPLogParser } from './mcp-log-parser.js';
 import { flexibleValidateParameters } from './flexible-validator.js';
+import { N8nResponseHandler } from './n8n-response-handler.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -208,11 +209,16 @@ class MCPTestRunner {
       // Extract MCP tool calls that occurred during this test run
       const mcpToolCalls = this.getNewToolCalls();
 
+      // Use N8nResponseHandler to extract parameters from various formats
+      const transformedResponse = N8nResponseHandler.transformResponse(response, mcpToolCalls);
+
       // Extract from n8n output format: {output: {tool_used: ..., answer: ...}}
       const output = response.output || response;
-      const toolUsed = output.tool_used || response.tool_selected;
+      const toolUsed = output.tool_used || response.tool_selected || transformedResponse.tool;
       const answer = output.answer || response.answer;
-      const parameters = output.parameters || response.parameters;
+
+      // Use the transformed parameters from N8nResponseHandler
+      const parameters = transformedResponse.parameters;
 
       const toolCorrect = this.validateToolSelection(
         testCase.expected_tool,
