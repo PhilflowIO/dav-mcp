@@ -1,11 +1,11 @@
 {
-  "name": "tsdav-mcp-server",
+  "name": "dav-mcp",
   "version": "2.5.1",
-  "description": "Model Context Protocol (MCP) server for CalDAV/CardDAV/VTODO integration via tsdav - enables AI systems to manage calendars, contacts, and tasks",
+  "description": "Complete DAV integration for AI - Calendar (CalDAV), Contacts (CardDAV), and Tasks (VTODO) management via MCP protocol",
   "type": "module",
   "main": "src/index.js",
   "bin": {
-    "tsdav-mcp": "./src/server-stdio.js"
+    "dav-mcp": "./src/server-stdio.js"
   },
   "scripts": {
     "start": "node src/index.js",
@@ -19,31 +19,34 @@
     "test:integration": "node tests/integration/mcp-test-runner.js",
     "test:setup-data": "node tests/integration/setup-test-data.js"
   },
-  "author": "tsdav-mcp-server contributors",
+  "author": "dav-mcp contributors",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/PhilflowIO/tsdav-mcp-server.git"
+    "url": "https://github.com/PhilflowIO/dav-mcp.git"
   },
   "bugs": {
-    "url": "https://github.com/PhilflowIO/tsdav-mcp-server/issues"
+    "url": "https://github.com/PhilflowIO/dav-mcp/issues"
   },
-  "homepage": "https://github.com/PhilflowIO/tsdav-mcp-server#readme",
+  "homepage": "https://github.com/PhilflowIO/dav-mcp#readme",
   "keywords": [
     "mcp",
     "model-context-protocol",
     "caldav",
     "carddav",
+    "vtodo",
+    "dav",
     "calendar",
     "contacts",
-    "tsdav",
+    "tasks",
+    "todos",
     "n8n",
     "ai",
     "llm",
-    "dav",
-    "webdav",
-    "radicale",
-    "nextcloud"
+    "automation",
+    "nextcloud",
+    "baikal",
+    "radicale"
   ],
   "engines": {
     "node": ">=18.0.0"
