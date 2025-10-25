@@ -49,6 +49,7 @@ import {
   resolveAddressBooksToSearch,
   getAddressBookDisplayName,
 } from './utils/tool-helpers.js';
+import { updateEventFields } from './tools/calendar/update-event-fields.js';
 
 /**
  * Format iCal date (ISO 8601 to iCal format)
@@ -225,6 +226,9 @@ END:VCALENDAR`;
       });
     },
   },
+
+  // Add the new field-based update tool
+  updateEventFields,
 
   {
     name: 'delete_event',
