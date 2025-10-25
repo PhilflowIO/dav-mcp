@@ -190,7 +190,7 @@ END:VCALENDAR`;
 
   {
     name: 'update_event',
-    description: 'Update an existing calendar event. Requires event URL, etag, and complete updated iCal data',
+    description: '⚠️ WARNING: Requires manual iCal formatting - NOT recommended for LLM/AI use. Use update_event_fields instead for field-based updates. Only use this if you have complete pre-formatted iCal data.',
     inputSchema: {
       type: 'object',
       properties: {
