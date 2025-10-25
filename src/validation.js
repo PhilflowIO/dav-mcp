@@ -11,11 +11,33 @@ const dateTimeWithOptionalOffset = z.union([
   z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/, 'Invalid datetime format') // Without timezone
 ]);
 
+// Helper: Optional URL that gracefully handles LLM placeholder values
+// Transforms common LLM-generated placeholders ("", "unknown", "default", etc.) to undefined
+const optionalUrl = (message) =>
+  z.preprocess(
+    (val) => {
+      // Transform common LLM placeholder values to undefined
+      if (!val ||
+          val === '' ||
+          val === 'null' ||
+          val === 'undefined' ||
+          val === 'unknown' ||
+          val === 'default' ||
+          val === 'none' ||
+          val === 'N/A' ||
+          val === 'n/a') {
+        return undefined;
+      }
+      return val;
+    },
+    z.string().url(message).optional()
+  );
+
 // CalDAV Schemas
 export const listCalendarsSchema = z.object({});
 
 export const listEventsSchema = z.object({
-  calendar_url: z.string().url('Invalid calendar URL').optional(),
+  calendar_url: optionalUrl('Invalid calendar URL'),
   time_range_start: dateTimeWithOptionalOffset.optional(),
   time_range_end: dateTimeWithOptionalOffset.optional(),
 });
@@ -44,7 +66,7 @@ export const deleteEventSchema = z.object({
 });
 
 export const calendarQuerySchema = z.object({
-  calendar_url: z.string().url('Invalid calendar URL').optional(),
+  calendar_url: optionalUrl('Invalid calendar URL'),
   time_range_start: dateTimeWithOptionalOffset.optional(),
   time_range_end: dateTimeWithOptionalOffset.optional(),
   summary_filter: z.string().optional(),
@@ -111,7 +133,7 @@ export const deleteContactSchema = z.object({
 });
 
 export const addressBookQuerySchema = z.object({
-  addressbook_url: z.string().url('Invalid addressbook URL').optional(),
+  addressbook_url: optionalUrl('Invalid addressbook URL'),
   name_filter: z.string().optional(),
   email_filter: z.string().optional(),
   organization_filter: z.string().optional(),
@@ -149,7 +171,7 @@ export const deleteTodoSchema = z.object({
 });
 
 export const todoQuerySchema = z.object({
-  calendar_url: z.string().url('Invalid calendar URL').optional(),
+  calendar_url: optionalUrl('Invalid calendar URL'),
   summary_filter: z.string().optional(),
   status_filter: z.enum(['NEEDS-ACTION', 'IN-PROCESS', 'COMPLETED', 'CANCELLED']).optional(),
   time_range_start: dateTimeWithOptionalOffset.optional(),
