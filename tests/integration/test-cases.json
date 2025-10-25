@@ -995,6 +995,87 @@
       },
       "rationale": "Permanent calendar deletion - use delete_calendar, warns about deleting all events",
       "difficulty": "easy"
+    },
+    {
+      "id": "fix-015-001",
+      "category": "llm_robustness",
+      "name": "addressbook_query with empty string URL",
+      "user_query": "Find contacts named John",
+      "expected_tool": "addressbook_query",
+      "expected_parameters": {
+        "addressbook_url": "",
+        "name_filter": "John"
+      },
+      "rationale": "Issue #15 fix - empty string URL should be transformed to undefined and search all addressbooks",
+      "difficulty": "medium",
+      "test_fix": "Issue #15"
+    },
+    {
+      "id": "fix-015-002",
+      "category": "llm_robustness",
+      "name": "addressbook_query with 'unknown' placeholder",
+      "user_query": "Search for Sarah in my contacts",
+      "expected_tool": "addressbook_query",
+      "expected_parameters": {
+        "addressbook_url": "unknown",
+        "name_filter": "Sarah"
+      },
+      "rationale": "Issue #15 fix - 'unknown' placeholder should be transformed to undefined",
+      "difficulty": "medium",
+      "test_fix": "Issue #15"
+    },
+    {
+      "id": "fix-015-003",
+      "category": "llm_robustness",
+      "name": "calendar_query with 'default' placeholder",
+      "user_query": "Show me meetings tomorrow",
+      "expected_tool": "calendar_query",
+      "expected_parameters": {
+        "calendar_url": "default",
+        "time_range_start": "2025-10-26T00:00:00Z",
+        "time_range_end": "2025-10-26T23:59:59Z"
+      },
+      "rationale": "Issue #15 fix - 'default' placeholder should be transformed to undefined",
+      "difficulty": "medium",
+      "test_fix": "Issue #15"
+    },
+    {
+      "id": "fix-016-001",
+      "category": "multi_search",
+      "name": "addressbook_query without URL (multi-addressbook)",
+      "user_query": "Find all contacts with email @gmail.com",
+      "expected_tool": "addressbook_query",
+      "expected_parameters": {
+        "email_filter": "@gmail.com"
+      },
+      "rationale": "Issue #16 fix - omitting addressbook_url should search ALL addressbooks",
+      "difficulty": "medium",
+      "test_fix": "Issue #16"
+    },
+    {
+      "id": "fix-016-002",
+      "category": "multi_search",
+      "name": "addressbook_query search all addressbooks",
+      "user_query": "Show me all my contacts",
+      "expected_tool": "addressbook_query",
+      "expected_parameters": {},
+      "rationale": "Issue #16 fix - empty parameters should search all contacts in all addressbooks",
+      "difficulty": "easy",
+      "test_fix": "Issue #16"
+    },
+    {
+      "id": "fix-015-004",
+      "category": "llm_robustness",
+      "name": "todo_query with 'null' string",
+      "user_query": "Show incomplete tasks",
+      "expected_tool": "todo_query",
+      "expected_parameters": {
+        "calendar_url": "null",
+        "status_filter": "NEEDS-ACTION"
+      },
+      "rationale": "Issue #15 fix - 'null' string should be transformed to undefined",
+      "difficulty": "medium",
+      "test_fix": "Issue #15"
     }
   ]
 }

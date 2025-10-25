@@ -330,3 +330,59 @@ export function getCalendarDisplayName(calendars) {
   }
   return `All Calendars (${calendars.length})`;
 }
+
+/**
+ * Resolves which address books to search based on optional URL
+ *
+ * @param {Object} client - The DAV client
+ * @param {string} [addressbookUrl] - Optional specific address book URL
+ * @returns {Promise<Array<Object>>} Array of address books to search
+ *
+ * @example
+ * // Search specific address book
+ * const addressbooks = await resolveAddressBooksToSearch(client, 'http://example.com/addressbook');
+ * // Returns: [addressbook1]
+ *
+ * // Search all address books
+ * const addressbooks = await resolveAddressBooksToSearch(client, undefined);
+ * // Returns: [addressbook1, addressbook2, addressbook3, ...]
+ */
+export async function resolveAddressBooksToSearch(client, addressbookUrl) {
+  const addressbooks = await client.fetchAddressBooks();
+
+  // Search all address books if no specific URL provided
+  if (!addressbookUrl) {
+    return addressbooks;
+  }
+
+  // Find specific address book
+  const addressbook = addressbooks.find(a => a.url === addressbookUrl);
+
+  if (!addressbook) {
+    const availableUrls = addressbooks.map(a => a.url).join('\n- ');
+    throw new Error(
+      `Address book not found: ${addressbookUrl}\n\n` +
+      `Available address book URLs:\n- ${availableUrls}\n\n` +
+      `Tip: Omit addressbook_url to search across all address books automatically.`
+    );
+  }
+
+  return [addressbook];
+}
+
+/**
+ * Generates display name for single or multi-addressbook searches
+ *
+ * @param {Array<Object>} addressbooks - Array of address books that were searched
+ * @returns {string} Display name for formatter
+ *
+ * @example
+ * getAddressBookDisplayName([book1]) // Returns: "Personal Contacts"
+ * getAddressBookDisplayName([book1, book2, book3]) // Returns: "All Address Books (3)"
+ */
+export function getAddressBookDisplayName(addressbooks) {
+  if (addressbooks.length === 1) {
+    return addressbooks[0].displayName || addressbooks[0].url;
+  }
+  return `All Address Books (${addressbooks.length})`;
+}

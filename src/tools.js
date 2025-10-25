@@ -46,6 +46,8 @@ import {
   applyFilters,
   resolveCalendarsToSearch,
   getCalendarDisplayName,
+  resolveAddressBooksToSearch,
+  getAddressBookDisplayName,
 } from './utils/tool-helpers.js';
 
 /**
@@ -739,7 +741,7 @@ END:VCARD`;
       properties: {
         addressbook_url: {
           type: 'string',
-          description: 'The URL of the address book to query',
+          description: 'Optional: The URL of a specific address book. If omitted, searches across ALL address books.',
         },
         name_filter: {
           type: 'string',
@@ -754,17 +756,28 @@ END:VCARD`;
           description: 'Optional: Filter by organization/company (case-insensitive substring match). Use when user asks "find contacts at company X" or "show me people at Google"',
         },
       },
-      required: ['addressbook_url'],
+      required: [],
     },
     handler: async (args) => {
       const validated = validateInput(addressBookQuerySchema, args);
       const client = tsdavManager.getCardDavClient();
 
-      const addressBook = await getValidatedAddressBook(client, validated.addressbook_url);
-      const vcards = await client.fetchVCards({ addressBook });
+      // Resolve which address books to search (all or specific)
+      const addressBooksToSearch = await resolveAddressBooksToSearch(client, validated.addressbook_url);
+
+      // Collect all vcards from all address books
+      let allVCards = [];
+      for (const addressBook of addressBooksToSearch) {
+        const vcards = await client.fetchVCards({ addressBook });
+        // Add addressbook context to each vcard for proper display
+        vcards.forEach(vcard => {
+          vcard.addressBook = addressBook;
+        });
+        allVCards = allVCards.concat(vcards);
+      }
 
       // Custom filter for name_filter (matches FN or N fields)
-      let filteredContacts = vcards;
+      let filteredContacts = allVCards;
       if (validated.name_filter) {
         const nameLower = validated.name_filter.toLowerCase();
         filteredContacts = filteredContacts.filter(vcard => {
@@ -783,7 +796,14 @@ END:VCARD`;
         organization_filter: /ORG:(.+)/,
       });
 
-      return formatContactList(filteredContacts, addressBook);
+      // Use the display name helper to show which address books were searched
+      const displayName = getAddressBookDisplayName(addressBooksToSearch);
+      const addressBookForDisplay = {
+        displayName: displayName,
+        url: addressBooksToSearch.length === 1 ? addressBooksToSearch[0].url : 'multiple'
+      };
+
+      return formatContactList(filteredContacts, addressBookForDisplay);
     },
   },
 
