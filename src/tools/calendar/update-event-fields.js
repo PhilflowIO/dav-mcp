@@ -2,10 +2,48 @@ import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput } from '../../validation.js';
 import { formatSuccess, formatError } from '../../formatters.js';
 import { z } from 'zod';
+import ICAL from 'ical.js';
 // Import using namespace import for maximum CommonJS/ESM compatibility
 import * as tsdavAll from 'tsdav';
 // Access as property - works in both ESM (named export) and CJS (exports.xxx)
 const tsdavUpdateEventFields = tsdavAll.updateEventFields;
+
+/**
+ * Manual iCal field update function as fallback
+ * Updates specific fields in an iCal string when tsdav's updateEventFields is not available
+ */
+function manualUpdateEventFields(calendarObject, fields) {
+  const jcalData = ICAL.parse(calendarObject.data);
+  const comp = new ICAL.Component(jcalData);
+  const vevent = comp.getFirstSubcomponent('vevent');
+  
+  if (!vevent) {
+    throw new Error('No VEVENT component found in calendar object');
+  }
+  
+  const modified = [];
+  const warnings = [];
+  
+  // Update fields
+  if (fields.summary !== undefined) {
+    vevent.updatePropertyWithValue('summary', fields.summary);
+    modified.push('summary');
+  }
+  
+  if (fields.description !== undefined) {
+    vevent.updatePropertyWithValue('description', fields.description);
+    modified.push('description');
+  }
+  
+  // Convert back to iCal string
+  const updatedData = comp.toString();
+  
+  return {
+    data: updatedData,
+    modified,
+    warnings
+  };
+}
 
 /**
  * Schema for field-based event updates
@@ -94,8 +132,15 @@ export const updateEventFields = {
         }
       }
 
-      // Step 3: Use tsdav's native updateEventFields function
-      const result = tsdavUpdateEventFields(calendarObject, tsdavFields);
+      // Step 3: Use tsdav's native updateEventFields function or fallback to manual implementation
+      let result;
+      if (typeof tsdavUpdateEventFields === 'function') {
+        // Use tsdav's native function if available
+        result = tsdavUpdateEventFields(calendarObject, tsdavFields);
+      } else {
+        // Fallback to manual iCal manipulation
+        result = manualUpdateEventFields(calendarObject, tsdavFields);
+      }
 
       // Step 4: Send the updated event back to server
       const updateResponse = await client.updateCalendarObject({
