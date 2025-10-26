@@ -2,8 +2,10 @@ import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput } from '../../validation.js';
 import { formatSuccess, formatError } from '../../formatters.js';
 import { z } from 'zod';
-import tsdavPkg from 'tsdav';
-const { updateEventFields: tsdavUpdateEventFields } = tsdavPkg;
+// Import using namespace import for maximum CommonJS/ESM compatibility
+import * as tsdavAll from 'tsdav';
+// Access as property - works in both ESM (named export) and CJS (exports.xxx)
+const tsdavUpdateEventFields = tsdavAll.updateEventFields;
 
 /**
  * Schema for field-based event updates
