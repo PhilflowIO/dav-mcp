@@ -6,7 +6,8 @@
 export { listAddressbooks } from './list-addressbooks.js';
 export { listContacts } from './list-contacts.js';
 export { createContact } from './create-contact.js';
-export { updateContact } from './update-contact.js';
+export { updateContactFields } from './update-contact-fields.js';
+export { updateContactRaw } from './update-contact-raw.js';
 export { deleteContact } from './delete-contact.js';
 export { addressbookQuery } from './addressbook-query.js';
 export { addressbookMultiGet } from './addressbook-multi-get.js';

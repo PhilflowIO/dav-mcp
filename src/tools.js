@@ -50,6 +50,8 @@ import {
   getAddressBookDisplayName,
 } from './utils/tool-helpers.js';
 import { updateEventFields } from './tools/calendar/update-event-fields.js';
+import { updateTodoFields } from './tools/todos/update-todo-fields.js';
+import { updateContactFields } from './tools/contacts/update-contact-fields.js';
 
 /**
  * Format iCal date (ISO 8601 to iCal format)
@@ -188,9 +190,12 @@ END:VCALENDAR`;
     },
   },
 
+  // Field-based event update (PREFERRED)
+  updateEventFields,
+
   {
-    name: 'update_event',
-    description: 'Update an existing calendar event. Requires event URL, etag, and complete updated iCal data',
+    name: 'update_event_raw',
+    description: 'ADVANCED: Update event with raw iCal data. Requires manual iCal formatting - use update_event instead for simple field updates (summary, description). Only use this if you have complete pre-formatted iCal data or need to update advanced iCal properties.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -226,9 +231,6 @@ END:VCALENDAR`;
       });
     },
   },
-
-  // Add the new field-based update tool
-  updateEventFields,
 
   {
     name: 'delete_event',
@@ -666,9 +668,12 @@ END:VCARD`;
     },
   },
 
+  // Field-based contact update (PREFERRED)
+  updateContactFields,
+
   {
-    name: 'update_contact',
-    description: 'Update an existing contact (vCard). Requires contact URL, etag, and complete updated vCard data',
+    name: 'update_contact_raw',
+    description: 'ADVANCED: Update contact with raw vCard data. Requires manual vCard formatting - use update_contact instead for simple field updates (name, email, phone). Only use this if you have complete pre-formatted vCard data or need to update advanced vCard properties.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -964,9 +969,12 @@ END:VCARD`;
     },
   },
 
+  // Field-based todo update (PREFERRED)
+  updateTodoFields,
+
   {
-    name: 'update_todo',
-    description: 'Update an existing todo/task. Requires todo URL, etag, and complete updated iCal data. Use this to modify todo details or mark as completed.',
+    name: 'update_todo_raw',
+    description: 'ADVANCED: Update todo with raw VTODO iCal data. Requires manual iCal formatting - use update_todo instead for simple field updates (summary, description, status). Only use this if you have complete pre-formatted VTODO data or need to update advanced iCal properties.',
     inputSchema: {
       type: 'object',
       properties: {

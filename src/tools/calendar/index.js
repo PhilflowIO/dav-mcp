@@ -6,7 +6,8 @@
 export { listCalendars } from './list-calendars.js';
 export { listEvents } from './list-events.js';
 export { createEvent } from './create-event.js';
-export { updateEvent } from './update-event.js';
+export { updateEventFields } from './update-event-fields.js';
+export { updateEventRaw } from './update-event-raw.js';
 export { deleteEvent } from './delete-event.js';
 export { calendarQuery } from './calendar-query.js';
 export { makeCalendar } from './make-calendar.js';

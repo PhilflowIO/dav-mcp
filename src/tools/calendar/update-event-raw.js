@@ -3,11 +3,11 @@ import { validateInput, updateEventSchema } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
 
 /**
- * Update an existing calendar event
+ * Update an existing calendar event with raw iCal data
  */
-export const updateEvent = {
-  name: 'update_event',
-  description: 'Update an existing calendar event. Requires event URL, etag, and complete updated iCal data',
+export const updateEventRaw = {
+  name: 'update_event_raw',
+  description: 'ADVANCED: Update event with raw iCal data. Requires manual iCal formatting - use update_event instead for simple field updates (summary, description). Only use this if you have complete pre-formatted iCal data or need to update advanced iCal properties.',
   inputSchema: {
     type: 'object',
     properties: {

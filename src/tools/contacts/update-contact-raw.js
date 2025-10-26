@@ -3,11 +3,11 @@ import { validateInput, updateContactSchema } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
 
 /**
- * Update an existing contact (vCard)
+ * Update an existing contact with raw vCard data
  */
-export const updateContact = {
-  name: 'update_contact',
-  description: 'Update an existing contact (vCard). Requires contact URL, etag, and complete updated vCard data',
+export const updateContactRaw = {
+  name: 'update_contact_raw',
+  description: 'ADVANCED: Update contact with raw vCard data. Requires manual vCard formatting - use update_contact instead for simple field updates (name, email, phone). Only use this if you have complete pre-formatted vCard data or need to update advanced vCard properties.',
   inputSchema: {
     type: 'object',
     properties: {

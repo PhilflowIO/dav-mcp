@@ -2,11 +2,13 @@ import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput } from '../../validation.js';
 import { formatSuccess, formatError } from '../../formatters.js';
 import { z } from 'zod';
-import { updateEventFields as tsdavUpdateEventFields } from 'tsdav';
+import tsdavPkg from 'tsdav';
+const { updateEventFields: tsdavUpdateEventFields } = tsdavPkg;
 
 /**
  * Schema for field-based event updates
- * Maps directly to tsdav's updateEventFields function
+ * Currently supports MVP fields from tsdav v2.2.0: SUMMARY and DESCRIPTION
+ * Note: tsdav uses UPPERCASE field names internally for iCal compatibility
  */
 const updateEventFieldsSchema = z.object({
   event_url: z.string().url('Event URL must be a valid URL'),
@@ -14,28 +16,24 @@ const updateEventFieldsSchema = z.object({
   fields: z.object({
     summary: z.string().optional(),
     description: z.string().optional(),
-    location: z.string().optional(),
-    start_date: z.string().optional(),
-    end_date: z.string().optional(),
-    status: z.enum(['TENTATIVE', 'CONFIRMED', 'CANCELLED']).optional(),
-    transp: z.enum(['OPAQUE', 'TRANSPARENT']).optional(),
-    class: z.enum(['PUBLIC', 'PRIVATE', 'CONFIDENTIAL']).optional(),
-    priority: z.number().min(0).max(9).optional(),
-    url: z.string().url().optional(),
-    categories: z.array(z.string()).optional(),
-    color: z.string().optional(),
-    image: z.array(z.string()).optional(),
-    conference: z.array(z.string()).optional(),
+    // Future fields (pending tsdav support):
+    // location: z.string().optional(),
+    // start_date: z.string().optional(),
+    // end_date: z.string().optional(),
   }).optional()
 });
 
 /**
  * Wrapper for tsdav's native updateEventFields function
- * Uses the field-based update implementation from tsdav v2.2.0
+ * Uses the field-based update implementation from tsdav v2.2.0 MVP
+ *
+ * Current MVP limitations:
+ * - Only SUMMARY and DESCRIPTION fields are officially supported
+ * - Other iCal fields require using the full update_event tool
  */
 export const updateEventFields = {
-  name: 'update_event_fields',
-  description: 'Update specific fields of an existing calendar event without dealing with iCal format. PREFERRED over update_event for LLM/AI use.',
+  name: 'update_event',
+  description: 'PREFERRED: Update event fields (summary, description) easily without iCal formatting. Use this for simple event updates. For advanced iCal properties, use update_event_raw instead. Currently supports summary and description fields only.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -45,54 +43,19 @@ export const updateEventFields = {
       },
       event_etag: {
         type: 'string',
-        description: 'The etag of the event'
+        description: 'The etag of the event (required for conflict detection)'
       },
       fields: {
         type: 'object',
-        description: 'Fields to update (only include fields you want to change)',
+        description: 'Fields to update - only include fields you want to change. Currently supported: summary, description',
         properties: {
-          summary: { type: 'string', description: 'Event title' },
-          description: { type: 'string', description: 'Event description' },
-          location: { type: 'string', description: 'Event location' },
-          start_date: { type: 'string', description: 'Start date/time in ISO 8601' },
-          end_date: { type: 'string', description: 'End date/time in ISO 8601' },
-          status: {
+          summary: {
             type: 'string',
-            enum: ['TENTATIVE', 'CONFIRMED', 'CANCELLED'],
-            description: 'Event status'
+            description: 'Event title/summary - the main heading shown in calendars'
           },
-          transp: {
+          description: {
             type: 'string',
-            enum: ['OPAQUE', 'TRANSPARENT'],
-            description: 'Time transparency (busy/free)'
-          },
-          class: {
-            type: 'string',
-            enum: ['PUBLIC', 'PRIVATE', 'CONFIDENTIAL'],
-            description: 'Event classification'
-          },
-          priority: {
-            type: 'number',
-            minimum: 0,
-            maximum: 9,
-            description: 'Priority (0=undefined, 1=highest, 9=lowest)'
-          },
-          url: { type: 'string', description: 'Associated URL' },
-          categories: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Category tags'
-          },
-          color: { type: 'string', description: 'CSS3 color (RFC 7986)' },
-          image: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Image URLs (RFC 7986)'
-          },
-          conference: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Conference URIs (RFC 7986)'
+            description: 'Event description - detailed information about the event'
           }
         }
       }
@@ -117,10 +80,22 @@ export const updateEventFields = {
 
       const calendarObject = currentEvents[0];
 
-      // Step 2: Use tsdav's native updateEventFields function
-      const result = tsdavUpdateEventFields(calendarObject, validated.fields || {});
+      // Step 2: Transform snake_case field names to UPPERCASE for tsdav
+      // tsdav's updateEventFields expects UPPERCASE iCal property names
+      const tsdavFields = {};
+      if (validated.fields) {
+        if (validated.fields.summary !== undefined) {
+          tsdavFields.summary = validated.fields.summary;
+        }
+        if (validated.fields.description !== undefined) {
+          tsdavFields.description = validated.fields.description;
+        }
+      }
 
-      // Step 3: Send the updated event back to server
+      // Step 3: Use tsdav's native updateEventFields function
+      const result = tsdavUpdateEventFields(calendarObject, tsdavFields);
+
+      // Step 4: Send the updated event back to server
       const updateResponse = await client.updateCalendarObject({
         calendarObject: {
           url: validated.event_url,
@@ -129,9 +104,10 @@ export const updateEventFields = {
         }
       });
 
-      return formatSuccess('Event updated successfully via field-based update', {
+      return formatSuccess('Event updated successfully', {
         etag: updateResponse.etag,
-        updated_fields: Object.keys(validated.fields || {}),
+        updated_fields: Object.keys(tsdavFields),
+        modified: result.modified,
         warnings: result.warnings
       });
 

@@ -14,16 +14,17 @@ import * as todoTools from './todos/index.js';
 
 /**
  * All available MCP tools
- * Total: 23 tools organized in 3 categories
+ * Total: 26 tools organized in 3 categories
  */
 export const tools = [
   // ================================
-  // CALENDAR TOOLS (10 tools)
+  // CALENDAR TOOLS (11 tools)
   // ================================
   calendarTools.listCalendars,
   calendarTools.listEvents,
   calendarTools.createEvent,
-  calendarTools.updateEvent,
+  calendarTools.updateEventFields,
+  calendarTools.updateEventRaw,
   calendarTools.deleteEvent,
   calendarTools.calendarQuery,
   calendarTools.makeCalendar,
@@ -32,22 +33,24 @@ export const tools = [
   calendarTools.calendarMultiGet,
 
   // ================================
-  // CONTACT TOOLS (7 tools)
+  // CONTACT TOOLS (8 tools)
   // ================================
   contactTools.listAddressbooks,
   contactTools.listContacts,
   contactTools.createContact,
-  contactTools.updateContact,
+  contactTools.updateContactFields,
+  contactTools.updateContactRaw,
   contactTools.deleteContact,
   contactTools.addressbookQuery,
   contactTools.addressbookMultiGet,
 
   // ================================
-  // TODO TOOLS (6 tools)
+  // TODO TOOLS (7 tools)
   // ================================
   todoTools.listTodos,
   todoTools.createTodo,
-  todoTools.updateTodo,
+  todoTools.updateTodoFields,
+  todoTools.updateTodoRaw,
   todoTools.deleteTodo,
   todoTools.todoQuery,
   todoTools.todoMultiGet,

@@ -2,7 +2,7 @@
 
 **Give your AI agents the power of organization** — Transform them into orchestrating assistants managing calendars, contacts, and tasks.
 
-Built on 23 production-ready tools spanning CalDAV, CardDAV, and VTODO protocols.
+Built on 26 production-ready tools spanning CalDAV, CardDAV, and VTODO protocols.
 
 Built for n8n, Claude Desktop, and any MCP client.
 
@@ -17,12 +17,13 @@ When partial tools force your AI to improvise, complete tools let it **execute p
 
 | Capability | dav-mcp | Most MCPs |
 |------------|---------|-------------------|
-| **Calendar Management** | ✅ Full CRUD (10 tools) | ⚠️ Create + list only (2-3 tools) |
-| **Contact Management** | ✅ Complete CardDAV (7 tools) | ❌ Often missing entirely |
-| **Task Management** | ✅ Full VTODO support (6 tools) | ❌ Rarely included |
+| **Calendar Management** | ✅ Full CRUD (11 tools) | ⚠️ Create + list only (2-3 tools) |
+| **Contact Management** | ✅ Complete CardDAV (8 tools) | ❌ Often missing entirely |
+| **Task Management** | ✅ Full VTODO support (7 tools) | ❌ Rarely included |
+| **Field-Based Updates** | ✅ LLM-friendly (no iCal/vCard format) | ❌ Rarely available |
 | **Server-Side Filtering** | ✅ Efficient queries | ❌ Dumps all data |
 | **Multi-Provider** | ✅ Any CalDAV/CardDAV server | ⚠️ Limited provider support |
-| **Total Tools** | **23 tools** | **2-6 tools** |
+| **Total Tools** | **26 tools** | **2-6 tools** |
 
 
 ---
@@ -30,10 +31,11 @@ When partial tools force your AI to improvise, complete tools let it **execute p
 ## 🚀 Full Feature Set
 
 ### Protocol Support
-- **23 MCP Tools**: Full CRUD operations for calendars, contacts, and tasks
-- **CalDAV Integration**: ~88% tsdav coverage (10 tools)
-- **CardDAV Integration**: 100% tsdav coverage (7 tools)
-- **VTODO Support**: Full task management with status, priorities, due dates (6 tools)
+- **26 MCP Tools**: Full CRUD operations for calendars, contacts, and tasks
+- **CalDAV Integration**: ~88% tsdav coverage (11 tools)
+- **CardDAV Integration**: 100% tsdav coverage (8 tools)
+- **VTODO Support**: Full task management with status, priorities, due dates (7 tools)
+- **Field-Based Updates**: LLM-friendly update tools (no iCal/vCard formatting required)
 - **RFC-Compliant**: ical.js for RFC 5545 (iCalendar) and RFC 6350 (vCard) support
 
 ### Production-Ready Infrastructure
@@ -51,40 +53,43 @@ When partial tools force your AI to improvise, complete tools let it **execute p
 
 ---
 
-## 📋 Available Tools (23 Total)
+## 📋 Available Tools (26 Total)
 
 
-### CalDAV Tools (10 tools)
+### CalDAV Tools (11 tools)
 
 1. **list_calendars** - List all available calendars
 2. **list_events** - List ALL events (⚠️ WARNING: use calendar_query for filtered searches)
 3. **create_event** - Create a new calendar event
-4. **update_event** - Update an existing event
-5. **delete_event** - Delete an event permanently
-6. **calendar_query** - ⭐ PREFERRED: Search and filter events efficiently by text, date range, or location
-7. **make_calendar** - Create a new calendar collection
-8. **update_calendar** - Update calendar properties (display name, description, color, timezone)
-9. **delete_calendar** - Permanently delete a calendar and all its events
-10. **calendar_multi_get** - Batch fetch multiple specific events by URLs
+4. **update_event** - ⭐ PREFERRED: Update event fields (summary, description) without iCal formatting
+5. **update_event_raw** - Update event with raw iCal data (advanced)
+6. **delete_event** - Delete an event permanently
+7. **calendar_query** - ⭐ PREFERRED: Search and filter events efficiently by text, date range, or location
+8. **make_calendar** - Create a new calendar collection
+9. **update_calendar** - Update calendar properties (display name, description, color, timezone)
+10. **delete_calendar** - Permanently delete a calendar and all its events
+11. **calendar_multi_get** - Batch fetch multiple specific events by URLs
 
-### CardDAV Tools (7 tools)
+### CardDAV Tools (8 tools)
 
-11. **list_addressbooks** - List all available address books
-12. **list_contacts** - List ALL contacts (⚠️ WARNING: use addressbook_query for filtered searches)
-13. **create_contact** - Create a new contact (vCard)
-14. **update_contact** - Update an existing contact
-15. **delete_contact** - Delete a contact permanently
-16. **addressbook_query** - ⭐ PREFERRED: Search and filter contacts efficiently by name, email, or organization
-17. **addressbook_multi_get** - Batch fetch multiple specific contacts by URLs
+12. **list_addressbooks** - List all available address books
+13. **list_contacts** - List ALL contacts (⚠️ WARNING: use addressbook_query for filtered searches)
+14. **create_contact** - Create a new contact (vCard)
+15. **update_contact** - ⭐ PREFERRED: Update contact fields (name, email, phone, etc.) without vCard formatting
+16. **update_contact_raw** - Update contact with raw vCard data (advanced)
+17. **delete_contact** - Delete a contact permanently
+18. **addressbook_query** - ⭐ PREFERRED: Search and filter contacts efficiently by name, email, or organization
+19. **addressbook_multi_get** - Batch fetch multiple specific contacts by URLs
 
-### VTODO Tools (6 tools)
+### VTODO Tools (7 tools)
 
-18. **list_todos** - List ALL todos/tasks (⚠️ WARNING: use todo_query for filtered searches)
-19. **create_todo** - Create a new todo/task with optional due date, priority, status
-20. **update_todo** - Update existing todo (e.g., mark completed, change status)
-21. **delete_todo** - Delete a todo/task permanently
-22. **todo_query** - ⭐ PREFERRED: Search and filter todos efficiently by status/due date
-23. **todo_multi_get** - Batch fetch multiple specific todos by URLs
+20. **list_todos** - List ALL todos/tasks (⚠️ WARNING: use todo_query for filtered searches)
+21. **create_todo** - Create a new todo/task with optional due date, priority, status
+22. **update_todo** - ⭐ PREFERRED: Update todo fields (summary, description) without iCal formatting
+23. **update_todo_raw** - Update todo with raw VTODO iCal data (advanced)
+24. **delete_todo** - Delete a todo/task permanently
+25. **todo_query** - ⭐ PREFERRED: Search and filter todos efficiently by status/due date
+26. **todo_multi_get** - Batch fetch multiple specific todos by URLs
 
 ---
 
@@ -130,7 +135,7 @@ CALDAV_PASSWORD=your_password
 # MCP Server
 PORT=3000
 MCP_SERVER_NAME=dav-mcp
-MCP_SERVER_VERSION=2.5.1
+MCP_SERVER_VERSION=2.6.0
 
 # Authentication (optional)
 BEARER_TOKEN=your-secure-token-here
