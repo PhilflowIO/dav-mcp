@@ -1,0 +1,61 @@
+{
+  "metadata": {
+    "version": "MVP",
+    "total_tests": 3,
+    "categories": {
+      "update-fields": 3
+    },
+    "description": "Tests for update_event tool (field-based) - MVP with summary/description only"
+  },
+  "test_cases": [
+    {
+      "id": "update-fields-001",
+      "category": "update-fields",
+      "name": "Update event summary only",
+      "user_query": "I need to change the title of my event at http://baikal.philflow.me/dav.php/calendars/radicale_admin/calendar-test/test-event-001.ics (etag: 'abc123') to 'New Meeting Title'",
+      "expected_tool": "update_event",
+      "expected_parameters": {
+        "event_url": "http://baikal.philflow.me/dav.php/calendars/radicale_admin/calendar-test/test-event-001.ics",
+        "event_etag": "abc123",
+        "fields": {
+          "summary": "New Meeting Title"
+        }
+      },
+      "rationale": "LLM should use update_event (field-based) for simple title change instead of update_event_raw (iCal)",
+      "difficulty": "easy"
+    },
+    {
+      "id": "update-fields-002",
+      "category": "update-fields",
+      "name": "Update event description only",
+      "user_query": "Update the description of my event at http://baikal.philflow.me/dav.php/calendars/radicale_admin/calendar-test/test-event-002.ics (etag: 'xyz789') to say 'This is the new meeting description with all the important details'",
+      "expected_tool": "update_event",
+      "expected_parameters": {
+        "event_url": "http://baikal.philflow.me/dav.php/calendars/radicale_admin/calendar-test/test-event-002.ics",
+        "event_etag": "xyz789",
+        "fields": {
+          "description": "This is the new meeting description with all the important details"
+        }
+      },
+      "rationale": "Description-only updates should use field-based approach",
+      "difficulty": "easy"
+    },
+    {
+      "id": "update-fields-003",
+      "category": "update-fields",
+      "name": "Update both summary and description",
+      "user_query": "For the event at http://baikal.philflow.me/dav.php/calendars/radicale_admin/calendar-test/test-event-003.ics (etag: 'both456'), change the title to 'Sprint Planning' and set the description to 'Planning session for next 2-week sprint - discuss goals and assignments'",
+      "expected_tool": "update_event",
+      "expected_parameters": {
+        "event_url": "http://baikal.philflow.me/dav.php/calendars/radicale_admin/calendar-test/test-event-003.ics",
+        "event_etag": "both456",
+        "fields": {
+          "summary": "Sprint Planning",
+          "description": "Planning session for next 2-week sprint - discuss goals and assignments"
+        }
+      },
+      "rationale": "Multiple field updates should use update_event (PREFERRED over update_event_raw)",
+      "difficulty": "medium"
+    }
+  ]
+}

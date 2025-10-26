@@ -325,7 +325,8 @@ class MCPTestRunner {
     const {
       categories = null, // Filter by categories: ['caldav', 'carddav', 'vtodo', 'edge_cases']
       testIds = null,    // Filter by specific test IDs
-      maxTests = null    // Limit number of tests to run
+      maxTests = null,   // Limit number of tests to run
+      testFile = null    // Custom test file path (overrides default test-cases.json)
     } = options;
 
     console.log('\n' + '='.repeat(80));
@@ -336,7 +337,7 @@ class MCPTestRunner {
     console.log(`Success threshold: ${(this.config.successThreshold * 100).toFixed(0)}%`);
     console.log('='.repeat(80));
 
-    let testCases = this.loadTestCases();
+    let testCases = this.loadTestCases(testFile);
 
     // Apply filters
     if (categories) {
@@ -586,7 +587,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const options = {
     categories: process.env.CATEGORIES ? process.env.CATEGORIES.split(',') : null,
     testIds: process.env.TEST_IDS ? process.env.TEST_IDS.split(',') : null,
-    maxTests: process.env.MAX_TESTS ? parseInt(process.env.MAX_TESTS) : null
+    maxTests: process.env.MAX_TESTS ? parseInt(process.env.MAX_TESTS) : null,
+    testFile: args[0] || null  // Use first CLI argument as custom test file path
   };
 
   const runner = new MCPTestRunner(config);
