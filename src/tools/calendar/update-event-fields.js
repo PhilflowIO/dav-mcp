@@ -2,8 +2,7 @@ import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput } from '../../validation.js';
 import { formatSuccess, formatError } from '../../formatters.js';
 import { z } from 'zod';
-import tsdavPkg from 'tsdav';
-const tsdavUpdateEventFields = tsdavPkg.updateEventFields;
+import { updateEventFields as tsdavUpdateEventFields } from 'tsdav';
 
 /**
  * Schema for field-based event updates
@@ -93,9 +92,6 @@ export const updateEventFields = {
       }
 
       // Step 3: Use tsdav's native updateEventFields function
-      if (typeof tsdavUpdateEventFields !== 'function') {
-        throw new Error(`tsdavUpdateEventFields is not a function. Type: ${typeof tsdavUpdateEventFields}`);
-      }
       const result = tsdavUpdateEventFields(calendarObject, tsdavFields);
 
       // Step 4: Send the updated event back to server
