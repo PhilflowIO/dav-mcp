@@ -3,7 +3,7 @@ import { validateInput } from '../../validation.js';
 import { formatSuccess, formatError } from '../../formatters.js';
 import { z } from 'zod';
 import tsdavPkg from 'tsdav';
-const { updateVCardFields: tsdavUpdateVCardFields } = tsdavPkg;
+const tsdavUpdateVCardFields = tsdavPkg.updateVCardFields;
 
 /**
  * Schema for field-based vCard updates

@@ -3,7 +3,7 @@ import { validateInput } from '../../validation.js';
 import { formatSuccess, formatError } from '../../formatters.js';
 import { z } from 'zod';
 import tsdavPkg from 'tsdav';
-const { updateTodoFields: tsdavUpdateTodoFields } = tsdavPkg;
+const tsdavUpdateTodoFields = tsdavPkg.updateTodoFields;
 
 /**
  * Schema for field-based todo updates
