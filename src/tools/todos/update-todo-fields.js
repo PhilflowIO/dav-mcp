@@ -2,7 +2,8 @@ import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput } from '../../validation.js';
 import { formatSuccess, formatError } from '../../formatters.js';
 import { z } from 'zod';
-import { updateTodoFields as tsdavUpdateTodoFields } from 'tsdav';
+import tsdavPkg from 'tsdav';
+const { updateTodoFields: tsdavUpdateTodoFields } = tsdavPkg;
 
 /**
  * Schema for field-based todo updates

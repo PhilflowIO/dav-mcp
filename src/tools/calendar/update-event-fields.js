@@ -2,7 +2,8 @@ import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput } from '../../validation.js';
 import { formatSuccess, formatError } from '../../formatters.js';
 import { z } from 'zod';
-import { updateEventFields as tsdavUpdateEventFields } from 'tsdav';
+import tsdavPkg from 'tsdav';
+const { updateEventFields: tsdavUpdateEventFields } = tsdavPkg;
 
 /**
  * Schema for field-based event updates

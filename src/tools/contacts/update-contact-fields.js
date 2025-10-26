@@ -2,7 +2,8 @@ import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput } from '../../validation.js';
 import { formatSuccess, formatError } from '../../formatters.js';
 import { z } from 'zod';
-import { updateVCardFields as tsdavUpdateVCardFields } from 'tsdav';
+import tsdavPkg from 'tsdav';
+const { updateVCardFields: tsdavUpdateVCardFields } = tsdavPkg;
 
 /**
  * Schema for field-based vCard updates
