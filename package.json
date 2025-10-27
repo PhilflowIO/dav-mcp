@@ -65,7 +65,7 @@
     "express-rate-limit": "^8.1.0",
     "ical.js": "^2.2.1",
     "tsdav": "github:PhilflowIO/tsdav#master",
-    "tsdav-utils": "file:../tsdav_utils",
+    "tsdav-utils": "github:PhilflowIO/tsdav-utils#main",
     "zod": "^3.25.76"
   },
   "devDependencies": {
