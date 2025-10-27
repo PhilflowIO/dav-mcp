@@ -2,40 +2,32 @@ import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput } from '../../validation.js';
 import { formatSuccess, formatError } from '../../formatters.js';
 import { z } from 'zod';
-// Import using namespace import for maximum CommonJS/ESM compatibility
-import * as tsdavAll from 'tsdav';
-// Access as property - works in both ESM (named export) and CJS (exports.xxx)
-const tsdavUpdateTodoFields = tsdavAll.updateTodoFields;
+import { updateFields } from 'tsdav-utils';
 
 /**
  * Schema for field-based todo updates
- * Currently supports MVP fields from tsdav v2.2.0: SUMMARY and DESCRIPTION
- * Note: tsdav uses UPPERCASE field names internally for iCal compatibility
+ * Supports all RFC 5545 VTODO properties via tsdav-utils
+ * Common fields: SUMMARY, DESCRIPTION, STATUS, PRIORITY, DUE, PERCENT-COMPLETE
+ * Custom properties: Any X-* property
  */
 const updateTodoFieldsSchema = z.object({
   todo_url: z.string().url('Todo URL must be a valid URL'),
   todo_etag: z.string().min(1, 'Todo etag is required'),
-  fields: z.object({
-    summary: z.string().optional(),
-    description: z.string().optional(),
-    // Future fields (pending tsdav support):
-    // status: z.enum(['NEEDS-ACTION', 'IN-PROCESS', 'COMPLETED', 'CANCELLED']).optional(),
-    // due_date: z.string().optional(),
-    // priority: z.number().optional(),
-  }).optional()
+  fields: z.record(z.string()).optional()
 });
 
 /**
- * Wrapper for tsdav's native updateTodoFields function
- * Uses the field-based update implementation from tsdav v2.2.0 MVP
+ * Field-agnostic todo update tool powered by tsdav-utils
+ * Supports all RFC 5545 VTODO properties without validation
  *
- * Current MVP limitations:
- * - Only SUMMARY and DESCRIPTION fields are officially supported
- * - Other VTODO fields require using the full update_todo_raw tool
+ * Features:
+ * - Any standard VTODO property (SUMMARY, DESCRIPTION, STATUS, PRIORITY, DUE, etc.)
+ * - Custom X-* properties for extensions
+ * - Field-agnostic: no pre-defined field list required
  */
 export const updateTodoFields = {
   name: 'update_todo',
-  description: 'PREFERRED: Update todo fields (summary, description) easily without iCal formatting. Use this for simple todo updates. For advanced VTODO properties, use update_todo_raw instead. Currently supports summary and description fields only.',
+  description: 'PREFERRED: Update todo fields without iCal formatting. Supports: SUMMARY (title), DESCRIPTION (details), STATUS (NEEDS-ACTION/IN-PROCESS/COMPLETED/CANCELLED), PRIORITY (0-9), DUE (due date), PERCENT-COMPLETE (0-100), and any RFC 5545 VTODO property including custom X-* properties.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -49,15 +41,34 @@ export const updateTodoFields = {
       },
       fields: {
         type: 'object',
-        description: 'Fields to update - only include fields you want to change. Currently supported: summary, description',
+        description: 'Fields to update - use UPPERCASE property names (e.g., SUMMARY, STATUS, PRIORITY). Any RFC 5545 VTODO property or custom X-* property is supported.',
+        additionalProperties: {
+          type: 'string'
+        },
         properties: {
-          summary: {
+          SUMMARY: {
             type: 'string',
-            description: 'Todo title/summary - the main heading shown in task lists'
+            description: 'Todo title/summary'
           },
-          description: {
+          DESCRIPTION: {
             type: 'string',
-            description: 'Todo description - detailed information about the task'
+            description: 'Todo description/details'
+          },
+          STATUS: {
+            type: 'string',
+            description: 'Todo status: NEEDS-ACTION, IN-PROCESS, COMPLETED, or CANCELLED'
+          },
+          PRIORITY: {
+            type: 'string',
+            description: 'Priority level: 0 (undefined), 1 (highest) to 9 (lowest)'
+          },
+          DUE: {
+            type: 'string',
+            description: 'Due date (ISO 8601 or iCal format: 20250128T100000Z)'
+          },
+          'PERCENT-COMPLETE': {
+            type: 'string',
+            description: 'Completion percentage: 0-100'
           }
         }
       }
@@ -82,35 +93,23 @@ export const updateTodoFields = {
 
       const todoObject = currentTodos[0];
 
-      // Step 2: Transform snake_case field names to UPPERCASE for tsdav
-      // tsdav's updateTodoFields expects UPPERCASE iCal property names
-      const tsdavFields = {};
-      if (validated.fields) {
-        if (validated.fields.summary !== undefined) {
-          tsdavFields.summary = validated.fields.summary;
-        }
-        if (validated.fields.description !== undefined) {
-          tsdavFields.description = validated.fields.description;
-        }
-      }
+      // Step 2: Update fields using tsdav-utils (field-agnostic)
+      // Accepts any RFC 5545 VTODO property name (UPPERCASE)
+      const updatedData = updateFields(todoObject, validated.fields || {});
 
-      // Step 3: Use tsdav's native updateTodoFields function
-      const result = tsdavUpdateTodoFields(todoObject, tsdavFields);
-
-      // Step 4: Send the updated todo back to server
+      // Step 3: Send the updated todo back to server
       const updateResponse = await client.updateTodo({
         todo: {
           url: validated.todo_url,
-          data: result.data,
+          data: updatedData,
           etag: validated.todo_etag
         }
       });
 
       return formatSuccess('Todo updated successfully', {
         etag: updateResponse.etag,
-        updated_fields: Object.keys(tsdavFields),
-        modified: result.modified,
-        warnings: result.warnings
+        updated_fields: Object.keys(validated.fields || {}),
+        message: `Updated ${Object.keys(validated.fields || {}).length} field(s): ${Object.keys(validated.fields || {}).join(', ')}`
       });
 
     } catch (error) {
