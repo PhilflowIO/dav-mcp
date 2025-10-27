@@ -20,7 +20,7 @@ When partial tools force your AI to improvise, complete tools let it **execute p
 | **Calendar Management** | ✅ Full CRUD (11 tools) | ⚠️ Create + list only (2-3 tools) |
 | **Contact Management** | ✅ Complete CardDAV (8 tools) | ❌ Often missing entirely |
 | **Task Management** | ✅ Full VTODO support (7 tools) | ❌ Rarely included |
-| **Field-Based Updates** | ✅ LLM-friendly (no iCal/vCard format) | ❌ Rarely available |
+| **Field-Based Updates** | ✅ All RFC properties + custom fields | ❌ Rarely available |
 | **Server-Side Filtering** | ✅ Efficient queries | ❌ Dumps all data |
 | **Multi-Provider** | ✅ Any CalDAV/CardDAV server | ⚠️ Limited provider support |
 | **Total Tools** | **26 tools** | **2-6 tools** |
@@ -35,7 +35,7 @@ When partial tools force your AI to improvise, complete tools let it **execute p
 - **CalDAV Integration**: ~88% tsdav coverage (11 tools)
 - **CardDAV Integration**: 100% tsdav coverage (8 tools)
 - **VTODO Support**: Full task management with status, priorities, due dates (7 tools)
-- **Field-Based Updates**: LLM-friendly update tools (no iCal/vCard formatting required)
+- **Field-Based Updates**: Field-agnostic updates via tsdav-utils - supports all RFC 5545/6350 properties + custom X-* fields
 - **RFC-Compliant**: ical.js for RFC 5545 (iCalendar) and RFC 6350 (vCard) support
 
 ### Production-Ready Infrastructure
@@ -61,7 +61,7 @@ When partial tools force your AI to improvise, complete tools let it **execute p
 1. **list_calendars** - List all available calendars
 2. **list_events** - List ALL events (⚠️ WARNING: use calendar_query for filtered searches)
 3. **create_event** - Create a new calendar event
-4. **update_event** - ⭐ PREFERRED: Update event fields (summary, description) without iCal formatting
+4. **update_event** - ⭐ PREFERRED: Update any event field (SUMMARY, LOCATION, DTSTART, STATUS, custom X-* properties)
 5. **update_event_raw** - Update event with raw iCal data (advanced)
 6. **delete_event** - Delete an event permanently
 7. **calendar_query** - ⭐ PREFERRED: Search and filter events efficiently by text, date range, or location
@@ -75,7 +75,7 @@ When partial tools force your AI to improvise, complete tools let it **execute p
 12. **list_addressbooks** - List all available address books
 13. **list_contacts** - List ALL contacts (⚠️ WARNING: use addressbook_query for filtered searches)
 14. **create_contact** - Create a new contact (vCard)
-15. **update_contact** - ⭐ PREFERRED: Update contact fields (name, email, phone, etc.) without vCard formatting
+15. **update_contact** - ⭐ PREFERRED: Update any contact field (FN, EMAIL, TEL, ORG, ADR, custom X-* properties)
 16. **update_contact_raw** - Update contact with raw vCard data (advanced)
 17. **delete_contact** - Delete a contact permanently
 18. **addressbook_query** - ⭐ PREFERRED: Search and filter contacts efficiently by name, email, or organization
@@ -85,7 +85,7 @@ When partial tools force your AI to improvise, complete tools let it **execute p
 
 20. **list_todos** - List ALL todos/tasks (⚠️ WARNING: use todo_query for filtered searches)
 21. **create_todo** - Create a new todo/task with optional due date, priority, status
-22. **update_todo** - ⭐ PREFERRED: Update todo fields (summary, description) without iCal formatting
+22. **update_todo** - ⭐ PREFERRED: Update any todo field (SUMMARY, STATUS, PRIORITY, DUE, PERCENT-COMPLETE, custom X-* properties)
 23. **update_todo_raw** - Update todo with raw VTODO iCal data (advanced)
 24. **delete_todo** - Delete a todo/task permanently
 25. **todo_query** - ⭐ PREFERRED: Search and filter todos efficiently by status/due date
@@ -248,6 +248,7 @@ MIT License - see [LICENSE](LICENSE) for details
 
 Built with:
 - **[tsdav](https://github.com/natelindev/tsdav)** - Excellent TypeScript CalDAV/CardDAV library
+- **[tsdav-utils](https://github.com/PhilflowIO/tsdav-utils)** - Field-agnostic utility layer for RFC-compliant field updates
 - **[MCP SDK](https://modelcontextprotocol.io)** - Model Context Protocol by Anthropic
 - **[ical.js](https://github.com/kewisch/ical.js)** - RFC-compliant iCalendar parser
 
