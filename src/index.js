@@ -10,6 +10,7 @@ import { tsdavManager } from './tsdav-client.js';
 import { tools } from './tools/index.js';
 import { createToolErrorResponse, createHTTPErrorResponse, AuthenticationError, MCP_ERROR_CODES } from './error-handler.js';
 import { logger, createSessionLogger, createRequestLogger } from './logger.js';
+import { initializeToolCallLogger, getToolCallLogger } from './tool-call-logger.js';
 
 // Load environment variables
 dotenv.config();
@@ -193,6 +194,7 @@ function createMCPServer(sessionId) {
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const requestId = crypto.randomUUID();
     const requestLogger = createRequestLogger(requestId, { sessionId });
+    const toolCallLogger = getToolCallLogger();
 
     const toolName = request.params.name;
     const args = request.params.arguments || {};
@@ -207,13 +209,40 @@ function createMCPServer(sessionId) {
       throw error;
     }
 
+    // Log tool call start
+    const startTime = Date.now();
+    toolCallLogger.logToolCallStart(toolName, args, {
+      sessionId,
+      requestId
+    });
+
     try {
       requestLogger.debug({ tool: toolName }, 'Executing tool');
       const result = await tool.handler(args);
+      const duration = Date.now() - startTime;
+
       requestLogger.info({ tool: toolName }, 'Tool executed successfully');
+
+      // Log tool call success
+      toolCallLogger.logToolCallSuccess(toolName, args, result, {
+        sessionId,
+        requestId,
+        duration
+      });
+
       return result;
     } catch (error) {
+      const duration = Date.now() - startTime;
+
       requestLogger.error({ tool: toolName, error: error.message, stack: error.stack }, 'Tool execution error');
+
+      // Log tool call error
+      toolCallLogger.logToolCallError(toolName, args, error, {
+        sessionId,
+        requestId,
+        duration
+      });
+
       return createToolErrorResponse(error, process.env.NODE_ENV === 'development');
     }
   });
@@ -465,6 +494,14 @@ async function start() {
 
   // Initialize tsdav clients
   await initializeTsdav();
+
+  // Initialize tool call logger
+  const toolCallLogger = initializeToolCallLogger();
+  logger.info({
+    enabled: toolCallLogger.enabled,
+    mode: toolCallLogger.outputMode,
+    logFile: toolCallLogger.logFile
+  }, 'Tool call logger initialized');
 
   // Start session cleanup interval
   cleanupInterval = setInterval(cleanupExpiredSessions, SESSION_CLEANUP_INTERVAL);
