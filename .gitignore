@@ -33,9 +33,13 @@ full-test.js
 # tsdav library (npm dependency)
 tsdav/
 
-# Internal development guides
+# Internal development guides (keep local only, never commit)
 CLAUDE.md
+GIT_WORKFLOW.md
+RESEARCH_FINDINGS.md
 COMPATIBILITY.md
+INTEGRATION_NOTES.md
+MIGRATION_*.md
 
 # Test artifacts
 tests/integration/test-results-*.json
