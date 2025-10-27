@@ -2,78 +2,32 @@ import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput } from '../../validation.js';
 import { formatSuccess, formatError } from '../../formatters.js';
 import { z } from 'zod';
-import ICAL from 'ical.js';
-// Import using namespace import for maximum CommonJS/ESM compatibility
-import * as tsdavAll from 'tsdav';
-// Access as property - works in both ESM (named export) and CJS (exports.xxx)
-const tsdavUpdateEventFields = tsdavAll.updateEventFields;
-
-/**
- * Manual iCal field update function as fallback
- * Updates specific fields in an iCal string when tsdav's updateEventFields is not available
- */
-function manualUpdateEventFields(calendarObject, fields) {
-  const jcalData = ICAL.parse(calendarObject.data);
-  const comp = new ICAL.Component(jcalData);
-  const vevent = comp.getFirstSubcomponent('vevent');
-  
-  if (!vevent) {
-    throw new Error('No VEVENT component found in calendar object');
-  }
-  
-  const modified = [];
-  const warnings = [];
-  
-  // Update fields
-  if (fields.summary !== undefined) {
-    vevent.updatePropertyWithValue('summary', fields.summary);
-    modified.push('summary');
-  }
-  
-  if (fields.description !== undefined) {
-    vevent.updatePropertyWithValue('description', fields.description);
-    modified.push('description');
-  }
-  
-  // Convert back to iCal string
-  const updatedData = comp.toString();
-  
-  return {
-    data: updatedData,
-    modified,
-    warnings
-  };
-}
+import { updateFields } from 'tsdav-utils';
 
 /**
  * Schema for field-based event updates
- * Currently supports MVP fields from tsdav v2.2.0: SUMMARY and DESCRIPTION
- * Note: tsdav uses UPPERCASE field names internally for iCal compatibility
+ * Supports all RFC 5545 iCalendar properties via tsdav-utils
+ * Common fields: SUMMARY, DESCRIPTION, LOCATION, DTSTART, DTEND, STATUS
+ * Custom properties: Any X-* property
  */
 const updateEventFieldsSchema = z.object({
   event_url: z.string().url('Event URL must be a valid URL'),
   event_etag: z.string().min(1, 'Event etag is required'),
-  fields: z.object({
-    summary: z.string().optional(),
-    description: z.string().optional(),
-    // Future fields (pending tsdav support):
-    // location: z.string().optional(),
-    // start_date: z.string().optional(),
-    // end_date: z.string().optional(),
-  }).optional()
+  fields: z.record(z.string()).optional()
 });
 
 /**
- * Wrapper for tsdav's native updateEventFields function
- * Uses the field-based update implementation from tsdav v2.2.0 MVP
+ * Field-agnostic event update tool powered by tsdav-utils
+ * Supports all RFC 5545 iCalendar properties without validation
  *
- * Current MVP limitations:
- * - Only SUMMARY and DESCRIPTION fields are officially supported
- * - Other iCal fields require using the full update_event tool
+ * Features:
+ * - Any standard VEVENT property (SUMMARY, DESCRIPTION, LOCATION, DTSTART, etc.)
+ * - Custom X-* properties for extensions
+ * - Field-agnostic: no pre-defined field list required
  */
 export const updateEventFields = {
   name: 'update_event',
-  description: 'PREFERRED: Update event fields (summary, description) easily without iCal formatting. Use this for simple event updates. For advanced iCal properties, use update_event_raw instead. Currently supports summary and description fields only.',
+  description: 'PREFERRED: Update event fields without iCal formatting. Supports: SUMMARY (title), DESCRIPTION (details), LOCATION (place), DTSTART (start time), DTEND (end time), STATUS (TENTATIVE/CONFIRMED/CANCELLED), and any RFC 5545 property including custom X-* properties (e.g., X-ZOOM-LINK, X-MEETING-ROOM).',
   inputSchema: {
     type: 'object',
     properties: {
@@ -87,15 +41,34 @@ export const updateEventFields = {
       },
       fields: {
         type: 'object',
-        description: 'Fields to update - only include fields you want to change. Currently supported: summary, description',
+        description: 'Fields to update - use UPPERCASE property names (e.g., SUMMARY, LOCATION, DTSTART). Any RFC 5545 property or custom X-* property is supported.',
+        additionalProperties: {
+          type: 'string'
+        },
         properties: {
-          summary: {
+          SUMMARY: {
             type: 'string',
-            description: 'Event title/summary - the main heading shown in calendars'
+            description: 'Event title/summary'
           },
-          description: {
+          DESCRIPTION: {
             type: 'string',
-            description: 'Event description - detailed information about the event'
+            description: 'Event description/details'
+          },
+          LOCATION: {
+            type: 'string',
+            description: 'Physical or virtual meeting location'
+          },
+          DTSTART: {
+            type: 'string',
+            description: 'Start datetime (ISO 8601 or iCal format: 20250128T100000Z)'
+          },
+          DTEND: {
+            type: 'string',
+            description: 'End datetime (ISO 8601 or iCal format)'
+          },
+          STATUS: {
+            type: 'string',
+            description: 'Event status: TENTATIVE, CONFIRMED, or CANCELLED'
           }
         }
       }
@@ -120,42 +93,23 @@ export const updateEventFields = {
 
       const calendarObject = currentEvents[0];
 
-      // Step 2: Transform snake_case field names to UPPERCASE for tsdav
-      // tsdav's updateEventFields expects UPPERCASE iCal property names
-      const tsdavFields = {};
-      if (validated.fields) {
-        if (validated.fields.summary !== undefined) {
-          tsdavFields.summary = validated.fields.summary;
-        }
-        if (validated.fields.description !== undefined) {
-          tsdavFields.description = validated.fields.description;
-        }
-      }
+      // Step 2: Update fields using tsdav-utils (field-agnostic)
+      // Accepts any RFC 5545 property name (UPPERCASE)
+      const updatedData = updateFields(calendarObject, validated.fields || {});
 
-      // Step 3: Use tsdav's native updateEventFields function or fallback to manual implementation
-      let result;
-      if (typeof tsdavUpdateEventFields === 'function') {
-        // Use tsdav's native function if available
-        result = tsdavUpdateEventFields(calendarObject, tsdavFields);
-      } else {
-        // Fallback to manual iCal manipulation
-        result = manualUpdateEventFields(calendarObject, tsdavFields);
-      }
-
-      // Step 4: Send the updated event back to server
+      // Step 3: Send the updated event back to server
       const updateResponse = await client.updateCalendarObject({
         calendarObject: {
           url: validated.event_url,
-          data: result.data,
+          data: updatedData,
           etag: validated.event_etag
         }
       });
 
       return formatSuccess('Event updated successfully', {
         etag: updateResponse.etag,
-        updated_fields: Object.keys(tsdavFields),
-        modified: result.modified,
-        warnings: result.warnings
+        updated_fields: Object.keys(validated.fields || {}),
+        message: `Updated ${Object.keys(validated.fields || {}).length} field(s): ${Object.keys(validated.fields || {}).join(', ')}`
       });
 
     } catch (error) {
