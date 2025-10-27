@@ -2,48 +2,32 @@ import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput } from '../../validation.js';
 import { formatSuccess, formatError } from '../../formatters.js';
 import { z } from 'zod';
-// Import using namespace import for maximum CommonJS/ESM compatibility
-import * as tsdavAll from 'tsdav';
-// Access as property - works in both ESM (named export) and CJS (exports.xxx)
-const tsdavUpdateVCardFields = tsdavAll.updateVCardFields;
+import { updateFields } from 'tsdav-utils';
 
 /**
  * Schema for field-based vCard updates
- * Supports all major vCard fields from tsdav v2.2.0
+ * Supports all RFC 6350 vCard properties via tsdav-utils
+ * Common fields: FN, N, EMAIL, TEL, ORG, TITLE, NOTE, URL, ADR
+ * Custom properties: Any X-* property
  */
 const updateContactFieldsSchema = z.object({
   vcard_url: z.string().url('vCard URL must be a valid URL'),
   vcard_etag: z.string().min(1, 'vCard etag is required'),
-  fields: z.object({
-    full_name: z.string().optional(),     // FN (Formatted Name) - required in vCard
-    family_name: z.string().optional(),   // N - Family name
-    given_name: z.string().optional(),    // N - Given name
-    email: z.string().optional(),         // EMAIL
-    phone: z.string().optional(),         // TEL
-    organization: z.string().optional(),  // ORG
-    title: z.string().optional(),         // TITLE (job title)
-    note: z.string().optional(),          // NOTE
-    url: z.string().optional(),           // URL
-  }).optional()
+  fields: z.record(z.string()).optional()
 });
 
 /**
- * Wrapper for tsdav's native updateVCardFields function
- * Uses the field-based update implementation from tsdav v2.2.0
+ * Field-agnostic contact update tool powered by tsdav-utils
+ * Supports all RFC 6350 vCard properties without validation
  *
- * Supported fields:
- * - full_name (FN - formatted name, required)
- * - family_name, given_name (N - structured name)
- * - email (EMAIL)
- * - phone (TEL)
- * - organization (ORG)
- * - title (TITLE - job title)
- * - note (NOTE)
- * - url (URL)
+ * Features:
+ * - Any standard vCard property (FN, N, EMAIL, TEL, ORG, TITLE, ADR, etc.)
+ * - Custom X-* properties for extensions
+ * - Field-agnostic: no pre-defined field list required
  */
 export const updateContactFields = {
   name: 'update_contact',
-  description: 'PREFERRED: Update contact fields (name, email, phone, organization, etc.) easily without vCard formatting. Use this for simple contact updates. For advanced vCard properties, use update_contact_raw instead. Supports: full_name, email, phone, organization, title, note, url.',
+  description: 'PREFERRED: Update contact fields without vCard formatting. Supports: FN (full name), N (structured name), EMAIL, TEL (phone), ORG (organization), TITLE (job title), NOTE, URL, ADR (address), BDAY (birthday), and any RFC 6350 vCard property including custom X-* properties.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -57,43 +41,50 @@ export const updateContactFields = {
       },
       fields: {
         type: 'object',
-        description: 'Fields to update - only include fields you want to change',
+        description: 'Fields to update - use UPPERCASE property names (e.g., FN, EMAIL, TEL). Any RFC 6350 vCard property or custom X-* property is supported.',
+        additionalProperties: {
+          type: 'string'
+        },
         properties: {
-          full_name: {
+          FN: {
             type: 'string',
             description: 'Full formatted name (e.g., "John Doe")'
           },
-          family_name: {
+          N: {
             type: 'string',
-            description: 'Family/last name'
+            description: 'Structured name (format: "Family;Given;Additional;Prefix;Suffix")'
           },
-          given_name: {
-            type: 'string',
-            description: 'Given/first name'
-          },
-          email: {
+          EMAIL: {
             type: 'string',
             description: 'Email address'
           },
-          phone: {
+          TEL: {
             type: 'string',
             description: 'Phone number'
           },
-          organization: {
+          ORG: {
             type: 'string',
             description: 'Organization/company name'
           },
-          title: {
+          TITLE: {
             type: 'string',
             description: 'Job title'
           },
-          note: {
+          NOTE: {
             type: 'string',
             description: 'Notes/comments'
           },
-          url: {
+          URL: {
             type: 'string',
             description: 'Web URL'
+          },
+          ADR: {
+            type: 'string',
+            description: 'Address (format: "POBox;Extended;Street;City;Region;PostalCode;Country")'
+          },
+          BDAY: {
+            type: 'string',
+            description: 'Birthday (ISO 8601 format: 1990-01-01)'
           }
         }
       }
@@ -118,45 +109,15 @@ export const updateContactFields = {
 
       const vCardObject = currentVCards[0];
 
-      // Step 2: Transform snake_case field names to vCard property names
-      // Map our API field names to tsdav's expected vCard field names
-      const tsdavFields = {};
-      if (validated.fields) {
-        if (validated.fields.full_name !== undefined) {
-          tsdavFields.FN = validated.fields.full_name;
-        }
-        if (validated.fields.family_name !== undefined || validated.fields.given_name !== undefined) {
-          // N field format: "Family;Given;Additional;Prefix;Suffix"
-          tsdavFields.N = `${validated.fields.family_name || ''};${validated.fields.given_name || ''};;;`;
-        }
-        if (validated.fields.email !== undefined) {
-          tsdavFields.EMAIL = validated.fields.email;
-        }
-        if (validated.fields.phone !== undefined) {
-          tsdavFields.TEL = validated.fields.phone;
-        }
-        if (validated.fields.organization !== undefined) {
-          tsdavFields.ORG = validated.fields.organization;
-        }
-        if (validated.fields.title !== undefined) {
-          tsdavFields.TITLE = validated.fields.title;
-        }
-        if (validated.fields.note !== undefined) {
-          tsdavFields.NOTE = validated.fields.note;
-        }
-        if (validated.fields.url !== undefined) {
-          tsdavFields.URL = validated.fields.url;
-        }
-      }
+      // Step 2: Update fields using tsdav-utils (field-agnostic)
+      // Accepts any RFC 6350 vCard property name (UPPERCASE)
+      const updatedData = updateFields(vCardObject, validated.fields || {});
 
-      // Step 3: Use tsdav's native updateVCardFields function
-      const result = tsdavUpdateVCardFields(vCardObject, tsdavFields);
-
-      // Step 4: Send the updated vCard back to server
+      // Step 3: Send the updated vCard back to server
       const updateResponse = await client.updateVCard({
         vCard: {
           url: validated.vcard_url,
-          data: result.data,
+          data: updatedData,
           etag: validated.vcard_etag
         }
       });
@@ -164,8 +125,7 @@ export const updateContactFields = {
       return formatSuccess('Contact updated successfully', {
         etag: updateResponse.etag,
         updated_fields: Object.keys(validated.fields || {}),
-        modified: result.modified,
-        warnings: result.warnings
+        message: `Updated ${Object.keys(validated.fields || {}).length} field(s): ${Object.keys(validated.fields || {}).join(', ')}`
       });
 
     } catch (error) {
