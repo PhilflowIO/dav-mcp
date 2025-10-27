@@ -8,13 +8,13 @@ import { buildTimeRangeOptions } from '../shared/helpers.js';
  */
 export const calendarQuery = {
   name: 'calendar_query',
-  description: 'PREFERRED: Search and filter calendar events efficiently by text (summary/title), date range, or location. Use this instead of list_events when user asks "find events with X" or "show me events containing Y" to avoid loading thousands of events. Much more token-efficient than list_events. IMPORTANT: When user asks about "today", "tomorrow", "this week" etc., you MUST calculate the correct date range in ISO 8601 format (e.g., 2025-10-08T00:00:00.000Z for tomorrow). If calendar_url is not provided, searches across ALL calendars automatically.',
+  description: 'PREFERRED: Search and filter calendar events efficiently by text (summary/title), date range, or location. Use this instead of list_events when user asks "find events with X" or "show me events containing Y" to avoid loading thousands of events. Much more token-efficient than list_events. IMPORTANT: When user asks about "today", "tomorrow", "this week" etc., you MUST calculate the correct date range in ISO 8601 format (e.g., 2025-10-08T00:00:00.000Z for tomorrow). ⚠️ FOR SEARCHES: OMIT calendar_url to search across ALL calendars automatically. DO NOT call list_calendars first and then provide a calendar_url - this limits the search to one calendar and will miss events in other calendars. Only provide calendar_url if user explicitly mentions a specific calendar name.',
   inputSchema: {
     type: 'object',
     properties: {
       calendar_url: {
         type: 'string',
-        description: 'Optional: The URL of a specific calendar to query. If omitted, searches across ALL available calendars.',
+        description: '⚠️ USUALLY OMIT THIS for searches! If omitted, searches across ALL available calendars. Only provide if user explicitly specifies a calendar name (e.g., "in my work calendar"). DO NOT use list_calendars and then pick one - that defeats the purpose of cross-calendar search.',
       },
       time_range_start: {
         type: 'string',
