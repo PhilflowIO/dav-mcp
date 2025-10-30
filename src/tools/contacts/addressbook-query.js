@@ -1,14 +1,13 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, addressBookQuerySchema } from '../../validation.js';
 import { formatContactList } from '../../formatters.js';
-import { findAddressbookOrThrow } from '../shared/helpers.js';
 
 /**
  * Search and filter contacts efficiently
  */
 export const addressbookQuery = {
   name: 'addressbook_query',
-  description: 'PREFERRED: Search and filter contacts efficiently by name (full/given/family), email, or organization. Use this instead of list_contacts when user asks "find contacts with X" or "show me contacts at Y company" to avoid loading thousands of contacts. Much more token-efficient than list_contacts',
+  description: '⭐ PREFERRED: Search and filter contacts efficiently. Use instead of list_contacts to avoid loading all entries. Omit addressbook_url to search across ALL addressbooks automatically.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -29,17 +28,30 @@ export const addressbookQuery = {
         description: 'Optional: Filter by organization/company (case-insensitive substring match). Use when user asks "find contacts at company X" or "show me people at Google"',
       },
     },
-    required: ['addressbook_url'],
+    required: [],
   },
   handler: async (args) => {
     const validated = validateInput(addressBookQuerySchema, args);
     const client = tsdavManager.getCardDavClient();
     const addressBooks = await client.fetchAddressBooks();
-    const addressBook = findAddressbookOrThrow(addressBooks, validated.addressbook_url);
 
-    const vcards = await client.fetchVCards({ addressBook });
+    // Resolve which addressbooks to search (all or specific)
+    const addressbooksToSearch = validated.addressbook_url
+      ? addressBooks.filter(ab => ab.url === validated.addressbook_url)
+      : addressBooks;
 
-    let filteredContacts = vcards;
+    // Collect all vcards from all selected addressbooks
+    let allVCards = [];
+    for (const addressBook of addressbooksToSearch) {
+      const vcards = await client.fetchVCards({ addressBook });
+      // Add addressbook context for display
+      vcards.forEach(vcard => {
+        vcard._addressbookName = addressBook.displayName || addressBook.url;
+      });
+      allVCards = allVCards.concat(vcards);
+    }
+
+    let filteredContacts = allVCards;
 
     if (validated.name_filter) {
       const nameLower = validated.name_filter.toLowerCase();
@@ -66,6 +78,8 @@ export const addressbookQuery = {
       });
     }
 
-    return formatContactList(filteredContacts, addressBook);
+    // Format and return results (pass first addressbook for context, or null if multiple)
+    const singleAddressbook = addressbooksToSearch.length === 1 ? addressbooksToSearch[0] : null;
+    return formatContactList(filteredContacts, singleAddressbook);
   },
 };
