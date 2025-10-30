@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.7.0] - 2025-10-30
+
+### Added
+- **OAuth2 Authentication Support**: Full OAuth2 support for Google Calendar and other OAuth2-enabled CalDAV servers
+  - New `AUTH_METHOD` environment variable to switch between Basic Auth and OAuth2
+  - Support for Google Calendar via OAuth2 with automatic token refresh
+  - CalDAV discovery via RFC 4791 (no Google Calendar API required)
+  - Tested with Google Calendar (5 calendars discovered and fully functional)
+  - All CRUD operations (Create, Read, Update, Delete) working with OAuth2
+- OAuth2 test suite with 10 comprehensive test cases
+- OAuth2 configuration in `.env.example` with detailed setup instructions
+
 ### Changed
 - **Field-agnostic updates**: Integrated tsdav-utils for universal field update support
   - `update_event` now supports all RFC 5545 iCalendar properties (SUMMARY, DESCRIPTION, LOCATION, DTSTART, DTEND, STATUS, etc.)
@@ -16,22 +28,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Replaced manual iCal/vCard string manipulation with structured field updates via tsdav-utils
 - Simplified update tool implementations (reduced code by 40-45% per tool)
 - Updated input schemas to accept any RFC property name (field-agnostic validation)
-
-### Added
-- **New dependency**: tsdav-utils v0.1.0 for field-based calendar/contact operations
-- Support for updating event locations (LOCATION field)
-- Support for updating event date/time (DTSTART, DTEND fields)
-- Support for updating event status (STATUS: TENTATIVE/CONFIRMED/CANCELLED)
-- Support for updating todo status (STATUS: NEEDS-ACTION/IN-PROCESS/COMPLETED/CANCELLED)
-- Support for updating todo priority (PRIORITY: 0-9)
-- Support for updating todo due dates (DUE field)
-- Support for updating todo completion percentage (PERCENT-COMPLETE: 0-100)
-- Support for updating contact addresses (ADR field)
-- Support for updating contact birthdays (BDAY field)
-- Support for custom X-* properties across all update tools
+- Enhanced `tsdav-client.js` to support both Basic Auth and OAuth2 authentication methods
+- Updated `index.js` initialization logic to auto-detect authentication method
 
 ### Dependencies
 - Added: tsdav-utils (v0.1.0) - Field-agnostic utility layer for RFC-compliant updates
+
+### Compatibility
+- Fully backward compatible with existing Basic Auth setup
+- No breaking changes - existing configurations continue to work
+- Google Calendar tested and verified with OAuth2
 
 ## [2.6.0] - Previous Release
 
