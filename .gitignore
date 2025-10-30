@@ -58,3 +58,4 @@ DISTRIBUTION-PLAN.md
 # Backup files
 .env.backup*
 *.bak
+TEST_RESULTS_SUMMARY.md
