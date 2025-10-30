@@ -71,6 +71,18 @@ export const calendarQuerySchema = z.object({
   time_range_end: dateTimeWithOptionalOffset.optional(),
   summary_filter: z.string().optional(),
   location_filter: z.string().optional(),
+}).refine((data) => {
+  // Rule 1: If ANY time field used, BOTH must be present
+  if (data.time_range_start || data.time_range_end) {
+    return data.time_range_start && data.time_range_end;
+  }
+
+  // Rule 2: At least ONE filter type must exist
+  return !!(data.calendar_url ||
+            data.summary_filter ||
+            data.location_filter);
+}, {
+  message: "Provide: (time_range with BOTH dates) OR (text filter) OR (both)"
 });
 
 export const makeCalendarSchema = z.object({
@@ -137,6 +149,13 @@ export const addressBookQuerySchema = z.object({
   name_filter: z.string().optional(),
   email_filter: z.string().optional(),
   organization_filter: z.string().optional(),
+}).refine((data) => {
+  // At least one filter required
+  return !!(data.name_filter ||
+            data.email_filter ||
+            data.organization_filter);
+}, {
+  message: "At least one filter required: name_filter, email_filter, or organization_filter"
 });
 
 export const addressBookMultiGetSchema = z.object({
@@ -176,6 +195,18 @@ export const todoQuerySchema = z.object({
   status_filter: z.enum(['NEEDS-ACTION', 'IN-PROCESS', 'COMPLETED', 'CANCELLED']).optional(),
   time_range_start: dateTimeWithOptionalOffset.optional(),
   time_range_end: dateTimeWithOptionalOffset.optional(),
+}).refine((data) => {
+  // Rule 1: If ANY time field used, BOTH must be present
+  if (data.time_range_start || data.time_range_end) {
+    return data.time_range_start && data.time_range_end;
+  }
+
+  // Rule 2: At least ONE filter type must exist
+  return !!(data.calendar_url ||
+            data.summary_filter ||
+            data.status_filter);
+}, {
+  message: "Provide: (time_range with BOTH dates) OR (text/status filter) OR (both)"
 });
 
 export const todoMultiGetSchema = z.object({
