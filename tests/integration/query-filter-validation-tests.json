@@ -1,0 +1,176 @@
+{
+  "metadata": {
+    "version": "1.0.0",
+    "total_tests": 12,
+    "categories": {
+      "validation_success": 6,
+      "validation_failure": 6
+    },
+    "description": "Tests for Issue #24 - Query tool filter validation (filters required, time ranges need both dates)",
+    "related_issues": ["#23", "#24"],
+    "related_pr": "#29"
+  },
+  "test_cases": [
+    {
+      "id": "filter-validation-001",
+      "category": "validation_success",
+      "name": "Valid query: Text filter only",
+      "user_query": "Finde alle Meetings mit Elena",
+      "expected_tool": "calendar_query",
+      "expected_parameters": {
+        "summary_filter": "Elena"
+      },
+      "should_succeed": true,
+      "rationale": "Text filter alone is sufficient",
+      "difficulty": "easy"
+    },
+    {
+      "id": "filter-validation-002",
+      "category": "validation_success",
+      "name": "Valid query: Time range with both dates",
+      "user_query": "Zeige mir alle Termine heute",
+      "expected_tool": "calendar_query",
+      "expected_parameters": {
+        "time_range_start": "2025-10-30T00:00:00Z",
+        "time_range_end": "2025-10-30T23:59:59Z"
+      },
+      "should_succeed": true,
+      "rationale": "Time range with BOTH dates is valid",
+      "difficulty": "easy"
+    },
+    {
+      "id": "filter-validation-003",
+      "category": "validation_success",
+      "name": "Valid query: Combined time range and text filter",
+      "user_query": "Finde alle Meetings mit Elena diese Woche",
+      "expected_tool": "calendar_query",
+      "expected_parameters": {
+        "time_range_start": "2025-10-27T00:00:00Z",
+        "time_range_end": "2025-11-03T23:59:59Z",
+        "summary_filter": "Elena"
+      },
+      "should_succeed": true,
+      "rationale": "Combined filters are valid",
+      "difficulty": "medium"
+    },
+    {
+      "id": "filter-validation-004",
+      "category": "validation_success",
+      "name": "Valid todo query: Status filter only",
+      "user_query": "Zeige mir alle erledigten Aufgaben",
+      "expected_tool": "todo_query",
+      "expected_parameters": {
+        "status_filter": "COMPLETED"
+      },
+      "should_succeed": true,
+      "rationale": "Status filter alone is sufficient",
+      "difficulty": "easy"
+    },
+    {
+      "id": "filter-validation-005",
+      "category": "validation_success",
+      "name": "Valid contact query: Name filter",
+      "user_query": "Finde alle Kontakte mit dem Namen Schmidt",
+      "expected_tool": "addressbook_query",
+      "expected_parameters": {
+        "name_filter": "Schmidt"
+      },
+      "should_succeed": true,
+      "rationale": "Name filter alone is sufficient (addressbook_url now optional)",
+      "difficulty": "easy"
+    },
+    {
+      "id": "filter-validation-006",
+      "category": "validation_success",
+      "name": "Valid contact query: Email filter",
+      "user_query": "Finde alle Gmail Kontakte",
+      "expected_tool": "addressbook_query",
+      "expected_parameters": {
+        "email_filter": "@gmail.com"
+      },
+      "should_succeed": true,
+      "rationale": "Email filter alone is sufficient",
+      "difficulty": "easy"
+    },
+    {
+      "id": "filter-validation-007",
+      "category": "validation_failure",
+      "name": "INVALID: Filterless calendar query",
+      "user_query": "Zeige mir alle meine Termine",
+      "expected_tool": "calendar_query",
+      "expected_parameters": {},
+      "should_succeed": false,
+      "expected_error": "Provide: (time_range with BOTH dates) OR (text filter) OR (both)",
+      "rationale": "Filterless queries must be rejected to prevent loading thousands of entries",
+      "difficulty": "hard",
+      "common_mistake": "LLM might not provide any filter for 'show all' queries"
+    },
+    {
+      "id": "filter-validation-008",
+      "category": "validation_failure",
+      "name": "INVALID: Partial time range (start only)",
+      "user_query": "Zeige mir alle Termine ab heute",
+      "expected_tool": "calendar_query",
+      "expected_parameters": {
+        "time_range_start": "2025-10-30T00:00:00Z"
+      },
+      "should_succeed": false,
+      "expected_error": "Provide: (time_range with BOTH dates) OR (text filter) OR (both)",
+      "rationale": "Partial time ranges (start without end) create unbounded queries",
+      "difficulty": "hard",
+      "common_mistake": "LLM might interpret 'ab heute' as only needing start date"
+    },
+    {
+      "id": "filter-validation-009",
+      "category": "validation_failure",
+      "name": "INVALID: Partial time range (end only)",
+      "user_query": "Zeige mir alle Termine bis Ende des Monats",
+      "expected_tool": "calendar_query",
+      "expected_parameters": {
+        "time_range_end": "2025-10-31T23:59:59Z"
+      },
+      "should_succeed": false,
+      "expected_error": "Provide: (time_range with BOTH dates) OR (text filter) OR (both)",
+      "rationale": "Partial time ranges (end without start) are invalid",
+      "difficulty": "hard"
+    },
+    {
+      "id": "filter-validation-010",
+      "category": "validation_failure",
+      "name": "INVALID: Filterless todo query",
+      "user_query": "Zeige mir alle meine Aufgaben",
+      "expected_tool": "todo_query",
+      "expected_parameters": {},
+      "should_succeed": false,
+      "expected_error": "Provide: (time_range with BOTH dates) OR (text/status filter) OR (both)",
+      "rationale": "Todo queries also require filters",
+      "difficulty": "hard"
+    },
+    {
+      "id": "filter-validation-011",
+      "category": "validation_failure",
+      "name": "INVALID: Filterless contact query",
+      "user_query": "Zeige mir alle Kontakte",
+      "expected_tool": "addressbook_query",
+      "expected_parameters": {},
+      "should_succeed": false,
+      "expected_error": "At least one filter required: name_filter, email_filter, or organization_filter",
+      "rationale": "Contact queries require at least one filter",
+      "difficulty": "hard"
+    },
+    {
+      "id": "filter-validation-012",
+      "category": "validation_failure",
+      "name": "INVALID: Contact query with addressbook_url but no filter",
+      "user_query": "Zeige mir alle Kontakte aus meinem privaten Adressbuch",
+      "expected_tool": "addressbook_query",
+      "expected_parameters": {
+        "addressbook_url": "https://example.com/addressbook/"
+      },
+      "should_succeed": false,
+      "expected_error": "At least one filter required: name_filter, email_filter, or organization_filter",
+      "rationale": "addressbook_url alone is not a filter - still need name/email/org filter",
+      "difficulty": "hard"
+    }
+  ]
+}
