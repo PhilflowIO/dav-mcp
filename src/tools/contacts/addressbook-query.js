@@ -1,45 +1,57 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, addressBookQuerySchema } from '../../validation.js';
 import { formatContactList } from '../../formatters.js';
-import { findAddressbookOrThrow } from '../shared/helpers.js';
 
 /**
  * Search and filter contacts efficiently
  */
 export const addressbookQuery = {
   name: 'addressbook_query',
-  description: 'PREFERRED: Search and filter contacts efficiently by name (full/given/family), email, or organization. Use this instead of list_contacts when user asks "find contacts with X" or "show me contacts at Y company" to avoid loading thousands of contacts. Much more token-efficient than list_contacts',
+  description: '⭐ PREFERRED: Search and filter contacts efficiently (name, email, organization). Use for "find contacts with...", "search for email...", "contacts at company..." queries. Use instead of list_contacts when ANY filter is specified. Omit addressbook_url to search across ALL addressbooks automatically.',
   inputSchema: {
     type: 'object',
     properties: {
       addressbook_url: {
         type: 'string',
-        description: 'The URL of the address book to query',
+        description: 'Optional: Specific addressbook URL. Omit to search ALL addressbooks (recommended for "find contact X" queries). Only provide if user explicitly names an addressbook.',
       },
       name_filter: {
         type: 'string',
-        description: 'Optional: Filter by name (case-insensitive substring match against FN, given name, or family name). Use when user asks "find contact John" or "show me people named Smith"',
+        description: 'Search contact names (full/given/family name). Example: "John Smith" or "Smith". At least one filter (name, email, or org) is required.',
       },
       email_filter: {
         type: 'string',
-        description: 'Optional: Filter by email address (case-insensitive substring match). Use when user asks "find contact with email X" or "show me Gmail contacts"',
+        description: 'Search contact email addresses. Use for queries like "Gmail contacts" → "@gmail.com", "work emails" → "@company.com", or specific addresses. At least one filter (name, email, or org) is required.',
       },
       organization_filter: {
         type: 'string',
-        description: 'Optional: Filter by organization/company (case-insensitive substring match). Use when user asks "find contacts at company X" or "show me people at Google"',
+        description: 'Search contact organizations/companies. Example: "Google" or "Acme Corp". At least one filter (name, email, or org) is required.',
       },
     },
-    required: ['addressbook_url'],
+    required: [],
   },
   handler: async (args) => {
     const validated = validateInput(addressBookQuerySchema, args);
     const client = tsdavManager.getCardDavClient();
     const addressBooks = await client.fetchAddressBooks();
-    const addressBook = findAddressbookOrThrow(addressBooks, validated.addressbook_url);
 
-    const vcards = await client.fetchVCards({ addressBook });
+    // Resolve which addressbooks to search (all or specific)
+    const addressbooksToSearch = validated.addressbook_url
+      ? addressBooks.filter(ab => ab.url === validated.addressbook_url)
+      : addressBooks;
 
-    let filteredContacts = vcards;
+    // Collect all vcards from all selected addressbooks
+    let allVCards = [];
+    for (const addressBook of addressbooksToSearch) {
+      const vcards = await client.fetchVCards({ addressBook });
+      // Add addressbook context for display
+      vcards.forEach(vcard => {
+        vcard._addressbookName = addressBook.displayName || addressBook.url;
+      });
+      allVCards = allVCards.concat(vcards);
+    }
+
+    let filteredContacts = allVCards;
 
     if (validated.name_filter) {
       const nameLower = validated.name_filter.toLowerCase();
@@ -66,6 +78,8 @@ export const addressbookQuery = {
       });
     }
 
-    return formatContactList(filteredContacts, addressBook);
+    // Format and return results (pass first addressbook for context, or null if multiple)
+    const singleAddressbook = addressbooksToSearch.length === 1 ? addressbooksToSearch[0] : null;
+    return formatContactList(filteredContacts, singleAddressbook);
   },
 };

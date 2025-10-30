@@ -8,29 +8,29 @@ import { buildTimeRangeOptions } from '../shared/helpers.js';
  */
 export const calendarQuery = {
   name: 'calendar_query',
-  description: 'PREFERRED: Search and filter calendar events efficiently by text (summary/title), date range, or location. Use this instead of list_events when user asks "find events with X" or "show me events containing Y" to avoid loading thousands of events. Much more token-efficient than list_events. IMPORTANT: When user asks about "today", "tomorrow", "this week" etc., you MUST calculate the correct date range in ISO 8601 format (e.g., 2025-10-08T00:00:00.000Z for tomorrow). ⚠️ FOR SEARCHES: OMIT calendar_url to search across ALL calendars automatically. DO NOT call list_calendars first and then provide a calendar_url - this limits the search to one calendar and will miss events in other calendars. Only provide calendar_url if user explicitly mentions a specific calendar name.',
+  description: '⭐ PREFERRED: Search and filter calendar events efficiently. Use instead of list_events to avoid loading thousands of entries. Omit calendar_url to search across ALL calendars automatically.',
   inputSchema: {
     type: 'object',
     properties: {
       calendar_url: {
         type: 'string',
-        description: '⚠️ USUALLY OMIT THIS for searches! If omitted, searches across ALL available calendars. Only provide if user explicitly specifies a calendar name (e.g., "in my work calendar"). DO NOT use list_calendars and then pick one - that defeats the purpose of cross-calendar search.',
+        description: 'Optional: Specific calendar URL. Omit to search ALL calendars (recommended for "find events with X" queries). Only provide if user explicitly names a calendar. DO NOT use list_calendars first - that defeats cross-calendar search.',
       },
       time_range_start: {
         type: 'string',
-        description: 'Optional: Start date in ISO 8601 format (e.g., 2025-10-08T00:00:00.000Z). When user asks "tomorrow", calculate tomorrow\'s date. When user asks "this week", use start of current week.',
+        description: 'Start datetime (ISO 8601, e.g., 2025-10-30T00:00:00Z). If provided, time_range_end is REQUIRED. Calculate dates for "today", "this week", etc. Can be used alone (with end date) as sufficient filter.',
       },
       time_range_end: {
         type: 'string',
-        description: 'Optional: End date in ISO 8601 format. If omitted but time_range_start is provided, defaults to 1 year from start date.',
+        description: 'End datetime (ISO 8601). If provided, time_range_start is REQUIRED. Both dates together form a complete filter. Do not omit if start is provided.',
       },
       summary_filter: {
         type: 'string',
-        description: 'Optional: Filter events by summary/title (case-insensitive substring match). Use this when user asks "find events with X in title" or "show me meeting events"',
+        description: 'Search event titles/summaries containing this text (case-insensitive). Example: "meeting with Elena" or "standup". Can be used alone as sufficient filter.',
       },
       location_filter: {
         type: 'string',
-        description: 'Optional: Filter events by location (case-insensitive substring match). Use when user asks "events in room X" or "meetings at location Y"',
+        description: 'Search event locations containing this text. Example: "Berlin", "Office", "Zoom". Can be used alone as sufficient filter.',
       },
     },
     required: [],
