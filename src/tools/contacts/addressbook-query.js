@@ -7,7 +7,7 @@ import { formatContactList } from '../../formatters.js';
  */
 export const addressbookQuery = {
   name: 'addressbook_query',
-  description: '⭐ PREFERRED: Search and filter contacts efficiently. Use instead of list_contacts to avoid loading all entries. Omit addressbook_url to search across ALL addressbooks automatically.',
+  description: '⭐ PREFERRED: Search and filter contacts efficiently (name, email, organization). Use for "find contacts with...", "search for email...", "contacts at company..." queries. Use instead of list_contacts when ANY filter is specified. Omit addressbook_url to search across ALL addressbooks automatically.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -21,7 +21,7 @@ export const addressbookQuery = {
       },
       email_filter: {
         type: 'string',
-        description: 'Search contact email addresses. Example: "john@example.com" or "@gmail.com". At least one filter (name, email, or org) is required.',
+        description: 'Search contact email addresses. Use for queries like "Gmail contacts" → "@gmail.com", "work emails" → "@company.com", or specific addresses. At least one filter (name, email, or org) is required.',
       },
       organization_filter: {
         type: 'string',
