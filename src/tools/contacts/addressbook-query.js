@@ -13,19 +13,19 @@ export const addressbookQuery = {
     properties: {
       addressbook_url: {
         type: 'string',
-        description: 'The URL of the address book to query',
+        description: 'Optional: Specific addressbook URL. Omit to search ALL addressbooks (recommended for "find contact X" queries). Only provide if user explicitly names an addressbook.',
       },
       name_filter: {
         type: 'string',
-        description: 'Optional: Filter by name (case-insensitive substring match against FN, given name, or family name). Use when user asks "find contact John" or "show me people named Smith"',
+        description: 'Search contact names (full/given/family name). Example: "John Smith" or "Smith". At least one filter (name, email, or org) is required.',
       },
       email_filter: {
         type: 'string',
-        description: 'Optional: Filter by email address (case-insensitive substring match). Use when user asks "find contact with email X" or "show me Gmail contacts"',
+        description: 'Search contact email addresses. Example: "john@example.com" or "@gmail.com". At least one filter (name, email, or org) is required.',
       },
       organization_filter: {
         type: 'string',
-        description: 'Optional: Filter by organization/company (case-insensitive substring match). Use when user asks "find contacts at company X" or "show me people at Google"',
+        description: 'Search contact organizations/companies. Example: "Google" or "Acme Corp". At least one filter (name, email, or org) is required.',
       },
     },
     required: [],

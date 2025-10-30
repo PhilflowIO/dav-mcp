@@ -7,30 +7,30 @@ import { formatTodoList } from '../../formatters.js';
  */
 export const todoQuery = {
   name: 'todo_query',
-  description: '⭐ PREFERRED: Search and filter todos efficiently by status, summary text, or due date range. Use this instead of list_todos when user asks "show my tasks", "what\'s due this week", "incomplete tasks". Much more token-efficient than list_todos. If calendar_url is not provided, searches across ALL calendars automatically.',
+  description: '⭐ PREFERRED: Search and filter todos efficiently. Use instead of list_todos to conserve tokens. Omit calendar_url to search across ALL calendars automatically.',
   inputSchema: {
     type: 'object',
     properties: {
       calendar_url: {
         type: 'string',
-        description: 'Optional: The URL of a specific calendar containing todos. If omitted, searches across ALL calendars.',
+        description: 'Optional: Specific calendar URL. Omit to search ALL calendars (recommended).',
       },
       summary_filter: {
         type: 'string',
-        description: 'Optional: Filter by summary text (partial match, case-insensitive)',
+        description: 'Search todo summaries/titles containing this text (case-insensitive). Example: "write report" or "review PR". Can be used alone as sufficient filter.',
       },
       status_filter: {
         type: 'string',
         enum: ['NEEDS-ACTION', 'IN-PROCESS', 'COMPLETED', 'CANCELLED'],
-        description: 'Optional: Filter by specific status',
+        description: 'Filter by todo status. Use "NEEDS-ACTION" for pending tasks, "COMPLETED" for done tasks. Can be used alone as sufficient filter.',
       },
       time_range_start: {
         type: 'string',
-        description: 'Optional: Start of due date range (ISO 8601 format)',
+        description: 'Start datetime for due date filtering (ISO 8601). If provided, time_range_end is REQUIRED. Both dates together form a complete filter.',
       },
       time_range_end: {
         type: 'string',
-        description: 'Optional: End of due date range (ISO 8601 format)',
+        description: 'End datetime for due date filtering (ISO 8601). If provided, time_range_start is REQUIRED. Both dates together form a complete filter.',
       },
     },
     required: [],
