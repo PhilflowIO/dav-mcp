@@ -1,0 +1,139 @@
+{
+  "test_suite": "Google Calendar OAuth2 Integration",
+  "description": "Tests OAuth2 authentication and CalDAV operations with Google Calendar",
+  "version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "OAUTH2-001",
+      "name": "List Google Calendars",
+      "category": "oauth2",
+      "difficulty": "easy",
+      "user_query": "Show me all my calendars",
+      "expected_tool": "list_calendars",
+      "expected_parameters": {},
+      "context": "Testing if OAuth2 authentication works and can discover Google calendars via CalDAV"
+    },
+    {
+      "id": "OAUTH2-002",
+      "name": "List Events from Primary Calendar",
+      "category": "oauth2",
+      "difficulty": "medium",
+      "user_query": "What events do I have this week?",
+      "expected_tool": "calendar_query",
+      "expected_parameters": {
+        "filter": {
+          "start": "required",
+          "end": "required"
+        }
+      },
+      "context": "Testing event retrieval from Google Calendar with OAuth2"
+    },
+    {
+      "id": "OAUTH2-003",
+      "name": "Create Event in Google Calendar",
+      "category": "oauth2",
+      "difficulty": "medium",
+      "user_query": "Create a test meeting tomorrow at 2pm titled 'OAuth2 Test Meeting'",
+      "expected_tool": "create_event",
+      "expected_parameters": {
+        "calendar_url": "required",
+        "summary": "OAuth2 Test Meeting"
+      },
+      "context": "Testing event creation in Google Calendar via OAuth2"
+    },
+    {
+      "id": "OAUTH2-004",
+      "name": "Search for Specific Event",
+      "category": "oauth2",
+      "difficulty": "medium",
+      "user_query": "Find all meetings with 'OAuth2' in the title",
+      "expected_tool": "calendar_query",
+      "expected_parameters": {
+        "filter": {
+          "summary": "OAuth2"
+        }
+      },
+      "context": "Testing event search with filter in Google Calendar"
+    },
+    {
+      "id": "OAUTH2-005",
+      "name": "Update Event Summary",
+      "category": "oauth2",
+      "difficulty": "hard",
+      "user_query": "Change the title of my OAuth2 Test Meeting to 'OAuth2 Integration Complete'",
+      "expected_tool": "update_event",
+      "expected_parameters": {
+        "event_url": "required",
+        "fields": {
+          "SUMMARY": "required"
+        }
+      },
+      "context": "Testing event update in Google Calendar",
+      "common_mistake": "LLM might try to use update_event_raw instead of update_event"
+    },
+    {
+      "id": "OAUTH2-006",
+      "name": "Delete Test Event",
+      "category": "oauth2",
+      "difficulty": "medium",
+      "user_query": "Delete the OAuth2 Integration Complete meeting",
+      "expected_tool": "delete_event",
+      "expected_parameters": {
+        "event_url": "required"
+      },
+      "context": "Testing event deletion in Google Calendar"
+    },
+    {
+      "id": "OAUTH2-007",
+      "name": "List Events with Time Range",
+      "category": "oauth2",
+      "difficulty": "medium",
+      "user_query": "Show me all events in my work calendar next week",
+      "expected_tool": "calendar_query",
+      "expected_parameters": {
+        "filter": {
+          "start": "required",
+          "end": "required"
+        }
+      },
+      "context": "Testing calendar query with time range filter"
+    },
+    {
+      "id": "OAUTH2-008",
+      "name": "Create Event with Location",
+      "category": "oauth2",
+      "difficulty": "medium",
+      "user_query": "Schedule a team meeting next Monday at 10am in the Berlin Office",
+      "expected_tool": "create_event",
+      "expected_parameters": {
+        "calendar_url": "required",
+        "summary": "required",
+        "location": "Berlin Office"
+      },
+      "context": "Testing event creation with location field"
+    },
+    {
+      "id": "OAUTH2-009",
+      "name": "Multiple Calendars Discovery",
+      "category": "oauth2",
+      "difficulty": "easy",
+      "user_query": "How many calendars do I have access to?",
+      "expected_tool": "list_calendars",
+      "expected_parameters": {},
+      "context": "Verify OAuth2 discovers all 5 Google calendars (Primary + 4 others)"
+    },
+    {
+      "id": "OAUTH2-010",
+      "name": "Query Specific Calendar by Name",
+      "category": "oauth2",
+      "difficulty": "hard",
+      "user_query": "Show me events from my Arbeit calendar",
+      "expected_tool": "calendar_query",
+      "expected_parameters": {
+        "calendar_url": "required"
+      },
+      "context": "Testing if LLM can identify calendar by name and query it",
+      "common_mistake": "LLM might not specify calendar_url and query all calendars"
+    }
+  ]
+}

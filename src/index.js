@@ -109,14 +109,52 @@ function authenticateBearer(req, res, next) {
 
 /**
  * Initialize tsdav clients
+ *
+ * Supports two authentication methods:
+ * 1. Basic Auth (default) - set CALDAV_SERVER_URL, CALDAV_USERNAME, CALDAV_PASSWORD
+ * 2. OAuth2 - set AUTH_METHOD=OAuth and GOOGLE_* variables
  */
 async function initializeTsdav() {
   try {
-    await tsdavManager.initialize({
-      serverUrl: process.env.CALDAV_SERVER_URL,
-      username: process.env.CALDAV_USERNAME,
-      password: process.env.CALDAV_PASSWORD,
-    });
+    const authMethod = process.env.AUTH_METHOD || 'Basic';
+
+    if (authMethod === 'OAuth' || authMethod === 'Oauth') {
+      // OAuth2 Configuration (e.g., Google Calendar)
+      logger.info('Initializing with OAuth2 authentication');
+
+      if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET || !process.env.GOOGLE_REFRESH_TOKEN) {
+        throw new Error('OAuth2 requires GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REFRESH_TOKEN');
+      }
+
+      await tsdavManager.initialize({
+        serverUrl: process.env.GOOGLE_SERVER_URL || 'https://apidata.googleusercontent.com/caldav/v2/',
+        authMethod: 'OAuth',
+        username: process.env.GOOGLE_USER,
+        clientId: process.env.GOOGLE_CLIENT_ID,
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+        refreshToken: process.env.GOOGLE_REFRESH_TOKEN,
+        tokenUrl: process.env.GOOGLE_TOKEN_URL || 'https://accounts.google.com/o/oauth2/token',
+      });
+
+      logger.info('OAuth2 clients initialized successfully');
+    } else {
+      // Basic Auth Configuration (standard CalDAV servers)
+      logger.info('Initializing with Basic authentication');
+
+      if (!process.env.CALDAV_SERVER_URL || !process.env.CALDAV_USERNAME || !process.env.CALDAV_PASSWORD) {
+        throw new Error('Basic Auth requires CALDAV_SERVER_URL, CALDAV_USERNAME, and CALDAV_PASSWORD');
+      }
+
+      await tsdavManager.initialize({
+        serverUrl: process.env.CALDAV_SERVER_URL,
+        authMethod: 'Basic',
+        username: process.env.CALDAV_USERNAME,
+        password: process.env.CALDAV_PASSWORD,
+      });
+
+      logger.info('Basic Auth clients initialized successfully');
+    }
+
     logger.info('tsdav clients initialized successfully');
   } catch (error) {
     logger.error({ error: error.message }, 'Failed to initialize tsdav clients');

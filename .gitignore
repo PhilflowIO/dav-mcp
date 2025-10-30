@@ -40,6 +40,7 @@ RESEARCH_FINDINGS.md
 COMPATIBILITY.md
 INTEGRATION_NOTES.md
 MIGRATION_*.md
+GOOGLE_CALDAV_ANALYSIS.md
 
 # Test artifacts
 tests/integration/test-results-*.json
