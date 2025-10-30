@@ -120,6 +120,7 @@ describe('Validation Module', () => {
       test('should transform empty string to undefined', () => {
         const data = {
           calendar_url: '',
+          summary_filter: 'meeting',
         };
         const result = validateInput(calendarQuerySchema, data);
         expect(result.calendar_url).toBeUndefined();
@@ -128,6 +129,7 @@ describe('Validation Module', () => {
       test('should transform "unknown" to undefined', () => {
         const data = {
           calendar_url: 'unknown',
+          summary_filter: 'meeting',
         };
         const result = validateInput(calendarQuerySchema, data);
         expect(result.calendar_url).toBeUndefined();
@@ -136,6 +138,7 @@ describe('Validation Module', () => {
       test('should transform "default" to undefined', () => {
         const data = {
           calendar_url: 'default',
+          summary_filter: 'meeting',
         };
         const result = validateInput(calendarQuerySchema, data);
         expect(result.calendar_url).toBeUndefined();
@@ -144,6 +147,7 @@ describe('Validation Module', () => {
       test('should transform "null" string to undefined', () => {
         const data = {
           calendar_url: 'null',
+          summary_filter: 'meeting',
         };
         const result = validateInput(calendarQuerySchema, data);
         expect(result.calendar_url).toBeUndefined();
@@ -152,6 +156,7 @@ describe('Validation Module', () => {
       test('should transform "undefined" string to undefined', () => {
         const data = {
           calendar_url: 'undefined',
+          summary_filter: 'meeting',
         };
         const result = validateInput(calendarQuerySchema, data);
         expect(result.calendar_url).toBeUndefined();
@@ -160,6 +165,7 @@ describe('Validation Module', () => {
       test('should transform "none" to undefined', () => {
         const data = {
           calendar_url: 'none',
+          summary_filter: 'meeting',
         };
         const result = validateInput(calendarQuerySchema, data);
         expect(result.calendar_url).toBeUndefined();
@@ -168,12 +174,14 @@ describe('Validation Module', () => {
       test('should transform "N/A" and "n/a" to undefined', () => {
         const data1 = {
           calendar_url: 'N/A',
+          summary_filter: 'meeting',
         };
         const result1 = validateInput(calendarQuerySchema, data1);
         expect(result1.calendar_url).toBeUndefined();
 
         const data2 = {
           calendar_url: 'n/a',
+          summary_filter: 'meeting',
         };
         const result2 = validateInput(calendarQuerySchema, data2);
         expect(result2.calendar_url).toBeUndefined();
@@ -191,6 +199,7 @@ describe('Validation Module', () => {
       test('should accept valid URL', () => {
         const data = {
           addressbook_url: 'https://example.com/addressbook/',
+          name_filter: 'John',
         };
         const result = validateInput(addressBookQuerySchema, data);
         expect(result.addressbook_url).toBe('https://example.com/addressbook/');
@@ -199,6 +208,7 @@ describe('Validation Module', () => {
       test('should transform empty string to undefined', () => {
         const data = {
           addressbook_url: '',
+          name_filter: 'John',
         };
         const result = validateInput(addressBookQuerySchema, data);
         expect(result.addressbook_url).toBeUndefined();
@@ -210,6 +220,7 @@ describe('Validation Module', () => {
         placeholders.forEach(placeholder => {
           const data = {
             addressbook_url: placeholder,
+            name_filter: 'John',
           };
           const result = validateInput(addressBookQuerySchema, data);
           expect(result.addressbook_url).toBeUndefined();
@@ -221,6 +232,7 @@ describe('Validation Module', () => {
       test('should accept valid URL', () => {
         const data = {
           calendar_url: 'https://example.com/calendar/',
+          summary_filter: 'task',
         };
         const result = validateInput(todoQuerySchema, data);
         expect(result.calendar_url).toBe('https://example.com/calendar/');
@@ -229,6 +241,7 @@ describe('Validation Module', () => {
       test('should transform empty string to undefined', () => {
         const data = {
           calendar_url: '',
+          summary_filter: 'task',
         };
         const result = validateInput(todoQuerySchema, data);
         expect(result.calendar_url).toBeUndefined();
@@ -240,6 +253,7 @@ describe('Validation Module', () => {
         placeholders.forEach(placeholder => {
           const data = {
             calendar_url: placeholder,
+            summary_filter: 'task',
           };
           const result = validateInput(todoQuerySchema, data);
           expect(result.calendar_url).toBeUndefined();
