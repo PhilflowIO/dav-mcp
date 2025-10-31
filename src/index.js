@@ -312,13 +312,8 @@ app.get('/health', (req, res) => {
  */
 app.get('/sse', authenticateBearer, async (req, res) => {
   try {
-    // Set SSE headers FIRST
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
-
     // Create SSE transport (this generates the sessionId internally)
+    // Note: SSEServerTransport.start() will set headers and send the initial endpoint event
     const transport = new SSEServerTransport('/messages', res);
 
     // Use transport's sessionId consistently everywhere
@@ -348,10 +343,11 @@ app.get('/sse', authenticateBearer, async (req, res) => {
     sessionLogger.info('MCP server connected successfully, session active');
 
     // Keep-Alive Heartbeat (every 30 seconds)
+    // Send as SSE comment to avoid breaking JSON-RPC parser in MCP clients
     const heartbeat = setInterval(() => {
       if (!res.destroyed) {
         try {
-          res.write('data: {"type":"heartbeat","timestamp":"' + new Date().toISOString() + '"}\n\n');
+          res.write(': keep-alive\n');
           sessionLogger.debug('Heartbeat sent');
         } catch (error) {
           sessionLogger.debug('Heartbeat failed, connection likely closed');
