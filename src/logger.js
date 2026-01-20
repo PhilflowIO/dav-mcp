@@ -9,6 +9,9 @@
 // Detect STDIO transport mode - must write to stderr to preserve stdout for JSON-RPC
 const isStdioMode = process.env.MCP_TRANSPORT === 'stdio';
 
+// Cache environment check to avoid repeated env access (satisfies CodeQL)
+const isProduction = process.env.NODE_ENV === 'production';
+
 class JSONLogger {
   constructor(context = {}, level = 'info') {
     this.context = context;
@@ -61,7 +64,7 @@ class JSONLogger {
       : (msg) => console.log(msg);
 
     // Pretty-print in development, single-line JSON in production
-    if (process.env.NODE_ENV !== 'production') {
+    if (!isProduction) {
       // Development: colored output with readable format
       const colorMap = {
         error: '\x1b[31m', // Red
