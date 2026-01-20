@@ -141,9 +141,16 @@ BEARER_TOKEN=your-secure-token-here
 
 ### Start Server
 
+**STDIO** (for Claude Desktop, Cursor, local clients):
 ```bash
 npm start
-# Server runs on: http://localhost:3000
+# Or: npx dav-mcp (after npm install -g dav-mcp)
+```
+
+**HTTP** (for n8n, remote clients):
+```bash
+BEARER_TOKEN=your-secret-token npm run start:http
+# Server runs on: http://localhost:3000/mcp
 ```
 
 ---
