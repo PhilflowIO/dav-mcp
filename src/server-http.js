@@ -175,7 +175,7 @@ function createMCPServer(requestId) {
   const server = new Server(
     {
       name: process.env.MCP_SERVER_NAME || 'dav-mcp',
-      version: process.env.MCP_SERVER_VERSION || '3.0.0',
+      version: process.env.MCP_SERVER_VERSION || '3.0.1',
     },
     {
       capabilities: {
@@ -310,7 +310,7 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     server: process.env.MCP_SERVER_NAME || 'dav-mcp',
-    version: process.env.MCP_SERVER_VERSION || '3.0.0',
+    version: process.env.MCP_SERVER_VERSION || '3.0.1',
     transport: 'http-stateless',
     timestamp: new Date().toISOString(),
     tools: tools.length,
@@ -324,7 +324,7 @@ app.get('/health', (req, res) => {
 app.get('/', (req, res) => {
   res.json({
     name: process.env.MCP_SERVER_NAME || 'dav-mcp',
-    version: process.env.MCP_SERVER_VERSION || '3.0.0',
+    version: process.env.MCP_SERVER_VERSION || '3.0.1',
     transport: 'http-stateless',
     description: 'MCP Streamable HTTP Server for CalDAV/CardDAV integration (stateless)',
     endpoints: {

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-01-20
+
+### Added
+- **CLI flags**: `--http` and `--port` flags for easier server startup
+  - `npx dav-mcp` → STDIO mode (default)
+  - `npx dav-mcp --http` → HTTP mode on port 3000
+  - `npx dav-mcp --http --port=8080` → HTTP mode with custom port
+
+### Changed
+- **README restructured** by user type (Claude Desktop, n8n, Docker)
+- **Simplified setup**: No git clone needed for most users, just `npx dav-mcp`
+- **Cleaned up `.env.example`**: Removed unnecessary `MCP_SERVER_NAME` and `MCP_SERVER_VERSION`
+
 ## [3.0.0] - 2026-01-20
 
 ### Breaking Changes
