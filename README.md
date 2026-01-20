@@ -39,11 +39,9 @@ When partial tools force your AI to improvise, complete tools let it **execute p
 - **RFC-Compliant**: ical.js for RFC 5545 (iCalendar) and RFC 6350 (vCard) support
 
 ### Production-Ready Infrastructure
-- **MCP SSE Protocol**: Compatible with n8n, Claude Desktop, and other MCP clients
+- **MCP Protocol**: STDIO transport for local clients, Stateless HTTP for remote
 - **Multi-Server Tested**: Works with Radicale, Baikal, Nextcloud, iCloud
-- **Multi-Session Support**: Handle multiple concurrent client connections
-- **Keep-Alive Heartbeats**: Stable SSE connections with 30-second intervals
-- **Bearer Auth**: Optional token authentication for secure connections
+- **Bearer Auth**: Token authentication for HTTP transport
 - **Structured Logging**: Custom JSON logger with millisecond precision
 
 ### Efficiency Features
@@ -154,14 +152,15 @@ npm start
 
 ### n8n Workflow
 
-1. **Add "AI Agent" node**
-2. **Add "MCP Client Tool" node** and connect to AI Agent
-3. **Configure the connection:**
-   - **SSE Endpoint**: `http://localhost:3000/sse`
-   - **Authentication Method**: `Bearer` (optional)
-   - **Bearer Token**: Your token from .env
+1. **Start HTTP server**: `BEARER_TOKEN=your-token npm run start:http`
+2. **Add "AI Agent" node**
+3. **Add "MCP Client Tool" node** and connect to AI Agent
+4. **Configure the connection:**
+   - **MCP Endpoint**: `http://localhost:3000/mcp`
+   - **Authentication Method**: `Bearer`
+   - **Bearer Token**: Your token
 
-4. **Example prompts:**
+5. **Example prompts:**
 
 ```
 "List all my calendars"

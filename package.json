@@ -1,16 +1,18 @@
 {
   "name": "dav-mcp",
-  "version": "2.7.0",
+  "version": "3.0.0",
   "description": "Complete DAV integration for AI - Calendar (CalDAV), Contacts (CardDAV), and Tasks (VTODO) management via MCP protocol",
   "type": "module",
-  "main": "src/index.js",
+  "main": "src/server-stdio.js",
   "bin": {
     "dav-mcp": "./src/server-stdio.js"
   },
   "scripts": {
-    "start": "node src/index.js",
-    "start:stdio": "node src/server-stdio.js",
-    "dev": "node --watch src/index.js",
+    "start": "MCP_TRANSPORT=stdio node src/server-stdio.js",
+    "start:stdio": "MCP_TRANSPORT=stdio node src/server-stdio.js",
+    "start:http": "node src/server-http.js",
+    "dev": "MCP_TRANSPORT=stdio node --watch src/server-stdio.js",
+    "dev:http": "node --watch src/server-http.js",
     "install:fresh": "rm -rf node_modules package-lock.json && npm cache clean --force && npm install",
     "update:tsdav": "npm cache clean --force && npm install tsdav@github:PhilflowIO/tsdav#master",
     "test": "NODE_ENV=test NODE_OPTIONS='--experimental-vm-modules' jest",

@@ -7,8 +7,8 @@ export default {
   testMatch: ['**/__tests__/**/*.test.js', '**/*.test.js'],
   collectCoverageFrom: [
     'src/**/*.js',
-    '!src/index.js', // Skip server startup
     '!src/server-stdio.js', // Skip server startup
+    '!src/server-http.js', // Skip server startup
   ],
   coverageDirectory: 'coverage',
   verbose: true,

@@ -1,7 +1,13 @@
 /**
  * Simple JSON logger with millisecond precision
- * Outputs structured JSON logs to stdout
+ * Outputs structured JSON logs to stdout (HTTP) or stderr (STDIO)
+ *
+ * CRITICAL: In STDIO mode, all output MUST go to stderr to avoid
+ * corrupting JSON-RPC messages on stdout.
  */
+
+// Detect STDIO transport mode - must write to stderr to preserve stdout for JSON-RPC
+const isStdioMode = process.env.MCP_TRANSPORT === 'stdio';
 
 class JSONLogger {
   constructor(context = {}, level = 'info') {
@@ -49,6 +55,11 @@ class JSONLogger {
       }
     }
 
+    // Output function: stderr for STDIO mode, stdout for HTTP mode
+    const output = isStdioMode
+      ? (msg) => process.stderr.write(msg + '\n')
+      : (msg) => console.log(msg);
+
     // Pretty-print in development, single-line JSON in production
     if (process.env.NODE_ENV !== 'production') {
       // Development: colored output with readable format
@@ -66,10 +77,10 @@ class JSONLogger {
         ? ' ' + JSON.stringify(rest)
         : '';
 
-      console.log(`[${time}] ${color}${lvl}${reset}: ${message || ''}${extraFields}`);
+      output(`[${time}] ${color}${lvl}${reset}: ${message || ''}${extraFields}`);
     } else {
       // Production: single-line JSON
-      console.log(JSON.stringify(logData));
+      output(JSON.stringify(logData));
     }
   }
 
