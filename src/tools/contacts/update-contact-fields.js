@@ -1,6 +1,6 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput } from '../../validation.js';
-import { formatSuccess, formatError } from '../../formatters.js';
+import { formatSuccess } from '../../formatters.js';
 import { z } from 'zod';
 import { updateFields } from 'tsdav-utils';
 
@@ -92,44 +92,39 @@ export const updateContactFields = {
     required: ['vcard_url', 'vcard_etag']
   },
   handler: async (args) => {
-    try {
-      const validated = validateInput(updateContactFieldsSchema, args);
-      const client = tsdavManager.getCardDavClient();
+    const validated = validateInput(updateContactFieldsSchema, args);
+    const client = tsdavManager.getCardDavClient();
 
-      // Step 1: Fetch the current vCard from server
-      const addressBookUrl = validated.vcard_url.substring(0, validated.vcard_url.lastIndexOf('/') + 1);
-      const currentVCards = await client.fetchVCards({
-        addressBook: { url: addressBookUrl },
-        objectUrls: [validated.vcard_url]
-      });
+    // Step 1: Fetch the current vCard from server
+    const addressBookUrl = validated.vcard_url.substring(0, validated.vcard_url.lastIndexOf('/') + 1);
+    const currentVCards = await client.fetchVCards({
+      addressBook: { url: addressBookUrl },
+      objectUrls: [validated.vcard_url]
+    });
 
-      if (!currentVCards || currentVCards.length === 0) {
-        throw new Error('Contact not found');
-      }
-
-      const vCardObject = currentVCards[0];
-
-      // Step 2: Update fields using tsdav-utils (field-agnostic)
-      // Accepts any RFC 6350 vCard property name (UPPERCASE)
-      const updatedData = updateFields(vCardObject, validated.fields || {});
-
-      // Step 3: Send the updated vCard back to server
-      const updateResponse = await client.updateVCard({
-        vCard: {
-          url: validated.vcard_url,
-          data: updatedData,
-          etag: validated.vcard_etag
-        }
-      });
-
-      return formatSuccess('Contact updated successfully', {
-        etag: updateResponse.etag,
-        updated_fields: Object.keys(validated.fields || {}),
-        message: `Updated ${Object.keys(validated.fields || {}).length} field(s): ${Object.keys(validated.fields || {}).join(', ')}`
-      });
-
-    } catch (error) {
-      return formatError('update_contact', error);
+    if (!currentVCards || currentVCards.length === 0) {
+      throw new Error('Contact not found');
     }
+
+    const vCardObject = currentVCards[0];
+
+    // Step 2: Update fields using tsdav-utils (field-agnostic)
+    // Accepts any RFC 6350 vCard property name (UPPERCASE)
+    const updatedData = updateFields(vCardObject, validated.fields || {});
+
+    // Step 3: Send the updated vCard back to server
+    const updateResponse = await client.updateVCard({
+      vCard: {
+        url: validated.vcard_url,
+        data: updatedData,
+        etag: validated.vcard_etag
+      }
+    });
+
+    return formatSuccess('Contact updated successfully', {
+      etag: updateResponse.etag,
+      updated_fields: Object.keys(validated.fields || {}),
+      message: `Updated ${Object.keys(validated.fields || {}).length} field(s): ${Object.keys(validated.fields || {}).join(', ')}`
+    });
   }
 };

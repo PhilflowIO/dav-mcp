@@ -1,6 +1,6 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput } from '../../validation.js';
-import { formatSuccess, formatError } from '../../formatters.js';
+import { formatSuccess } from '../../formatters.js';
 import { z } from 'zod';
 import { updateFields } from 'tsdav-utils';
 
@@ -76,44 +76,39 @@ export const updateTodoFields = {
     required: ['todo_url', 'todo_etag']
   },
   handler: async (args) => {
-    try {
-      const validated = validateInput(updateTodoFieldsSchema, args);
-      const client = tsdavManager.getCalDavClient();
+    const validated = validateInput(updateTodoFieldsSchema, args);
+    const client = tsdavManager.getCalDavClient();
 
-      // Step 1: Fetch the current todo from server
-      const calendarUrl = validated.todo_url.substring(0, validated.todo_url.lastIndexOf('/') + 1);
-      const currentTodos = await client.fetchTodos({
-        calendar: { url: calendarUrl },
-        objectUrls: [validated.todo_url]
-      });
+    // Step 1: Fetch the current todo from server
+    const calendarUrl = validated.todo_url.substring(0, validated.todo_url.lastIndexOf('/') + 1);
+    const currentTodos = await client.fetchTodos({
+      calendar: { url: calendarUrl },
+      objectUrls: [validated.todo_url]
+    });
 
-      if (!currentTodos || currentTodos.length === 0) {
-        throw new Error('Todo not found');
-      }
-
-      const todoObject = currentTodos[0];
-
-      // Step 2: Update fields using tsdav-utils (field-agnostic)
-      // Accepts any RFC 5545 VTODO property name (UPPERCASE)
-      const updatedData = updateFields(todoObject, validated.fields || {});
-
-      // Step 3: Send the updated todo back to server
-      const updateResponse = await client.updateTodo({
-        calendarObject: {
-          url: validated.todo_url,
-          data: updatedData,
-          etag: validated.todo_etag
-        }
-      });
-
-      return formatSuccess('Todo updated successfully', {
-        etag: updateResponse.etag,
-        updated_fields: Object.keys(validated.fields || {}),
-        message: `Updated ${Object.keys(validated.fields || {}).length} field(s): ${Object.keys(validated.fields || {}).join(', ')}`
-      });
-
-    } catch (error) {
-      return formatError('update_todo', error);
+    if (!currentTodos || currentTodos.length === 0) {
+      throw new Error('Todo not found');
     }
+
+    const todoObject = currentTodos[0];
+
+    // Step 2: Update fields using tsdav-utils (field-agnostic)
+    // Accepts any RFC 5545 VTODO property name (UPPERCASE)
+    const updatedData = updateFields(todoObject, validated.fields || {});
+
+    // Step 3: Send the updated todo back to server
+    const updateResponse = await client.updateTodo({
+      calendarObject: {
+        url: validated.todo_url,
+        data: updatedData,
+        etag: validated.todo_etag
+      }
+    });
+
+    return formatSuccess('Todo updated successfully', {
+      etag: updateResponse.etag,
+      updated_fields: Object.keys(validated.fields || {}),
+      message: `Updated ${Object.keys(validated.fields || {}).length} field(s): ${Object.keys(validated.fields || {}).join(', ')}`
+    });
   }
 };

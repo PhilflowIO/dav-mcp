@@ -1,6 +1,6 @@
 {
   "name": "dav-mcp",
-  "version": "3.0.2",
+  "version": "3.0.3",
   "description": "Complete DAV integration for AI - Calendar (CalDAV), Contacts (CardDAV), and Tasks (VTODO) management via MCP protocol",
   "type": "module",
   "main": "src/server-stdio.js",

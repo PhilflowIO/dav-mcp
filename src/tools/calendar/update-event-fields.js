@@ -1,6 +1,6 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput } from '../../validation.js';
-import { formatSuccess, formatError } from '../../formatters.js';
+import { formatSuccess } from '../../formatters.js';
 import { z } from 'zod';
 import { updateFields } from 'tsdav-utils';
 
@@ -76,44 +76,39 @@ export const updateEventFields = {
     required: ['event_url', 'event_etag']
   },
   handler: async (args) => {
-    try {
-      const validated = validateInput(updateEventFieldsSchema, args);
-      const client = tsdavManager.getCalDavClient();
+    const validated = validateInput(updateEventFieldsSchema, args);
+    const client = tsdavManager.getCalDavClient();
 
-      // Step 1: Fetch the current event from server
-      const calendarUrl = validated.event_url.substring(0, validated.event_url.lastIndexOf('/') + 1);
-      const currentEvents = await client.fetchCalendarObjects({
-        calendar: { url: calendarUrl },
-        objectUrls: [validated.event_url]
-      });
+    // Step 1: Fetch the current event from server
+    const calendarUrl = validated.event_url.substring(0, validated.event_url.lastIndexOf('/') + 1);
+    const currentEvents = await client.fetchCalendarObjects({
+      calendar: { url: calendarUrl },
+      objectUrls: [validated.event_url]
+    });
 
-      if (!currentEvents || currentEvents.length === 0) {
-        throw new Error('Event not found');
-      }
-
-      const calendarObject = currentEvents[0];
-
-      // Step 2: Update fields using tsdav-utils (field-agnostic)
-      // Accepts any RFC 5545 property name (UPPERCASE)
-      const updatedData = updateFields(calendarObject, validated.fields || {});
-
-      // Step 3: Send the updated event back to server
-      const updateResponse = await client.updateCalendarObject({
-        calendarObject: {
-          url: validated.event_url,
-          data: updatedData,
-          etag: validated.event_etag
-        }
-      });
-
-      return formatSuccess('Event updated successfully', {
-        etag: updateResponse.etag,
-        updated_fields: Object.keys(validated.fields || {}),
-        message: `Updated ${Object.keys(validated.fields || {}).length} field(s): ${Object.keys(validated.fields || {}).join(', ')}`
-      });
-
-    } catch (error) {
-      return formatError('update_event_fields', error);
+    if (!currentEvents || currentEvents.length === 0) {
+      throw new Error('Event not found');
     }
+
+    const calendarObject = currentEvents[0];
+
+    // Step 2: Update fields using tsdav-utils (field-agnostic)
+    // Accepts any RFC 5545 property name (UPPERCASE)
+    const updatedData = updateFields(calendarObject, validated.fields || {});
+
+    // Step 3: Send the updated event back to server
+    const updateResponse = await client.updateCalendarObject({
+      calendarObject: {
+        url: validated.event_url,
+        data: updatedData,
+        etag: validated.event_etag
+      }
+    });
+
+    return formatSuccess('Event updated successfully', {
+      etag: updateResponse.etag,
+      updated_fields: Object.keys(validated.fields || {}),
+      message: `Updated ${Object.keys(validated.fields || {}).length} field(s): ${Object.keys(validated.fields || {}).join(', ')}`
+    });
   }
 };
