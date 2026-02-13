@@ -31,7 +31,7 @@ export const updateTodoRaw = {
     const client = tsdavManager.getCalDavClient();
 
     const result = await client.updateTodo({
-      todo: {
+      calendarObject: {
         url: validated.todo_url,
         data: validated.updated_ical_data,
         etag: validated.todo_etag,

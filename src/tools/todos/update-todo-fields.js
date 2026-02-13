@@ -99,7 +99,7 @@ export const updateTodoFields = {
 
       // Step 3: Send the updated todo back to server
       const updateResponse = await client.updateTodo({
-        todo: {
+        calendarObject: {
           url: validated.todo_url,
           data: updatedData,
           etag: validated.todo_etag

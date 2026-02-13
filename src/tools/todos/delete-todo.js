@@ -27,7 +27,7 @@ export const deleteTodo = {
     const client = tsdavManager.getCalDavClient();
 
     await client.deleteTodo({
-      todo: {
+      calendarObject: {
         url: validated.todo_url,
         etag: validated.todo_etag,
       },
