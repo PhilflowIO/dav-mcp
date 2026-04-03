@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.philflowio/dav-mcp",
-  "description": "Turn any calendar, contact book, or task list into an AI-orchestrated system. Platform-independent via CalDAV/CardDAV — works with Nextcloud, Baikal, Radicale, Fastmail, and any standards-compliant DAV server. 26 tools with field-agnostic updates.",
+  "name": "io.github.PhilflowIO/dav-mcp",
+  "description": "AI-orchestrated calendars, contacts & tasks across any DAV platform. 26 tools, field-agnostic.",
   "repository": {
     "url": "https://github.com/PhilflowIO/dav-mcp",
     "source": "github"
   },
-  "version": "3.0.4",
+  "version": "3.0.5",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "dav-mcp",
-      "version": "3.0.4",
+      "version": "3.0.5",
       "transport": {
         "type": "stdio"
       },
