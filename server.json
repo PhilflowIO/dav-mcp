@@ -1,14 +1,43 @@
 {
-  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.philflowio/dav-mcp",
-  "title": "dav-mcp",
-  "description": "Complete DAV integration for AI - Calendar (CalDAV), Contacts (CardDAV), and Tasks (VTODO) management via MCP protocol",
+  "description": "Turn any calendar, contact book, or task list into an AI-orchestrated system. Platform-independent via CalDAV/CardDAV — works with Nextcloud, Baikal, Radicale, Fastmail, and any standards-compliant DAV server. 26 tools with field-agnostic updates.",
+  "repository": {
+    "url": "https://github.com/PhilflowIO/dav-mcp",
+    "source": "github"
+  },
   "version": "3.0.3",
   "packages": [
     {
       "registryType": "npm",
-      "name": "dav-mcp",
-      "version": "3.0.3"
+      "identifier": "dav-mcp",
+      "version": "3.0.3",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "DAV_BASE_URL",
+          "description": "Base URL of your CalDAV/CardDAV server",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "DAV_USERNAME",
+          "description": "Username for DAV server authentication",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "DAV_PASSWORD",
+          "description": "Password for DAV server authentication",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": true
+        }
+      ]
     }
   ]
 }
