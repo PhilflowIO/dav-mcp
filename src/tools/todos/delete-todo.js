@@ -7,17 +7,17 @@ import { formatSuccess } from '../../formatters.js';
  */
 export const deleteTodo = {
   name: 'delete_todo',
-  description: 'Delete a todo/task permanently from the calendar. Cannot be undone. Requires todo URL and etag.',
+  description: 'Permanently delete a todo/task from the calendar. WARNING: This action cannot be undone — the todo is removed from the server immediately. Use only when the user explicitly requests deletion. Obtain the todo URL and etag from list_todos or todo_query first. The etag ensures no conflicting changes occurred since the todo was last retrieved.',
   inputSchema: {
     type: 'object',
     properties: {
       todo_url: {
         type: 'string',
-        description: 'The URL of the todo to delete',
+        description: 'Full URL of the todo to delete. Obtain from list_todos or todo_query response.',
       },
       todo_etag: {
         type: 'string',
-        description: 'The current ETag of the todo',
+        description: 'ETag of the todo for conflict detection. Obtain from the same response as the todo URL. Ensures no changes were made since retrieval.',
       },
     },
     required: ['todo_url', 'todo_etag'],
