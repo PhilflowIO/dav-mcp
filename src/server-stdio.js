@@ -108,7 +108,7 @@ async function startStdioServer() {
   /**
    * Create MCP Server with tool handlers
    */
-  function createMCPServer() {
+  function createMCPServer(ensureInit) {
     const server = new Server(
       {
         name: process.env.MCP_SERVER_NAME || 'dav-mcp',
@@ -149,6 +149,9 @@ async function startStdioServer() {
         throw error;
       }
 
+      // Ensure DAV clients are initialized before executing any tool
+      await ensureInit();
+
       const startTime = Date.now();
       toolCallLogger.logToolCallStart(toolName, toolArgs, { transport: 'stdio' });
 
@@ -180,19 +183,34 @@ async function startStdioServer() {
     return server;
   }
 
+  // Lazy initialization flag
+  let tsdavInitialized = false;
+
+  async function ensureTsdavInitialized() {
+    if (!tsdavInitialized) {
+      await initializeTsdav();
+      tsdavInitialized = true;
+    }
+  }
+
   // Main entry point
   try {
     logger.info('Starting dav-mcp STDIO server...');
 
-    // Initialize tsdav clients
-    await initializeTsdav();
+    // Try to initialize tsdav clients eagerly, but don't fail if unavailable
+    try {
+      await initializeTsdav();
+      tsdavInitialized = true;
+    } catch (initError) {
+      logger.warn({ error: initError.message }, 'DAV server not reachable at startup — will retry on first tool call');
+    }
 
     // Initialize tool call logger
     initializeToolCallLogger();
     logger.info('Tool call logger initialized');
 
     // Create MCP server
-    const server = createMCPServer();
+    const server = createMCPServer(ensureTsdavInitialized);
     logger.debug({ count: tools.length }, 'MCP server created with tools');
 
     // Create STDIO transport

@@ -60,3 +60,5 @@ DISTRIBUTION-PLAN.md
 .env.backup*
 *.bak
 TEST_RESULTS_SUMMARY.md
+.mcpregistry_github_token
+.mcpregistry_registry_token
