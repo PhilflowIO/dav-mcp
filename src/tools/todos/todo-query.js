@@ -58,7 +58,10 @@ export const todoQuery = {
     // Fetch todos from all selected calendars
     let todos = [];
     for (const calendar of calendarsToSearch) {
-      const calendarTodos = await client.fetchTodos({ calendar });
+      const calendarTodos = await client.fetchCalendarObjects({
+        calendar,
+        filters: [{ 'comp-filter': { _attributes: { name: 'VCALENDAR' }, 'comp-filter': { _attributes: { name: 'VTODO' } } } }],
+      });
       // Add calendar info to each todo
       calendarTodos.forEach(todo => {
         todo._calendarName = calendar.displayName || calendar.url;
@@ -66,7 +69,7 @@ export const todoQuery = {
       todos = todos.concat(calendarTodos);
     }
 
-    // Client-side filtering (tsdav doesn't support server-side VTODO filtering yet)
+    // Client-side filtering applied after server returns VTODO objects
     if (validated.summary_filter) {
       const summaryLower = validated.summary_filter.toLowerCase();
       todos = todos.filter(todo => {

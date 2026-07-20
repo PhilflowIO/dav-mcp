@@ -23,7 +23,10 @@ export const listTodos = {
     const client = tsdavManager.getCalDavClient();
 
     const calendar = { url: validated.calendar_url };
-    const todos = await client.fetchTodos({ calendar });
+    const todos = await client.fetchCalendarObjects({
+      calendar,
+      filters: [{ 'comp-filter': { _attributes: { name: 'VCALENDAR' }, 'comp-filter': { _attributes: { name: 'VTODO' } } } }],
+    });
 
     return formatTodoList(todos, validated.calendar_url);
   },

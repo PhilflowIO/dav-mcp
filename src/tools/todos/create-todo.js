@@ -86,7 +86,7 @@ export const createTodo = {
     vtodo += 'END:VTODO\r\n';
     vtodo += 'END:VCALENDAR\r\n';
 
-    const result = await client.createTodo({
+    const result = await client.createCalendarObject({
       calendar: { url: validated.calendar_url },
       filename: `${Date.now()}.ics`,
       iCalString: vtodo,

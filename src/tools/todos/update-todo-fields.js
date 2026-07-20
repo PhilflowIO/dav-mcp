@@ -81,9 +81,10 @@ export const updateTodoFields = {
 
     // Step 1: Fetch the current todo from server
     const calendarUrl = validated.todo_url.substring(0, validated.todo_url.lastIndexOf('/') + 1);
-    const currentTodos = await client.fetchTodos({
+    const currentTodos = await client.fetchCalendarObjects({
       calendar: { url: calendarUrl },
-      objectUrls: [validated.todo_url]
+      objectUrls: [validated.todo_url],
+      filters: [{ 'comp-filter': { _attributes: { name: 'VCALENDAR' }, 'comp-filter': { _attributes: { name: 'VTODO' } } } }],
     });
 
     if (!currentTodos || currentTodos.length === 0) {
@@ -97,7 +98,7 @@ export const updateTodoFields = {
     const updatedData = updateFields(todoObject, validated.fields || {});
 
     // Step 3: Send the updated todo back to server
-    const updateResponse = await client.updateTodo({
+    const updateResponse = await client.updateCalendarObject({
       calendarObject: {
         url: validated.todo_url,
         data: updatedData,
