@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **dotenv printed a banner to stdout under the stdio transport**, so the first
+  thing a strict MCP client read was not JSON-RPC. Same hazard as #48, from a
+  dependency rather than our own code.
+- **The version reported to clients was hardcoded** and still said `3.0.1` in
+  five places. It now comes from `package.json`, with a protocol-level test that
+  speaks to the real server over stdio and asserts the two agree.
+
 ## [4.0.0] - 2026-08-14
 
 A correctness release. Several tools returned confidently wrong answers or
