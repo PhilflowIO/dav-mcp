@@ -11,38 +11,121 @@
 
 import ICAL from 'ical.js';
 
+// A CalDAV server answers a time-range query with the master VEVENT of a
+// recurring series, not with the occurrences inside the range, so the series
+// has to be expanded here. The cost of expansion scales with the distance from
+// DTSTART to the start of the range rather than with the width of the range —
+// a FREQ=MINUTELY series starting in 1970 needs ~29M steps to reach 2026 — so
+// the walk is capped. Server-supplied data must not be able to stall the loop.
+const MAX_RECURRENCE_ITERATIONS = 10000;
+
+/**
+ * Convert a queried time range into ICAL.Time bounds.
+ *
+ * Goes through Date so that every form the schema accepts — with or without
+ * milliseconds, "Z" or a "+02:00" offset — lands on the same absolute instant.
+ * ICAL.Time.fromDateTimeString would silently treat an offset form as floating.
+ */
+function toICALRange(timeRange) {
+  if (!timeRange?.start || !timeRange?.end) return null;
+
+  const start = new Date(timeRange.start);
+  const end = new Date(timeRange.end);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+
+  return {
+    start: ICAL.Time.fromJSDate(start, true),
+    end: ICAL.Time.fromJSDate(end, true),
+  };
+}
+
+/**
+ * Find the first occurrence of a recurring event inside the queried range.
+ *
+ * Returns null when the series has no occurrence there — the caller must say so
+ * rather than fall back to the master DTSTART, which is the wrong-date bug this
+ * whole path exists to fix.
+ */
+function firstOccurrenceInRange(event, range) {
+  const expand = new ICAL.RecurExpansion({
+    component: event.component,
+    dtstart: event.startDate,
+  });
+
+  for (let step = 0; step < MAX_RECURRENCE_ITERATIONS; step++) {
+    const next = expand.next();
+    if (!next) return { occurrence: null };
+    if (next.compare(range.end) > 0) return { occurrence: null };
+    if (next.compare(range.start) >= 0) {
+      return { occurrence: event.getOccurrenceDetails(next) };
+    }
+  }
+
+  console.error(`Recurrence expansion gave up after ${MAX_RECURRENCE_ITERATIONS} occurrences`);
+  return { occurrence: null, truncated: true };
+}
+
 /**
  * Parse iCal data string to extract event properties (RFC 5545 compliant)
+ *
+ * When a time range is given, a recurring series resolves to the occurrence
+ * inside that range, including any RECURRENCE-ID override of it.
  */
-function parseICalEvent(icalData) {
+function parseICalEvent(icalData, timeRange = null) {
   try {
     const jcalData = ICAL.parse(icalData);
     const comp = new ICAL.Component(jcalData);
-    const vevent = comp.getFirstSubcomponent('vevent');
+    const vevents = comp.getAllSubcomponents('vevent');
+    // Overrides are siblings of the master in the same calendar object; taking
+    // the first VEVENT would pick one of them at the server's whim.
+    const vevent = vevents.find(v => !v.getFirstProperty('recurrence-id')) || vevents[0];
 
     if (!vevent) {
       return {};
     }
 
     const event = new ICAL.Event(vevent);
+    for (const override of vevents) {
+      if (override !== vevent && override.getFirstProperty('recurrence-id')) {
+        event.relateException(override);
+      }
+    }
+
+    let occurrence = null;
+    let outsideRange = false;
+    let expansionTruncated = false;
+
+    if (event.isRecurring()) {
+      const range = toICALRange(timeRange);
+      if (range) {
+        const result = firstOccurrenceInRange(event, range);
+        occurrence = result.occurrence;
+        expansionTruncated = Boolean(result.truncated);
+        outsideRange = !occurrence && !expansionTruncated;
+      }
+    }
+
+    const item = occurrence ? occurrence.item : event;
 
     return {
-      summary: event.summary || '',
-      description: event.description || '',
-      location: event.location || '',
+      summary: item.summary || '',
+      description: item.description || '',
+      location: item.location || '',
       uid: event.uid || '',
-      dtstart: event.startDate,
-      dtend: event.endDate,
+      dtstart: occurrence ? occurrence.startDate : event.startDate,
+      dtend: occurrence ? occurrence.endDate : event.endDate,
+      outsideRange,
+      expansionTruncated,
       isRecurring: event.isRecurring(),
       rrule: event.isRecurring() ? vevent.getFirstPropertyValue('rrule') : null,
-      organizer: vevent.getFirstPropertyValue('organizer'),
-      attendees: vevent.getAllProperties('attendee').map(att => ({
+      organizer: item.component.getFirstPropertyValue('organizer'),
+      attendees: item.component.getAllProperties('attendee').map(att => ({
         email: att.getFirstValue(),
         role: att.getParameter('role'),
         partstat: att.getParameter('partstat'),
         cn: att.getParameter('cn'),
       })),
-      alarms: vevent.getAllSubcomponents('valarm').map(valarm => ({
+      alarms: item.component.getAllSubcomponents('valarm').map(valarm => ({
         action: valarm.getFirstPropertyValue('action'),
         trigger: valarm.getFirstPropertyValue('trigger'),
         description: valarm.getFirstPropertyValue('description'),
@@ -134,6 +217,116 @@ function parseVCard(vcardData) {
   }
 }
 
+// Properties whose value may be an inline binary blob. A single embedded
+// contact photo runs to ~170k characters, of which the human-readable part of
+// our output uses none — it all lands in the Raw Data block and blows up the
+// model's context. Small values (a URI, a short reference) are kept.
+const BINARY_CAPABLE_PROPERTY = /^(PHOTO|LOGO|SOUND|ATTACH|KEY)(;|:)/i;
+const MAX_INLINE_VALUE_LENGTH = 512;
+
+/**
+ * Replace inline binary property values with a short placeholder.
+ *
+ * Operates on raw content lines so that everything else — including the
+ * original folding — survives untouched: the Raw Data block stays something a
+ * caller can reason about, minus the blobs.
+ */
+export function stripBinaryValues(data) {
+  if (typeof data !== 'string') return data;
+
+  const separator = data.includes('\r\n') ? '\r\n' : '\n';
+  const lines = data.split(/\r\n|\n|\r/);
+  const output = [];
+  let run = null;
+
+  const flush = () => {
+    if (!run) return;
+    const value = run.lines.join('').slice(run.name.length + 1);
+    if (value.length > MAX_INLINE_VALUE_LENGTH) {
+      output.push(`${run.header}<stripped ${value.length} characters>`);
+    } else {
+      output.push(...run.lines);
+    }
+    run = null;
+  };
+
+  for (const line of lines) {
+    if (run && /^[ \t]/.test(line)) {
+      run.lines.push(line);
+      continue;
+    }
+    flush();
+
+    if (BINARY_CAPABLE_PROPERTY.test(line)) {
+      const colon = line.indexOf(':');
+      run = {
+        name: line.slice(0, colon),
+        header: line.slice(0, colon + 1),
+        lines: [line],
+      };
+      continue;
+    }
+    output.push(line);
+  }
+  flush();
+
+  return output.join(separator);
+}
+
+/**
+ * Shape a list of DAV objects for the Raw Data block
+ */
+function toRawData(items) {
+  return items.map(item => ({
+    url: item.url,
+    etag: item.etag,
+    data: stripBinaryValues(item.data),
+  }));
+}
+
+/**
+ * Resolve the display name of a collection.
+ *
+ * Call sites pass a name, a tsdav collection object, or an explicit null, and a
+ * default parameter only fires for undefined — so normalise here instead of at
+ * every call site.
+ */
+function collectionName(collection, fallback) {
+  if (!collection) return fallback;
+  if (typeof collection === 'string') return collection;
+  return extractPropertyValue(collection.displayName) || collection.url || fallback;
+}
+
+/**
+ * Format ICAL.Time to human-readable format with proper timezone support
+ */
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'];
+
+/**
+ * Resolve the IANA zone to render an ICAL.Time in.
+ *
+ * Returns undefined for "render in whatever zone the host is in", which is the
+ * correct answer for a floating time and the only safe answer for a TZID Intl
+ * does not know (Exchange emits "W. Europe Standard Time"). Handing such a TZID
+ * to toLocaleDateString throws a RangeError.
+ */
+function displayTimeZone(icalTime) {
+  // ical.js populates .timezone only when the TZID could NOT be resolved, so
+  // .zone.tzid is the canonical accessor and .timezone the last-ditch one.
+  const tzid = icalTime.zone?.tzid || icalTime.timezone;
+
+  if (!tzid || tzid === 'floating') return undefined;
+  if (tzid === 'UTC' || tzid === 'Z') return 'UTC';
+
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tzid });
+    return tzid;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Format ICAL.Time to human-readable format with proper timezone support
  */
@@ -141,21 +334,28 @@ function formatDateTime(icalTime) {
   if (!icalTime) return '';
 
   try {
-    // Convert ICAL.Time to JavaScript Date
+    // A date-only value has no time and no zone. Reading the fields directly
+    // is the only correct route: toJSDate() would anchor it to the host's
+    // offset, which shifts the date itself east of Greenwich.
+    if (icalTime.isDate) {
+      return `${MONTHS[icalTime.month - 1]} ${icalTime.day}, ${icalTime.year}`;
+    }
+
     const jsDate = icalTime.toJSDate();
+    const timeZone = displayTimeZone(icalTime);
 
     const dateStr = jsDate.toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'long',
       day: 'numeric',
-      timeZone: icalTime.timezone === 'UTC' ? 'UTC' : undefined,
+      timeZone,
     });
 
     const timeStr = jsDate.toLocaleTimeString('en-US', {
       hour: '2-digit',
       minute: '2-digit',
       timeZoneName: 'short',
-      timeZone: icalTime.timezone === 'UTC' ? 'UTC' : undefined,
+      timeZone,
     });
 
     return `${dateStr}, ${timeStr}`;
@@ -168,8 +368,9 @@ function formatDateTime(icalTime) {
 /**
  * Format a single calendar event to Markdown
  */
-export function formatEvent(event, calendarName = 'Unknown Calendar') {
-  const parsed = parseICalEvent(event.data);
+export function formatEvent(event, calendar = 'Unknown Calendar', timeRange = null) {
+  const calendarName = collectionName(calendar, 'Unknown Calendar');
+  const parsed = parseICalEvent(event.data, timeRange);
 
   const startDate = formatDateTime(parsed.dtstart);
   const endDate = formatDateTime(parsed.dtend);
@@ -193,6 +394,13 @@ export function formatEvent(event, calendarName = 'Unknown Calendar') {
   // Show recurrence info if event is recurring
   if (parsed.isRecurring && parsed.rrule) {
     output += `- **Recurring**: ${parsed.rrule.toString()}\n`;
+  }
+
+  // Never let a series start date pass for an occurrence in the queried range
+  if (parsed.outsideRange) {
+    output += `- **Note**: no occurrence of this series falls inside the queried range; the date above is the series start\n`;
+  } else if (parsed.expansionTruncated) {
+    output += `- **Note**: this series has too many occurrences to expand; the date above is the series start, not an occurrence in the queried range\n`;
   }
 
   // Show organizer if present
@@ -229,7 +437,9 @@ export function formatEvent(event, calendarName = 'Unknown Calendar') {
 /**
  * Format a list of calendar events to LLM-friendly Markdown
  */
-export function formatEventList(events, calendarName = 'Unknown Calendar') {
+export function formatEventList(events, calendar = 'Unknown Calendar', timeRange = null) {
+  const calendarName = collectionName(calendar, 'Unknown Calendar');
+
   if (!events || events.length === 0) {
     return {
       content: [{
@@ -243,15 +453,11 @@ export function formatEventList(events, calendarName = 'Unknown Calendar') {
 
   events.forEach((event, index) => {
     output += `### ${index + 1}. `;
-    output += formatEvent(event, calendarName).replace(/^## /, '') + '\n';
+    output += formatEvent(event, calendarName, timeRange).replace(/^## /, '') + '\n';
   });
 
   output += `---\n<details>\n<summary>Raw Data (JSON)</summary>\n\n\`\`\`json\n`;
-  output += JSON.stringify(events.map(e => ({
-    url: e.url,
-    etag: e.etag,
-    data: e.data
-  })), null, 2);
+  output += JSON.stringify(toRawData(events), null, 2);
   output += '\n```\n</details>';
 
   return {
@@ -265,7 +471,8 @@ export function formatEventList(events, calendarName = 'Unknown Calendar') {
 /**
  * Format a single contact to Markdown
  */
-export function formatContact(contact, addressBookName = 'Unknown Address Book') {
+export function formatContact(contact, addressBook = 'Unknown Address Book') {
+  const addressBookName = collectionName(addressBook, 'Unknown Address Book');
   const parsed = parseVCard(contact.data);
 
   let output = `## ${parsed.fullName || 'Unnamed Contact'}\n\n`;
@@ -345,7 +552,9 @@ export function formatContact(contact, addressBookName = 'Unknown Address Book')
 /**
  * Format a list of contacts to LLM-friendly Markdown
  */
-export function formatContactList(contacts, addressBookName = 'Unknown Address Book') {
+export function formatContactList(contacts, addressBook = 'Unknown Address Book') {
+  const addressBookName = collectionName(addressBook, 'Unknown Address Book');
+
   if (!contacts || contacts.length === 0) {
     return {
       content: [{
@@ -370,11 +579,7 @@ export function formatContactList(contacts, addressBookName = 'Unknown Address B
   });
 
   output += `---\n<details>\n<summary>Raw Data (JSON)</summary>\n\n\`\`\`json\n`;
-  output += JSON.stringify(contacts.map(c => ({
-    url: c.url,
-    etag: c.etag,
-    data: c.data
-  })), null, 2);
+  output += JSON.stringify(toRawData(contacts), null, 2);
   output += '\n```\n</details>';
 
   // Add next action hints
@@ -636,7 +841,8 @@ function formatPriority(priority) {
 /**
  * Format a single todo to Markdown
  */
-export function formatTodo(todo, calendarName = 'Unknown Calendar') {
+export function formatTodo(todo, calendar = 'Unknown Calendar') {
+  const calendarName = collectionName(calendar, 'Unknown Calendar');
   const parsed = parseVTodo(todo.data);
   const statusEmoji = getStatusEmoji(parsed.status);
 
@@ -678,7 +884,8 @@ export function formatTodo(todo, calendarName = 'Unknown Calendar') {
 /**
  * Format a list of todos to LLM-friendly Markdown
  */
-export function formatTodoList(todos, calendarName = 'Unknown Calendar') {
+export function formatTodoList(todos, calendar = 'Unknown Calendar') {
+  const calendarName = collectionName(calendar, 'Unknown Calendar');
   if (!todos || todos.length === 0) {
     return {
       content: [{
@@ -696,11 +903,7 @@ export function formatTodoList(todos, calendarName = 'Unknown Calendar') {
   });
 
   output += `---\n<details>\n<summary>Raw Data (JSON)</summary>\n\n\`\`\`json\n`;
-  output += JSON.stringify(todos.map(t => ({
-    url: t.url,
-    etag: t.etag,
-    data: t.data
-  })), null, 2);
+  output += JSON.stringify(toRawData(todos), null, 2);
   output += '\n```\n</details>';
 
   return {

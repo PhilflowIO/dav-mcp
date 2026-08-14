@@ -78,8 +78,10 @@ export const addressbookQuery = {
       });
     }
 
-    // Format and return results (pass first addressbook for context, or null if multiple)
-    const singleAddressbook = addressbooksToSearch.length === 1 ? addressbooksToSearch[0] : null;
-    return formatContactList(filteredContacts, singleAddressbook);
+    const addressBookName = addressbooksToSearch.length === 1
+      ? addressbooksToSearch[0]
+      : `All Address Books (${addressbooksToSearch.length})`;
+
+    return formatContactList(filteredContacts, addressBookName);
   },
 };

@@ -63,10 +63,6 @@ export const calendarQuery = {
     for (const calendar of calendarsToSearch) {
       const options = { calendar, ...timeRangeOptions };
       const events = await client.fetchCalendarObjects(options);
-      // Add calendar info to each event
-      events.forEach(event => {
-        event._calendarName = calendar.displayName || calendar.url;
-      });
       allEvents = allEvents.concat(events);
     }
 
@@ -90,9 +86,9 @@ export const calendarQuery = {
 
     // Determine calendar name for display
     const calendarName = calendarsToSearch.length === 1
-      ? (calendarsToSearch[0].displayName || calendarsToSearch[0].url)
+      ? calendarsToSearch[0]
       : `All Calendars (${calendarsToSearch.length})`;
 
-    return formatEventList(filteredEvents, calendarName);
+    return formatEventList(filteredEvents, calendarName, timeRangeOptions.timeRange);
   },
 };
