@@ -89,3 +89,19 @@ describe('a successful delete still succeeds', () => {
     await expect(deleteCalendar.handler({ calendar_url: CALENDAR_URL })).resolves.toBeDefined();
   });
 });
+
+describe('success messages read as English', () => {
+  test('a create message is not doubled', async () => {
+    deleteObject.mockResolvedValue(davResponse(204));
+    const text = (await deleteCalendar.handler({ calendar_url: CALENDAR_URL })).content[0].text;
+    expect(text).not.toMatch(/successfully successful/);
+  });
+
+  test('formatSuccess does not append a second success word', async () => {
+    const { formatSuccess } = await import('../src/formatters.js');
+    const text = formatSuccess('Todo created successfully', { url: 'https://example.com/t.ics' })
+      .content[0].text;
+    expect(text).toContain('✅ **Todo created successfully**');
+    expect(text).not.toContain('successful**');
+  });
+});

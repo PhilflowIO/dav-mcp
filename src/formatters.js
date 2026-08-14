@@ -754,7 +754,10 @@ export function formatAddressBookList(addressBooks) {
  * Format success message for create/update/delete operations
  */
 export function formatSuccess(operation, details = {}) {
-  let output = `✅ **${operation} successful**\n\n`;
+  // Callers pass a complete phrase ("Todo created successfully"); appending a
+  // second "successful" here produced "created successfully successful" in
+  // every write response the model reads back.
+  let output = `✅ **${operation}**\n\n`;
 
   if (details.url) {
     output += `- **URL**: ${details.url}\n`;
