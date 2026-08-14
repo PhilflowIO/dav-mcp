@@ -217,25 +217,62 @@ function collectionName(collection, fallback) {
 /**
  * Format ICAL.Time to human-readable format with proper timezone support
  */
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'];
+
+/**
+ * Resolve the IANA zone to render an ICAL.Time in.
+ *
+ * Returns undefined for "render in whatever zone the host is in", which is the
+ * correct answer for a floating time and the only safe answer for a TZID Intl
+ * does not know (Exchange emits "W. Europe Standard Time"). Handing such a TZID
+ * to toLocaleDateString throws a RangeError.
+ */
+function displayTimeZone(icalTime) {
+  // ical.js populates .timezone only when the TZID could NOT be resolved, so
+  // .zone.tzid is the canonical accessor and .timezone the last-ditch one.
+  const tzid = icalTime.zone?.tzid || icalTime.timezone;
+
+  if (!tzid || tzid === 'floating') return undefined;
+  if (tzid === 'UTC' || tzid === 'Z') return 'UTC';
+
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tzid });
+    return tzid;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Format ICAL.Time to human-readable format with proper timezone support
+ */
 function formatDateTime(icalTime) {
   if (!icalTime) return '';
 
   try {
-    // Convert ICAL.Time to JavaScript Date
+    // A date-only value has no time and no zone. Reading the fields directly
+    // is the only correct route: toJSDate() would anchor it to the host's
+    // offset, which shifts the date itself east of Greenwich.
+    if (icalTime.isDate) {
+      return `${MONTHS[icalTime.month - 1]} ${icalTime.day}, ${icalTime.year}`;
+    }
+
     const jsDate = icalTime.toJSDate();
+    const timeZone = displayTimeZone(icalTime);
 
     const dateStr = jsDate.toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'long',
       day: 'numeric',
-      timeZone: icalTime.timezone === 'UTC' ? 'UTC' : undefined,
+      timeZone,
     });
 
     const timeStr = jsDate.toLocaleTimeString('en-US', {
       hour: '2-digit',
       minute: '2-digit',
       timeZoneName: 'short',
-      timeZone: icalTime.timezone === 'UTC' ? 'UTC' : undefined,
+      timeZone,
     });
 
     return `${dateStr}, ${timeStr}`;
