@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **All-day events** (#43): `create_event` and `update_event` accept a bare
+  `YYYY-MM-DD` `start_date`/`end_date` (or an explicit `all_day` flag) and emit
+  `DTSTART;VALUE=DATE` / `DTEND;VALUE=DATE`. `update_event` gained top-level
+  `start_date`/`end_date`/`all_day` parameters, which convert an event in both
+  directions; the `fields` map cannot express a parameterised property.
+  The all-day `DTEND` is exclusive, as RFC 5545 3.8.2.2 requires.
+
 ## [3.0.1] - 2026-01-20
 
 ### Added

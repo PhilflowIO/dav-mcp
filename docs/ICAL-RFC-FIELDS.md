@@ -13,6 +13,24 @@
 - **CREATED** - Creation timestamp
 - **LAST-MODIFIED** - Last modification timestamp
 
+#### All-day events
+
+An all-day event is a DTSTART/DTEND carrying a DATE value rather than a
+DATE-TIME (RFC 5545 3.3.4), and its DTEND is **exclusive**:
+
+```
+DTSTART;VALUE=DATE:20260525
+DTEND;VALUE=DATE:20260526
+```
+
+That is one day, 25 May. `create_event` and `update_event` take this form as a
+bare `start_date`/`end_date` of `YYYY-MM-DD` (or an explicit `all_day: true`).
+
+The `fields` map of `update_event` cannot express it: keys there are bare
+property names, because a key carrying a parameter would append a second
+DTSTART rather than replace the existing one. The dedicated
+`start_date`/`end_date`/`all_day` parameters exist for exactly this reason.
+
 ### Text Properties
 - **SUMMARY** - Title/Subject
 - **DESCRIPTION** - Detailed description
