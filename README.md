@@ -85,24 +85,25 @@ When partial tools force your AI to improvise, complete tools let it **execute p
 
 | Capability | dav-mcp | Most MCPs |
 |------------|---------|-----------|
-| **Calendar Management** | Full CRUD (11 tools) | Create + list only (2-3 tools) |
+| **Calendar Management** | Full CRUD (12 tools) | Create + list only (2-3 tools) |
 | **Contact Management** | Complete CardDAV (8 tools) | Often missing entirely |
 | **Task Management** | Full VTODO support (7 tools) | Rarely included |
 | **Field-Based Updates** | All RFC properties + custom fields | Rarely available |
+| **Free/Busy** | Works on every server (client-side) | Native REPORT, unsupported by most |
 | **Server-Side Filtering** | Efficient queries | Dumps all data |
 | **Multi-Provider** | Any CalDAV/CardDAV server | Limited provider support |
-| **Total Tools** | **26 tools** | **2-6 tools** |
+| **Total Tools** | **27 tools** | **2-6 tools** |
 
 ---
 
-## Available Tools (26 Total)
+## Available Tools (27 Total)
 
-### CalDAV Tools (11 tools)
+### CalDAV Tools (12 tools)
 
 1. **list_calendars** - List all available calendars
 2. **list_events** - List ALL events (use calendar_query for filtered searches)
 3. **create_event** - Create a new calendar event
-4. **update_event** - PREFERRED: Update any event field (SUMMARY, LOCATION, DTSTART, STATUS, custom X-* properties)
+4. **update_event** - PREFERRED: Update any event field (SUMMARY, LOCATION, STATUS, custom X-* properties); move or convert an event with start_date/end_date/all_day
 5. **update_event_raw** - Update event with raw iCal data (advanced)
 6. **delete_event** - Delete an event permanently
 7. **calendar_query** - PREFERRED: Search and filter events efficiently by text, date range, or location
@@ -110,6 +111,7 @@ When partial tools force your AI to improvise, complete tools let it **execute p
 9. **update_calendar** - Update calendar properties (display name, description, color, timezone)
 10. **delete_calendar** - Permanently delete a calendar and all its events
 11. **calendar_multi_get** - Batch fetch multiple specific events by URLs
+12. **freebusy_query** - Find free and busy time in a range ("when am I free?"), calculated client-side
 
 ### CardDAV Tools (8 tools)
 
