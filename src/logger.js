@@ -6,8 +6,7 @@
  * corrupting JSON-RPC messages on stdout.
  */
 
-// Detect STDIO transport mode - must write to stderr to preserve stdout for JSON-RPC
-const isStdioMode = process.env.MCP_TRANSPORT === 'stdio';
+import { writeLogLine } from './log-sink.js';
 
 // Cache environment check to avoid repeated env access (satisfies CodeQL)
 const isProduction = process.env.NODE_ENV === 'production';
@@ -58,10 +57,8 @@ class JSONLogger {
       }
     }
 
-    // Output function: stderr for STDIO mode, stdout for HTTP mode
-    const output = isStdioMode
-      ? (msg) => process.stderr.write(msg + '\n')
-      : (msg) => console.log(msg);
+    // stderr under stdio, stdout otherwise — see src/log-sink.js
+    const output = writeLogLine;
 
     // Pretty-print in development, single-line JSON in production
     if (!isProduction) {
