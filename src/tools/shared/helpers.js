@@ -12,6 +12,24 @@ export function formatICalDate(date) {
 }
 
 /**
+ * Format a date-only value as an iCal DATE (RFC 5545 3.3.4)
+ *
+ * String surgery on purpose: routing the value through Date would give it a
+ * time and an offset it does not have, and reading the date back out in the
+ * host timezone shifts it by a day for anyone east or west of Greenwich.
+ *
+ * @param {string} dateOnly - Date in YYYY-MM-DD form
+ * @returns {string} Formatted iCal date (YYYYMMDD)
+ */
+export function formatICalDateOnly(dateOnly) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateOnly);
+  if (!match) {
+    throw new Error(`Expected a date in YYYY-MM-DD form, got "${dateOnly}"`);
+  }
+  return `${match[1]}${match[2]}${match[3]}`;
+}
+
+/**
  * Generate unique UID for calendar objects
  * @param {string} prefix - Prefix for the UID (e.g., 'event', 'todo', 'contact')
  * @returns {string} Unique identifier
