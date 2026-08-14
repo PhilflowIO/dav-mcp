@@ -234,6 +234,16 @@ export const calendarQuerySchema = z.object({
   message: "Provide: (time_range with BOTH dates) OR (text filter) OR (both)"
 });
 
+export const freeBusyQuerySchema = z.object({
+  time_range_start: dateTimeWithOptionalOffset,
+  time_range_end: dateTimeWithOptionalOffset,
+  calendar_url: optionalUrl('Invalid calendar URL'),
+  include_event_details: z.boolean().optional(),
+}).refine((data) => new Date(data.time_range_end) > new Date(data.time_range_start), {
+  message: 'time_range_end must be after time_range_start',
+  path: ['time_range_end'],
+});
+
 export const makeCalendarSchema = z.object({
   display_name: z.string().min(1, 'Display name is required').max(200),
   description: z.string().max(500).optional(),

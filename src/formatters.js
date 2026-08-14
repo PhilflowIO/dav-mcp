@@ -1003,3 +1003,62 @@ export function formatError(error, context = '') {
     }]
   };
 }
+
+/**
+ * Format a free/busy answer to LLM-friendly Markdown
+ *
+ * Free slots come first: the question behind this tool is almost always "when
+ * can I put something", not "what am I doing".
+ */
+export function formatFreeBusy({ busy, free, range, calendarCount = 1, events = null }) {
+  const scope = calendarCount === 1 ? '1 calendar' : `${calendarCount} calendars`;
+
+  let output = `## Free/Busy\n\n`;
+  output += `- **Window**: ${formatDateTime(ICAL.Time.fromJSDate(range.start, true))} to ${formatDateTime(ICAL.Time.fromJSDate(range.end, true))}\n`;
+  output += `- **Scope**: ${scope}\n\n`;
+
+  if (free.length === 0) {
+    output += `**No free time** in this window — it is fully booked.\n\n`;
+  } else {
+    output += `### Free (${free.length})\n\n`;
+    free.forEach(slot => {
+      output += `- ${formatInterval(slot)}\n`;
+    });
+    output += '\n';
+  }
+
+  if (busy.length === 0) {
+    output += `### Busy (0)\n\nNothing blocks this window.\n`;
+  } else {
+    output += `### Busy (${busy.length})\n\n`;
+    busy.forEach(slot => {
+      output += `- ${formatInterval(slot)}\n`;
+    });
+  }
+
+  if (events) {
+    output += `\n### Events behind the busy blocks (${events.length})\n\n`;
+    events.forEach((event, index) => {
+      output += `#### ${index + 1}. `;
+      output += formatEvent(event, 'Calendar').replace(/^## /, '') + '\n';
+    });
+  }
+
+  return {
+    content: [{
+      type: 'text',
+      text: output
+    }]
+  };
+}
+
+function formatInterval({ start, end }) {
+  const from = formatDateTime(ICAL.Time.fromJSDate(start, true));
+  const to = formatDateTime(ICAL.Time.fromJSDate(end, true));
+  const minutes = Math.round((end.getTime() - start.getTime()) / 60000);
+  const duration = minutes >= 60
+    ? `${Math.floor(minutes / 60)}h${minutes % 60 ? ` ${minutes % 60}m` : ''}`
+    : `${minutes}m`;
+
+  return `${from} → ${to} (${duration})`;
+}
