@@ -32,6 +32,19 @@ describe('Validation Module', () => {
       expect(result).toBe('test\\nstring');
     });
 
+    test('should escape CRLF as a single newline', () => {
+      expect(sanitizeICalString('test\r\nstring')).toBe('test\\nstring');
+    });
+
+    test('should escape a bare carriage return', () => {
+      expect(sanitizeICalString('test\rstring')).toBe('test\\nstring');
+    });
+
+    test('should leave no raw control characters behind', () => {
+      const result = sanitizeICalString('a\r\nSUMMARY:injected\rX-EVIL:1');
+      expect(result).not.toMatch(/[\r\n]/);
+    });
+
     test('should handle empty string', () => {
       const result = sanitizeICalString('');
       expect(result).toBe('');

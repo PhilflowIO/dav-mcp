@@ -1,5 +1,5 @@
 import { tsdavManager } from '../../tsdav-client.js';
-import { validateInput } from '../../validation.js';
+import { validateInput, davFieldMapSchema } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
 import { z } from 'zod';
 import { updateFields } from 'tsdav-utils';
@@ -7,18 +7,20 @@ import { updateFields } from 'tsdav-utils';
 /**
  * Schema for field-based event updates
  * Supports all RFC 5545 iCalendar properties via tsdav-utils
+ * Field names are validated as bare property names; see davFieldMapSchema
  * Common fields: SUMMARY, DESCRIPTION, LOCATION, DTSTART, DTEND, STATUS
  * Custom properties: Any X-* property
  */
 const updateEventFieldsSchema = z.object({
   event_url: z.string().url('Event URL must be a valid URL'),
   event_etag: z.string().min(1, 'Event etag is required'),
-  fields: z.record(z.string()).optional()
+  fields: davFieldMapSchema
 });
 
 /**
  * Field-agnostic event update tool powered by tsdav-utils
- * Supports all RFC 5545 iCalendar properties without validation
+ * Supports any bare RFC 5545 property name; parameters and multi-line
+ * values are rejected by the schema
  *
  * Features:
  * - Any standard VEVENT property (SUMMARY, DESCRIPTION, LOCATION, DTSTART, etc.)
@@ -41,7 +43,7 @@ export const updateEventFields = {
       },
       fields: {
         type: 'object',
-        description: 'Fields to update - use UPPERCASE property names (e.g., SUMMARY, LOCATION, DTSTART). Any RFC 5545 property or custom X-* property is supported.',
+        description: 'Fields to update, keyed by bare UPPERCASE property name (e.g., SUMMARY, LOCATION, DTSTART). Any RFC 5545 property or custom X-* property is supported. Property parameters such as "DTSTART;VALUE=DATE" are not accepted here, and values must not contain line breaks.',
         additionalProperties: {
           type: 'string'
         },

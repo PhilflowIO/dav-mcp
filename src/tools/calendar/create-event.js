@@ -52,17 +52,22 @@ export const createEvent = {
     const description = validated.description ? sanitizeICalString(validated.description) : '';
     const location = validated.location ? sanitizeICalString(validated.location) : '';
 
-    const iCalString = `BEGIN:VCALENDAR
-VERSION:2.0
-PRODID:-//tsdav-mcp-server//EN
-BEGIN:VEVENT
-UID:${uid}
-DTSTAMP:${formatICalDate(now)}
-DTSTART:${formatICalDate(new Date(validated.start_date))}
-DTEND:${formatICalDate(new Date(validated.end_date))}
-SUMMARY:${summary}${description ? `\nDESCRIPTION:${description}` : ''}${location ? `\nLOCATION:${location}` : ''}
-END:VEVENT
-END:VCALENDAR`;
+    // RFC 5545 3.1: content lines are delimited by CRLF, not LF
+    const iCalString = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//tsdav-mcp-server//EN',
+      'BEGIN:VEVENT',
+      `UID:${uid}`,
+      `DTSTAMP:${formatICalDate(now)}`,
+      `DTSTART:${formatICalDate(new Date(validated.start_date))}`,
+      `DTEND:${formatICalDate(new Date(validated.end_date))}`,
+      `SUMMARY:${summary}`,
+      description ? `DESCRIPTION:${description}` : null,
+      location ? `LOCATION:${location}` : null,
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].filter(Boolean).join('\r\n');
 
     const response = await client.createCalendarObject({
       calendar,
