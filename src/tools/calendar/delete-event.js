@@ -1,6 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, deleteEventSchema } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
+import { assertDeleted } from '../shared/helpers.js';
 
 /**
  * Delete a calendar event permanently
@@ -26,12 +27,13 @@ export const deleteEvent = {
     const validated = validateInput(deleteEventSchema, args);
     const client = tsdavManager.getCalDavClient();
 
-    await client.deleteCalendarObject({
+    const response = await client.deleteCalendarObject({
       calendarObject: {
         url: validated.event_url,
         etag: validated.event_etag,
       },
     });
+    await assertDeleted(response, `event ${validated.event_url}`);
 
     return formatSuccess('Event deleted successfully');
   },
