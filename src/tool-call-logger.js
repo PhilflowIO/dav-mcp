@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { writeLogLine } from './log-sink.js';
 
 /**
  * Tool Call Logger - Logs all MCP tool calls to JSON Lines format
@@ -30,7 +31,8 @@ class ToolCallLogger {
     const line = JSON.stringify(entry) + '\n';
 
     if (this.outputMode === 'console' || this.outputMode === 'both') {
-      console.log(line.trim());
+      // never console.log here: under stdio that is the JSON-RPC channel
+      writeLogLine(line.trim());
     }
 
     if (this.outputMode === 'file' || this.outputMode === 'both') {

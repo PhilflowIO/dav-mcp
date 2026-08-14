@@ -1,6 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, deleteTodoSchema } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
+import { assertDeleted } from '../shared/helpers.js';
 
 /**
  * Delete a todo/task permanently
@@ -26,12 +27,13 @@ export const deleteTodo = {
     const validated = validateInput(deleteTodoSchema, args);
     const client = tsdavManager.getCalDavClient();
 
-    await client.deleteTodo({
+    const response = await client.deleteTodo({
       calendarObject: {
         url: validated.todo_url,
         etag: validated.todo_etag,
       },
     });
+    await assertDeleted(response, `todo ${validated.todo_url}`);
 
     return formatSuccess('Todo deleted successfully');
   },

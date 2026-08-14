@@ -130,3 +130,39 @@ export function buildTimeRangeOptions(timeRangeStart, timeRangeEnd) {
 
   return options;
 }
+
+/**
+ * Assert that a DAV delete actually happened.
+ *
+ * tsdav's deleteObject — and the deleteCalendarObject / deleteVCard /
+ * deleteTodo wrappers around it — is a bare fetch, and fetch does not reject on
+ * 4xx or 5xx. An unchecked call therefore reports success for a 403 or 405 as
+ * happily as for a 204, which is how "the calendar is still there after I
+ * deleted it" becomes invisible to the caller.
+ *
+ * A 404 counts as done: DELETE is idempotent and the object is gone either way.
+ *
+ * @param {Response|undefined} response - what tsdav handed back
+ * @param {string} what - the object being deleted, for the error message
+ */
+export async function assertDeleted(response, what) {
+  // Not every tsdav version returns the raw Response; if we cannot see a
+  // status, we have nothing to check and must not invent a failure.
+  if (!response || typeof response.status !== 'number') return;
+
+  if (response.ok || response.status === 404) return;
+
+  let detail = '';
+  try {
+    const body = await response.text();
+    if (body) detail = `: ${body.slice(0, 200)}`;
+  } catch {
+    // body already consumed or not readable — the status is enough
+  }
+
+  throw new Error(
+    `Failed to delete ${what}: server responded ${response.status} ${response.statusText || ''}`.trim() +
+    detail +
+    '. The object still exists on the server.'
+  );
+}

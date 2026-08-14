@@ -1,6 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, deleteContactSchema } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
+import { assertDeleted } from '../shared/helpers.js';
 
 /**
  * Delete a contact (vCard) permanently
@@ -26,12 +27,13 @@ export const deleteContact = {
     const validated = validateInput(deleteContactSchema, args);
     const client = tsdavManager.getCardDavClient();
 
-    await client.deleteVCard({
+    const response = await client.deleteVCard({
       vCard: {
         url: validated.vcard_url,
         etag: validated.vcard_etag,
       },
     });
+    await assertDeleted(response, `contact ${validated.vcard_url}`);
 
     return formatSuccess('Contact deleted successfully');
   },
