@@ -421,3 +421,29 @@ describe('update_event rejects date changes it cannot express', () => {
     expect(updateCalendarObject).not.toHaveBeenCalled();
   });
 });
+
+describe('dates cannot be set through the fields map', () => {
+  test.each(['DTSTART', 'DTEND', 'DURATION'])('fields.%s is rejected', async (property) => {
+    await expect(updateEventFields.handler({
+      event_url: EVENT_URL,
+      event_etag: '"1"',
+      fields: { [property]: '20260525T100000Z' },
+    })).rejects.toThrow(/start_date\/end_date\/all_day/);
+  });
+
+  test('the rejection names the offending field', async () => {
+    await expect(updateEventFields.handler({
+      event_url: EVENT_URL,
+      event_etag: '"1"',
+      fields: { DURATION: 'PT1H' },
+    })).rejects.toThrow(/fields.DURATION/);
+  });
+
+  test('other fields are still accepted', async () => {
+    await expect(updateEventFields.handler({
+      event_url: EVENT_URL,
+      event_etag: '"1"',
+      fields: { SUMMARY: 'Renamed', STATUS: 'CANCELLED' },
+    })).resolves.toBeDefined();
+  });
+});
