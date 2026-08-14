@@ -9,7 +9,7 @@ import { setEventDates } from '../shared/event-dates.js';
  * Schema for field-based event updates
  * Supports all RFC 5545 iCalendar properties via tsdav-utils
  * Field names are validated as bare property names; see davFieldMapSchema
- * Common fields: SUMMARY, DESCRIPTION, LOCATION, DTSTART, DTEND, STATUS
+ * Common fields: SUMMARY, DESCRIPTION, LOCATION, STATUS
  * Custom properties: Any X-* property
  *
  * start_date/end_date/all_day sit OUTSIDE the fields map on purpose. An
@@ -25,6 +25,21 @@ const updateEventFieldsSchema = z.object({
   end_date: dateOrDateTime.optional(),
   all_day: z.boolean().optional(),
 }).superRefine((data, ctx) => {
+  // The dates are the one property family the flat map cannot express
+  // correctly — an all-day value needs a VALUE=DATE parameter, and writing
+  // DTEND on an event stored as DTSTART + DURATION leaves both present, which
+  // RFC 5545 3.6.1 forbids. There is a dedicated parameter for every case, so
+  // the map route is closed rather than half-supported.
+  for (const key of ['DTSTART', 'DTEND', 'DURATION']) {
+    if (data.fields && key in data.fields) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['fields', key],
+        message: `Set the dates with start_date/end_date/all_day, not with fields.${key}`,
+      });
+    }
+  }
+
   const usesDateParams = data.start_date !== undefined ||
     data.end_date !== undefined ||
     data.all_day !== undefined;
@@ -43,16 +58,6 @@ const updateEventFieldsSchema = z.object({
     }
   }
 
-  for (const key of ['DTSTART', 'DTEND']) {
-    if (data.fields && key in data.fields) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['fields', key],
-        message: `Set the dates with start_date/end_date/all_day, not with fields.${key} — the two would fight over the same property`,
-      });
-    }
-  }
-
   refineDateRange(data, ctx, { startKey: 'start_date', endKey: 'end_date' });
 });
 
@@ -62,13 +67,13 @@ const updateEventFieldsSchema = z.object({
  * values are rejected by the schema
  *
  * Features:
- * - Any standard VEVENT property (SUMMARY, DESCRIPTION, LOCATION, DTSTART, etc.)
+ * - Any standard VEVENT property except the dates (SUMMARY, LOCATION, ...)
  * - Custom X-* properties for extensions
  * - Field-agnostic: no pre-defined field list required
  */
 export const updateEventFields = {
   name: 'update_event',
-  description: 'PREFERRED: Update event fields without iCal formatting. Supports: SUMMARY (title), DESCRIPTION (details), LOCATION (place), DTSTART (start time), DTEND (end time), STATUS (TENTATIVE/CONFIRMED/CANCELLED), and any RFC 5545 property including custom X-* properties (e.g., X-ZOOM-LINK, X-MEETING-ROOM). To move an event or convert it between all-day and timed, use the top-level start_date/end_date/all_day parameters instead of fields.',
+  description: 'PREFERRED: Update event fields without iCal formatting. Use start_date/end_date/all_day to move an event or convert it between all-day and timed. Use fields for everything else: SUMMARY (title), DESCRIPTION (details), LOCATION (place), STATUS (TENTATIVE/CONFIRMED/CANCELLED), and any other RFC 5545 property including custom X-* properties (e.g., X-ZOOM-LINK, X-MEETING-ROOM).',
   inputSchema: {
     type: 'object',
     properties: {
@@ -82,7 +87,7 @@ export const updateEventFields = {
       },
       fields: {
         type: 'object',
-        description: 'Fields to update, keyed by bare UPPERCASE property name (e.g., SUMMARY, LOCATION, DTSTART). Any RFC 5545 property or custom X-* property is supported. Property parameters such as "DTSTART;VALUE=DATE" are not accepted here, and values must not contain line breaks.',
+        description: 'Fields to update, keyed by bare UPPERCASE property name (e.g., SUMMARY, LOCATION, STATUS). Any RFC 5545 property or custom X-* property is supported, EXCEPT the dates: use start_date/end_date/all_day for DTSTART, DTEND and DURATION. Property parameters such as "VALUE=DATE" are not accepted here, and values must not contain line breaks.',
         additionalProperties: {
           type: 'string'
         },
@@ -98,14 +103,6 @@ export const updateEventFields = {
           LOCATION: {
             type: 'string',
             description: 'Physical or virtual meeting location'
-          },
-          DTSTART: {
-            type: 'string',
-            description: 'Start datetime (ISO 8601 or iCal format: 20250128T100000Z)'
-          },
-          DTEND: {
-            type: 'string',
-            description: 'End datetime (ISO 8601 or iCal format)'
           },
           STATUS: {
             type: 'string',
