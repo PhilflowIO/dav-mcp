@@ -1,7 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
-import { validateInput, createEventSchema, sanitizeICalString } from '../../validation.js';
+import { validateInput, createEventSchema, sanitizeICalString, isDateOnly } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
-import { formatICalDate, generateUID, findCalendarOrThrow } from '../shared/helpers.js';
+import { formatICalDate, formatICalDateOnly, generateUID, findCalendarOrThrow } from '../shared/helpers.js';
 
 /**
  * Create a new calendar event
@@ -22,11 +22,15 @@ export const createEvent = {
       },
       start_date: {
         type: 'string',
-        description: 'Start date in ISO 8601 format',
+        description: 'Start in ISO 8601 format. A datetime ("2026-05-25T10:00:00Z") makes a timed event; a bare date ("2026-05-25") makes an all-day event.',
       },
       end_date: {
         type: 'string',
-        description: 'End date in ISO 8601 format',
+        description: 'End, in the same form as start_date. For an all-day event the end is EXCLUSIVE: a single day on 2026-05-25 is start_date "2026-05-25" and end_date "2026-05-26".',
+      },
+      all_day: {
+        type: 'boolean',
+        description: 'Optional. All-day is inferred from the date format, so this is only needed to state the intent explicitly; it must agree with the format of start_date/end_date.',
       },
       description: {
         type: 'string',
@@ -52,6 +56,19 @@ export const createEvent = {
     const description = validated.description ? sanitizeICalString(validated.description) : '';
     const location = validated.location ? sanitizeICalString(validated.location) : '';
 
+    // ?? not ||: an explicit all_day: false has to survive a date-only start,
+    // and validation has already rejected the case where the two disagree
+    const allDay = validated.all_day ?? isDateOnly(validated.start_date);
+
+    // RFC 5545 3.6.1: an all-day event is a DATE-valued DTSTART/DTEND, and the
+    // DTEND is exclusive. Anything else is a DATE-TIME in UTC.
+    const dtstart = allDay
+      ? `DTSTART;VALUE=DATE:${formatICalDateOnly(validated.start_date)}`
+      : `DTSTART:${formatICalDate(new Date(validated.start_date))}`;
+    const dtend = allDay
+      ? `DTEND;VALUE=DATE:${formatICalDateOnly(validated.end_date)}`
+      : `DTEND:${formatICalDate(new Date(validated.end_date))}`;
+
     // RFC 5545 3.1: content lines are delimited by CRLF, not LF
     const iCalString = [
       'BEGIN:VCALENDAR',
@@ -60,8 +77,8 @@ export const createEvent = {
       'BEGIN:VEVENT',
       `UID:${uid}`,
       `DTSTAMP:${formatICalDate(now)}`,
-      `DTSTART:${formatICalDate(new Date(validated.start_date))}`,
-      `DTEND:${formatICalDate(new Date(validated.end_date))}`,
+      dtstart,
+      dtend,
       `SUMMARY:${summary}`,
       description ? `DESCRIPTION:${description}` : null,
       location ? `LOCATION:${location}` : null,
@@ -79,6 +96,7 @@ export const createEvent = {
       url: response.url,
       etag: response.etag,
       summary: validated.summary,
+      all_day: allDay,
     });
   },
 };
