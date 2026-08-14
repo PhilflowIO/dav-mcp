@@ -59,10 +59,6 @@ export const todoQuery = {
     let todos = [];
     for (const calendar of calendarsToSearch) {
       const calendarTodos = await client.fetchTodos({ calendar });
-      // Add calendar info to each todo
-      calendarTodos.forEach(todo => {
-        todo._calendarName = calendar.displayName || calendar.url;
-      });
       todos = todos.concat(calendarTodos);
     }
 

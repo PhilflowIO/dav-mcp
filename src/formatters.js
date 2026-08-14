@@ -135,6 +135,19 @@ function parseVCard(vcardData) {
 }
 
 /**
+ * Resolve the display name of a collection.
+ *
+ * Call sites pass a name, a tsdav collection object, or an explicit null, and a
+ * default parameter only fires for undefined — so normalise here instead of at
+ * every call site.
+ */
+function collectionName(collection, fallback) {
+  if (!collection) return fallback;
+  if (typeof collection === 'string') return collection;
+  return extractPropertyValue(collection.displayName) || collection.url || fallback;
+}
+
+/**
  * Format ICAL.Time to human-readable format with proper timezone support
  */
 function formatDateTime(icalTime) {
@@ -168,7 +181,8 @@ function formatDateTime(icalTime) {
 /**
  * Format a single calendar event to Markdown
  */
-export function formatEvent(event, calendarName = 'Unknown Calendar') {
+export function formatEvent(event, calendar = 'Unknown Calendar') {
+  const calendarName = collectionName(calendar, 'Unknown Calendar');
   const parsed = parseICalEvent(event.data);
 
   const startDate = formatDateTime(parsed.dtstart);
@@ -229,7 +243,9 @@ export function formatEvent(event, calendarName = 'Unknown Calendar') {
 /**
  * Format a list of calendar events to LLM-friendly Markdown
  */
-export function formatEventList(events, calendarName = 'Unknown Calendar') {
+export function formatEventList(events, calendar = 'Unknown Calendar') {
+  const calendarName = collectionName(calendar, 'Unknown Calendar');
+
   if (!events || events.length === 0) {
     return {
       content: [{
@@ -265,7 +281,8 @@ export function formatEventList(events, calendarName = 'Unknown Calendar') {
 /**
  * Format a single contact to Markdown
  */
-export function formatContact(contact, addressBookName = 'Unknown Address Book') {
+export function formatContact(contact, addressBook = 'Unknown Address Book') {
+  const addressBookName = collectionName(addressBook, 'Unknown Address Book');
   const parsed = parseVCard(contact.data);
 
   let output = `## ${parsed.fullName || 'Unnamed Contact'}\n\n`;
@@ -345,7 +362,9 @@ export function formatContact(contact, addressBookName = 'Unknown Address Book')
 /**
  * Format a list of contacts to LLM-friendly Markdown
  */
-export function formatContactList(contacts, addressBookName = 'Unknown Address Book') {
+export function formatContactList(contacts, addressBook = 'Unknown Address Book') {
+  const addressBookName = collectionName(addressBook, 'Unknown Address Book');
+
   if (!contacts || contacts.length === 0) {
     return {
       content: [{
@@ -636,7 +655,8 @@ function formatPriority(priority) {
 /**
  * Format a single todo to Markdown
  */
-export function formatTodo(todo, calendarName = 'Unknown Calendar') {
+export function formatTodo(todo, calendar = 'Unknown Calendar') {
+  const calendarName = collectionName(calendar, 'Unknown Calendar');
   const parsed = parseVTodo(todo.data);
   const statusEmoji = getStatusEmoji(parsed.status);
 
@@ -678,7 +698,8 @@ export function formatTodo(todo, calendarName = 'Unknown Calendar') {
 /**
  * Format a list of todos to LLM-friendly Markdown
  */
-export function formatTodoList(todos, calendarName = 'Unknown Calendar') {
+export function formatTodoList(todos, calendar = 'Unknown Calendar') {
+  const calendarName = collectionName(calendar, 'Unknown Calendar');
   if (!todos || todos.length === 0) {
     return {
       content: [{
