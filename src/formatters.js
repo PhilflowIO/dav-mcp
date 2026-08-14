@@ -134,6 +134,73 @@ function parseVCard(vcardData) {
   }
 }
 
+// Properties whose value may be an inline binary blob. A single embedded
+// contact photo runs to ~170k characters, of which the human-readable part of
+// our output uses none — it all lands in the Raw Data block and blows up the
+// model's context. Small values (a URI, a short reference) are kept.
+const BINARY_CAPABLE_PROPERTY = /^(PHOTO|LOGO|SOUND|ATTACH|KEY)(;|:)/i;
+const MAX_INLINE_VALUE_LENGTH = 512;
+
+/**
+ * Replace inline binary property values with a short placeholder.
+ *
+ * Operates on raw content lines so that everything else — including the
+ * original folding — survives untouched: the Raw Data block stays something a
+ * caller can reason about, minus the blobs.
+ */
+export function stripBinaryValues(data) {
+  if (typeof data !== 'string') return data;
+
+  const separator = data.includes('\r\n') ? '\r\n' : '\n';
+  const lines = data.split(/\r\n|\n|\r/);
+  const output = [];
+  let run = null;
+
+  const flush = () => {
+    if (!run) return;
+    const value = run.lines.join('').slice(run.name.length + 1);
+    if (value.length > MAX_INLINE_VALUE_LENGTH) {
+      output.push(`${run.header}<stripped ${value.length} characters>`);
+    } else {
+      output.push(...run.lines);
+    }
+    run = null;
+  };
+
+  for (const line of lines) {
+    if (run && /^[ \t]/.test(line)) {
+      run.lines.push(line);
+      continue;
+    }
+    flush();
+
+    if (BINARY_CAPABLE_PROPERTY.test(line)) {
+      const colon = line.indexOf(':');
+      run = {
+        name: line.slice(0, colon),
+        header: line.slice(0, colon + 1),
+        lines: [line],
+      };
+      continue;
+    }
+    output.push(line);
+  }
+  flush();
+
+  return output.join(separator);
+}
+
+/**
+ * Shape a list of DAV objects for the Raw Data block
+ */
+function toRawData(items) {
+  return items.map(item => ({
+    url: item.url,
+    etag: item.etag,
+    data: stripBinaryValues(item.data),
+  }));
+}
+
 /**
  * Resolve the display name of a collection.
  *
@@ -263,11 +330,7 @@ export function formatEventList(events, calendar = 'Unknown Calendar') {
   });
 
   output += `---\n<details>\n<summary>Raw Data (JSON)</summary>\n\n\`\`\`json\n`;
-  output += JSON.stringify(events.map(e => ({
-    url: e.url,
-    etag: e.etag,
-    data: e.data
-  })), null, 2);
+  output += JSON.stringify(toRawData(events), null, 2);
   output += '\n```\n</details>';
 
   return {
@@ -389,11 +452,7 @@ export function formatContactList(contacts, addressBook = 'Unknown Address Book'
   });
 
   output += `---\n<details>\n<summary>Raw Data (JSON)</summary>\n\n\`\`\`json\n`;
-  output += JSON.stringify(contacts.map(c => ({
-    url: c.url,
-    etag: c.etag,
-    data: c.data
-  })), null, 2);
+  output += JSON.stringify(toRawData(contacts), null, 2);
   output += '\n```\n</details>';
 
   // Add next action hints
@@ -717,11 +776,7 @@ export function formatTodoList(todos, calendar = 'Unknown Calendar') {
   });
 
   output += `---\n<details>\n<summary>Raw Data (JSON)</summary>\n\n\`\`\`json\n`;
-  output += JSON.stringify(todos.map(t => ({
-    url: t.url,
-    etag: t.etag,
-    data: t.data
-  })), null, 2);
+  output += JSON.stringify(toRawData(todos), null, 2);
   output += '\n```\n</details>';
 
   return {
