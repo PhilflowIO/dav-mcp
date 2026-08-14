@@ -10,6 +10,7 @@ export { updateEventFields } from './update-event-fields.js';
 export { updateEventRaw } from './update-event-raw.js';
 export { deleteEvent } from './delete-event.js';
 export { calendarQuery } from './calendar-query.js';
+export { freeBusyQuery } from './freebusy-query.js';
 export { makeCalendar } from './make-calendar.js';
 export { updateCalendar } from './update-calendar.js';
 export { deleteCalendar } from './delete-calendar.js';

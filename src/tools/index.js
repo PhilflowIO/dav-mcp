@@ -18,7 +18,7 @@ import * as todoTools from './todos/index.js';
  */
 export const tools = [
   // ================================
-  // CALENDAR TOOLS (11 tools)
+  // CALENDAR TOOLS (12 tools)
   // ================================
   calendarTools.listCalendars,
   calendarTools.listEvents,
@@ -27,6 +27,7 @@ export const tools = [
   calendarTools.updateEventRaw,
   calendarTools.deleteEvent,
   calendarTools.calendarQuery,
+  calendarTools.freeBusyQuery,
   calendarTools.makeCalendar,
   calendarTools.updateCalendar,
   calendarTools.deleteCalendar,
