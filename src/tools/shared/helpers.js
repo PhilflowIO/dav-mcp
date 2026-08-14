@@ -184,3 +184,57 @@ export async function assertDeleted(response, what) {
     '. The object still exists on the server.'
   );
 }
+
+// Query tools return everything the server has in range, which for a wide
+// range is thousands of objects — and each one carries its full iCal body into
+// the model's context. A cap is the difference between a useful answer and an
+// overflowed one.
+export const DEFAULT_RESULT_LIMIT = 20;
+
+/**
+ * Extract a sortable key from a raw iCal/vCard body.
+ *
+ * Date properties normalise to digits so that a DATE ("20260525") and a
+ * DATE-TIME ("20260525T100000Z") sort against each other correctly, which they
+ * do not as raw strings. Text properties sort case-insensitively.
+ *
+ * A missing property sorts last either way: an object with no date is not
+ * "earliest", and an unnamed contact is not first.
+ */
+function sortKey(data, property, kind) {
+  const raw = data?.match(new RegExp(`^${property}[^:]*:(.+)$`, 'm'))?.[1]?.trim() || '';
+
+  if (kind === 'text') {
+    return raw ? raw.toLowerCase() : '\uffff';
+  }
+  const digits = raw.replace(/\D/g, '');
+  return digits ? digits.padEnd(14, '0') : '9'.repeat(14);
+}
+
+/**
+ * Sort by date and cap the result set.
+ *
+ * Truncating without sorting would hand back an arbitrary subset, which is
+ * worse than a smaller one: the caller cannot tell which events they are
+ * missing. Returns the total so the formatter can say what was left out —
+ * silent truncation reads as "this is everything".
+ *
+ * @param {Array} items - DAV objects with a `data` property
+ * @param {number} limit - maximum number of items to return
+ * @param {string} property - property to sort by (DTSTART, DUE, FN, ...)
+ * @param {'date'|'text'} kind - how to compare that property
+ * @returns {{ items: Array, total: number }}
+ */
+export function limitResults(items, limit, property, kind = 'date') {
+  const total = items.length;
+
+  if (!limit || total <= limit) {
+    return { items, total };
+  }
+
+  const sorted = [...items].sort(
+    (a, b) => sortKey(a.data, property, kind).localeCompare(sortKey(b.data, property, kind))
+  );
+
+  return { items: sorted.slice(0, limit), total };
+}

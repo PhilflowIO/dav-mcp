@@ -1,7 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, calendarQuerySchema } from '../../validation.js';
 import { formatEventList } from '../../formatters.js';
-import { buildTimeRangeOptions } from '../shared/helpers.js';
+import { buildTimeRangeOptions, limitResults, DEFAULT_RESULT_LIMIT } from '../shared/helpers.js';
 
 /**
  * Search and filter calendar events efficiently
@@ -31,6 +31,10 @@ export const calendarQuery = {
       location_filter: {
         type: 'string',
         description: 'Search event locations containing this text. Example: "Berlin", "Office", "Zoom". Can be used alone as sufficient filter.',
+      },
+      limit: {
+        type: 'number',
+        description: 'Maximum number of events to return (default 20, max 500). You get the earliest by start date, and the response states how many matched in total.',
       },
     },
     required: [],
@@ -89,6 +93,12 @@ export const calendarQuery = {
       ? calendarsToSearch[0]
       : `All Calendars (${calendarsToSearch.length})`;
 
-    return formatEventList(filteredEvents, calendarName, timeRangeOptions.timeRange);
+    const { items, total } = limitResults(
+      filteredEvents,
+      validated.limit ?? DEFAULT_RESULT_LIMIT,
+      'DTSTART'
+    );
+
+    return formatEventList(items, calendarName, timeRangeOptions.timeRange, total);
   },
 };

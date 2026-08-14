@@ -175,6 +175,11 @@ const optionalUrl = (message) =>
     z.string().url(message).optional()
   );
 
+// Helper: cap on how many objects a query may return. The caller is an LLM
+// whose context the result has to fit into, so the default is deliberately
+// small; the formatter says how many were left out.
+const resultLimit = z.number().int().min(1).max(500).optional();
+
 // CalDAV Schemas
 export const listCalendarsSchema = z.object({});
 
@@ -209,6 +214,7 @@ export const deleteEventSchema = z.object({
 });
 
 export const calendarQuerySchema = z.object({
+  limit: resultLimit,
   calendar_url: optionalUrl('Invalid calendar URL'),
   time_range_start: dateTimeWithOptionalOffset.optional(),
   time_range_end: dateTimeWithOptionalOffset.optional(),
@@ -288,6 +294,7 @@ export const deleteContactSchema = z.object({
 });
 
 export const addressBookQuerySchema = z.object({
+  limit: resultLimit,
   addressbook_url: optionalUrl('Invalid addressbook URL'),
   name_filter: z.string().optional(),
   email_filter: z.string().optional(),
@@ -333,6 +340,7 @@ export const deleteTodoSchema = z.object({
 });
 
 export const todoQuerySchema = z.object({
+  limit: resultLimit,
   calendar_url: optionalUrl('Invalid calendar URL'),
   summary_filter: z.string().optional(),
   status_filter: z.enum(['NEEDS-ACTION', 'IN-PROCESS', 'COMPLETED', 'CANCELLED']).optional(),

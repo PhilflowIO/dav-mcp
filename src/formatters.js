@@ -274,6 +274,17 @@ export function stripBinaryValues(data) {
 }
 
 /**
+ * The count line, plus what was left out.
+ *
+ * Silent truncation reads as "this is everything", which is exactly the wrong
+ * thing to hand a model that is deciding whether it has enough to answer.
+ */
+function foundLine(noun, shown, total) {
+  if (!total || total <= shown) return `Found ${noun}: **${shown}**\n\n`;
+  return `Found ${noun}: **${shown}** of ${total} (showing the ${shown} earliest — raise \`limit\` or narrow the query to see the rest)\n\n`;
+}
+
+/**
  * Shape a list of DAV objects for the Raw Data block
  */
 function toRawData(items) {
@@ -474,7 +485,7 @@ export function formatEvent(event, calendar = 'Unknown Calendar', timeRange = nu
 /**
  * Format a list of calendar events to LLM-friendly Markdown
  */
-export function formatEventList(events, calendar = 'Unknown Calendar', timeRange = null) {
+export function formatEventList(events, calendar = 'Unknown Calendar', timeRange = null, total = null) {
   const calendarName = collectionName(calendar, 'Unknown Calendar');
 
   if (!events || events.length === 0) {
@@ -486,7 +497,7 @@ export function formatEventList(events, calendar = 'Unknown Calendar', timeRange
     };
   }
 
-  let output = `Found events: **${events.length}**\n\n`;
+  let output = foundLine('events', events.length, total);
 
   events.forEach((event, index) => {
     output += `### ${index + 1}. `;
@@ -589,7 +600,7 @@ export function formatContact(contact, addressBook = 'Unknown Address Book') {
 /**
  * Format a list of contacts to LLM-friendly Markdown
  */
-export function formatContactList(contacts, addressBook = 'Unknown Address Book') {
+export function formatContactList(contacts, addressBook = 'Unknown Address Book', total = null) {
   const addressBookName = collectionName(addressBook, 'Unknown Address Book');
 
   if (!contacts || contacts.length === 0) {
@@ -608,7 +619,7 @@ export function formatContactList(contacts, addressBook = 'Unknown Address Book'
     };
   }
 
-  let output = `Found contacts: **${contacts.length}**\n\n`;
+  let output = foundLine('contacts', contacts.length, total);
 
   contacts.forEach((contact, index) => {
     output += `### ${index + 1}. `;
@@ -921,7 +932,7 @@ export function formatTodo(todo, calendar = 'Unknown Calendar') {
 /**
  * Format a list of todos to LLM-friendly Markdown
  */
-export function formatTodoList(todos, calendar = 'Unknown Calendar') {
+export function formatTodoList(todos, calendar = 'Unknown Calendar', total = null) {
   const calendarName = collectionName(calendar, 'Unknown Calendar');
   if (!todos || todos.length === 0) {
     return {
@@ -932,7 +943,7 @@ export function formatTodoList(todos, calendar = 'Unknown Calendar') {
     };
   }
 
-  let output = `Found todos: **${todos.length}**\n\n`;
+  let output = foundLine('todos', todos.length, total);
 
   todos.forEach((todo, index) => {
     output += `### ${index + 1}. `;
