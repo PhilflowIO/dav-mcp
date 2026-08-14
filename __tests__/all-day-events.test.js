@@ -46,6 +46,9 @@ const TIMED_EVENT_WITH_TZID = ical(
   'DTEND;TZID=Europe/Berlin:20260525T110000'
 );
 const ALL_DAY_EVENT = ical('DTSTART;VALUE=DATE:20260525', 'DTEND;VALUE=DATE:20260526');
+// an event whose length is a DURATION rather than a DTEND — legal, and the
+// form Apple Calendar and several servers emit
+const DURATION_EVENT = ical('DTSTART:20260525T100000Z', 'DURATION:PT1H');
 
 /** Re-parse an emitted document the way a CalDAV server or client would. */
 const reparse = (document) => {
@@ -286,6 +289,49 @@ describe('update_event converts between all-day and timed', () => {
     expect(parsed.event.startDate.year).toBe(2026);
     expect(parsed.event.startDate.month).toBe(5);
     expect(parsed.event.startDate.day).toBe(25);
+  });
+
+  test('a DURATION source event loses its DURATION when it becomes all-day', async () => {
+    storedEvent = DURATION_EVENT;
+
+    await updateEventFields.handler({
+      event_url: EVENT_URL,
+      event_etag: '"1"',
+      start_date: '2026-05-26',
+      end_date: '2026-05-27',
+    });
+
+    const data = emittedUpdate();
+    // RFC 5545 3.6.1: DTEND and DURATION must not both appear
+    expect(data).not.toContain('DURATION');
+    expect(data).toContain('DTEND;VALUE=DATE:20260527');
+
+    const parsed = reparse(data);
+    expect(parsed.dtendCount).toBe(1);
+    expect(parsed.vevent.getAllProperties('duration').length).toBe(0);
+    expect(parsed.event.endDate.isDate).toBe(true);
+    expect(parsed.event.endDate.day).toBe(27);
+  });
+
+  test('a DURATION source event loses its DURATION when it stays timed', async () => {
+    storedEvent = DURATION_EVENT;
+
+    await updateEventFields.handler({
+      event_url: EVENT_URL,
+      event_etag: '"1"',
+      start_date: '2026-05-26T09:00:00Z',
+      end_date: '2026-05-26T10:30:00Z',
+    });
+
+    const data = emittedUpdate();
+    expect(data).not.toContain('DURATION');
+    expect(data).toContain('DTEND:20260526T103000Z');
+
+    const parsed = reparse(data);
+    expect(parsed.dtendCount).toBe(1);
+    expect(parsed.vevent.getAllProperties('duration').length).toBe(0);
+    // the requested end wins over the old PT1H, which would have meant 10:00
+    expect(parsed.event.endDate.toJSDate().toISOString()).toBe('2026-05-26T10:30:00.000Z');
   });
 
   test('dates and ordinary fields can change in one call', async () => {

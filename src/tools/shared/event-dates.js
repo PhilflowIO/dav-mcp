@@ -44,6 +44,12 @@ export function setEventDates(iCalString, { startDate, endDate, allDay }) {
   setDateProperty(vevent, 'dtstart', toICalTime(startDate, allDay));
   setDateProperty(vevent, 'dtend', toICalTime(endDate, allDay));
 
+  // RFC 5545 3.6.1: "'dtend' and 'duration' MUST NOT occur in the same
+  // 'eventprop'". An event stored as DTSTART + DURATION has just been given an
+  // explicit end, so the DURATION is both redundant and illegal here — and a
+  // server is entitled to refuse the PUT.
+  vevent.removeAllProperties('duration');
+
   return component.toString();
 }
 
