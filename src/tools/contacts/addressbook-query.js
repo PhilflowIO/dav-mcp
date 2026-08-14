@@ -1,6 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, addressBookQuerySchema } from '../../validation.js';
 import { formatContactList } from '../../formatters.js';
+import { limitResults, DEFAULT_RESULT_LIMIT } from '../shared/helpers.js';
 
 /**
  * Search and filter contacts efficiently
@@ -26,6 +27,10 @@ export const addressbookQuery = {
       organization_filter: {
         type: 'string',
         description: 'Search contact organizations/companies. Example: "Google" or "Acme Corp". At least one filter (name, email, or org) is required.',
+      },
+      limit: {
+        type: 'number',
+        description: 'Maximum number of contacts to return (default 20, max 500). You get them alphabetically by name, and the response states how many matched in total.',
       },
     },
     required: [],
@@ -82,6 +87,13 @@ export const addressbookQuery = {
       ? addressbooksToSearch[0]
       : `All Address Books (${addressbooksToSearch.length})`;
 
-    return formatContactList(filteredContacts, addressBookName);
+    const { items, total } = limitResults(
+      filteredContacts,
+      validated.limit ?? DEFAULT_RESULT_LIMIT,
+      'FN',
+      'text'
+    );
+
+    return formatContactList(items, addressBookName, total);
   },
 };

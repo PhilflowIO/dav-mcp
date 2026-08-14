@@ -1,6 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, todoQuerySchema } from '../../validation.js';
 import { formatTodoList } from '../../formatters.js';
+import { limitResults, DEFAULT_RESULT_LIMIT } from '../shared/helpers.js';
 
 /**
  * Search and filter todos efficiently
@@ -31,6 +32,10 @@ export const todoQuery = {
       time_range_end: {
         type: 'string',
         description: 'End datetime for due date filtering (ISO 8601). If provided, time_range_start is REQUIRED. Both dates together form a complete filter.',
+      },
+      limit: {
+        type: 'number',
+        description: 'Maximum number of todos to return (default 20, max 500). You get the earliest by due date, and the response states how many matched in total.',
       },
     },
     required: [],
@@ -103,6 +108,12 @@ export const todoQuery = {
       ? (calendarsToSearch[0].displayName || calendarsToSearch[0].url)
       : `All Calendars (${calendarsToSearch.length})`;
 
-    return formatTodoList(todos, calendarName);
+    const { items, total } = limitResults(
+      todos,
+      validated.limit ?? DEFAULT_RESULT_LIMIT,
+      'DUE'
+    );
+
+    return formatTodoList(items, calendarName, total);
   },
 };
