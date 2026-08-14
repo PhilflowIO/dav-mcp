@@ -62,12 +62,20 @@ export const createContact = {
     const organization = validated.organization ? sanitizeVCardString(validated.organization) : '';
     const note = validated.note ? sanitizeVCardString(validated.note) : '';
 
-    const vCardString = `BEGIN:VCARD
-VERSION:3.0
-UID:${uid}
-FN:${fullName}${familyName || givenName ? `\nN:${familyName};${givenName};;;` : ''}${email ? `\nEMAIL;TYPE=INTERNET:${email}` : ''}${phone ? `\nTEL;TYPE=CELL:${phone}` : ''}${organization ? `\nORG:${organization}` : ''}${note ? `\nNOTE:${note}` : ''}
-REV:${new Date().toISOString()}
-END:VCARD`;
+    // RFC 6350 3.2: content lines are delimited by CRLF, not LF
+    const vCardString = [
+      'BEGIN:VCARD',
+      'VERSION:3.0',
+      `UID:${uid}`,
+      `FN:${fullName}`,
+      familyName || givenName ? `N:${familyName};${givenName};;;` : null,
+      email ? `EMAIL;TYPE=INTERNET:${email}` : null,
+      phone ? `TEL;TYPE=CELL:${phone}` : null,
+      organization ? `ORG:${organization}` : null,
+      note ? `NOTE:${note}` : null,
+      `REV:${new Date().toISOString()}`,
+      'END:VCARD',
+    ].filter(Boolean).join('\r\n');
 
     const response = await client.createVCard({
       addressBook,

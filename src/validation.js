@@ -264,10 +264,11 @@ export function validateInput(schema, data) {
 export function sanitizeICalString(str) {
   if (!str) return '';
   return str
-    .replace(/\\/g, '\\\\')  // Escape backslashes
-    .replace(/;/g, '\\;')    // Escape semicolons
-    .replace(/,/g, '\\,')    // Escape commas
-    .replace(/\n/g, '\\n');  // Escape newlines
+    .replace(/\\/g, '\\\\')    // Escape backslashes
+    .replace(/;/g, '\\;')      // Escape semicolons
+    .replace(/,/g, '\\,')      // Escape commas
+    .replace(/\r\n?/g, '\\n')  // Escape CRLF and bare CR (before the LF rule,
+    .replace(/\n/g, '\\n');    // so that a CRLF collapses into one escape)
 }
 
 /**
