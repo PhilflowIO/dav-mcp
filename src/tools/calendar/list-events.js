@@ -38,6 +38,8 @@ export const listEvents = {
 
     const events = await client.fetchCalendarObjects(options);
 
-    return formatEventList(events, calendar);
+    // buildTimeRangeOptions fills in an end when only a start was given, so use
+    // its result rather than the raw arguments
+    return formatEventList(events, calendar, timeRangeOptions.timeRange);
   },
 };

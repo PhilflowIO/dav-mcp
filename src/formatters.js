@@ -11,38 +11,121 @@
 
 import ICAL from 'ical.js';
 
+// A CalDAV server answers a time-range query with the master VEVENT of a
+// recurring series, not with the occurrences inside the range, so the series
+// has to be expanded here. The cost of expansion scales with the distance from
+// DTSTART to the start of the range rather than with the width of the range —
+// a FREQ=MINUTELY series starting in 1970 needs ~29M steps to reach 2026 — so
+// the walk is capped. Server-supplied data must not be able to stall the loop.
+const MAX_RECURRENCE_ITERATIONS = 10000;
+
+/**
+ * Convert a queried time range into ICAL.Time bounds.
+ *
+ * Goes through Date so that every form the schema accepts — with or without
+ * milliseconds, "Z" or a "+02:00" offset — lands on the same absolute instant.
+ * ICAL.Time.fromDateTimeString would silently treat an offset form as floating.
+ */
+function toICALRange(timeRange) {
+  if (!timeRange?.start || !timeRange?.end) return null;
+
+  const start = new Date(timeRange.start);
+  const end = new Date(timeRange.end);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+
+  return {
+    start: ICAL.Time.fromJSDate(start, true),
+    end: ICAL.Time.fromJSDate(end, true),
+  };
+}
+
+/**
+ * Find the first occurrence of a recurring event inside the queried range.
+ *
+ * Returns null when the series has no occurrence there — the caller must say so
+ * rather than fall back to the master DTSTART, which is the wrong-date bug this
+ * whole path exists to fix.
+ */
+function firstOccurrenceInRange(event, range) {
+  const expand = new ICAL.RecurExpansion({
+    component: event.component,
+    dtstart: event.startDate,
+  });
+
+  for (let step = 0; step < MAX_RECURRENCE_ITERATIONS; step++) {
+    const next = expand.next();
+    if (!next) return { occurrence: null };
+    if (next.compare(range.end) > 0) return { occurrence: null };
+    if (next.compare(range.start) >= 0) {
+      return { occurrence: event.getOccurrenceDetails(next) };
+    }
+  }
+
+  console.error(`Recurrence expansion gave up after ${MAX_RECURRENCE_ITERATIONS} occurrences`);
+  return { occurrence: null, truncated: true };
+}
+
 /**
  * Parse iCal data string to extract event properties (RFC 5545 compliant)
+ *
+ * When a time range is given, a recurring series resolves to the occurrence
+ * inside that range, including any RECURRENCE-ID override of it.
  */
-function parseICalEvent(icalData) {
+function parseICalEvent(icalData, timeRange = null) {
   try {
     const jcalData = ICAL.parse(icalData);
     const comp = new ICAL.Component(jcalData);
-    const vevent = comp.getFirstSubcomponent('vevent');
+    const vevents = comp.getAllSubcomponents('vevent');
+    // Overrides are siblings of the master in the same calendar object; taking
+    // the first VEVENT would pick one of them at the server's whim.
+    const vevent = vevents.find(v => !v.getFirstProperty('recurrence-id')) || vevents[0];
 
     if (!vevent) {
       return {};
     }
 
     const event = new ICAL.Event(vevent);
+    for (const override of vevents) {
+      if (override !== vevent && override.getFirstProperty('recurrence-id')) {
+        event.relateException(override);
+      }
+    }
+
+    let occurrence = null;
+    let outsideRange = false;
+    let expansionTruncated = false;
+
+    if (event.isRecurring()) {
+      const range = toICALRange(timeRange);
+      if (range) {
+        const result = firstOccurrenceInRange(event, range);
+        occurrence = result.occurrence;
+        expansionTruncated = Boolean(result.truncated);
+        outsideRange = !occurrence && !expansionTruncated;
+      }
+    }
+
+    const item = occurrence ? occurrence.item : event;
 
     return {
-      summary: event.summary || '',
-      description: event.description || '',
-      location: event.location || '',
+      summary: item.summary || '',
+      description: item.description || '',
+      location: item.location || '',
       uid: event.uid || '',
-      dtstart: event.startDate,
-      dtend: event.endDate,
+      dtstart: occurrence ? occurrence.startDate : event.startDate,
+      dtend: occurrence ? occurrence.endDate : event.endDate,
+      outsideRange,
+      expansionTruncated,
       isRecurring: event.isRecurring(),
       rrule: event.isRecurring() ? vevent.getFirstPropertyValue('rrule') : null,
-      organizer: vevent.getFirstPropertyValue('organizer'),
-      attendees: vevent.getAllProperties('attendee').map(att => ({
+      organizer: item.component.getFirstPropertyValue('organizer'),
+      attendees: item.component.getAllProperties('attendee').map(att => ({
         email: att.getFirstValue(),
         role: att.getParameter('role'),
         partstat: att.getParameter('partstat'),
         cn: att.getParameter('cn'),
       })),
-      alarms: vevent.getAllSubcomponents('valarm').map(valarm => ({
+      alarms: item.component.getAllSubcomponents('valarm').map(valarm => ({
         action: valarm.getFirstPropertyValue('action'),
         trigger: valarm.getFirstPropertyValue('trigger'),
         description: valarm.getFirstPropertyValue('description'),
@@ -285,9 +368,9 @@ function formatDateTime(icalTime) {
 /**
  * Format a single calendar event to Markdown
  */
-export function formatEvent(event, calendar = 'Unknown Calendar') {
+export function formatEvent(event, calendar = 'Unknown Calendar', timeRange = null) {
   const calendarName = collectionName(calendar, 'Unknown Calendar');
-  const parsed = parseICalEvent(event.data);
+  const parsed = parseICalEvent(event.data, timeRange);
 
   const startDate = formatDateTime(parsed.dtstart);
   const endDate = formatDateTime(parsed.dtend);
@@ -311,6 +394,13 @@ export function formatEvent(event, calendar = 'Unknown Calendar') {
   // Show recurrence info if event is recurring
   if (parsed.isRecurring && parsed.rrule) {
     output += `- **Recurring**: ${parsed.rrule.toString()}\n`;
+  }
+
+  // Never let a series start date pass for an occurrence in the queried range
+  if (parsed.outsideRange) {
+    output += `- **Note**: no occurrence of this series falls inside the queried range; the date above is the series start\n`;
+  } else if (parsed.expansionTruncated) {
+    output += `- **Note**: this series has too many occurrences to expand; the date above is the series start, not an occurrence in the queried range\n`;
   }
 
   // Show organizer if present
@@ -347,7 +437,7 @@ export function formatEvent(event, calendar = 'Unknown Calendar') {
 /**
  * Format a list of calendar events to LLM-friendly Markdown
  */
-export function formatEventList(events, calendar = 'Unknown Calendar') {
+export function formatEventList(events, calendar = 'Unknown Calendar', timeRange = null) {
   const calendarName = collectionName(calendar, 'Unknown Calendar');
 
   if (!events || events.length === 0) {
@@ -363,7 +453,7 @@ export function formatEventList(events, calendar = 'Unknown Calendar') {
 
   events.forEach((event, index) => {
     output += `### ${index + 1}. `;
-    output += formatEvent(event, calendarName).replace(/^## /, '') + '\n';
+    output += formatEvent(event, calendarName, timeRange).replace(/^## /, '') + '\n';
   });
 
   output += `---\n<details>\n<summary>Raw Data (JSON)</summary>\n\n\`\`\`json\n`;

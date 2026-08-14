@@ -86,9 +86,9 @@ export const calendarQuery = {
 
     // Determine calendar name for display
     const calendarName = calendarsToSearch.length === 1
-      ? (calendarsToSearch[0].displayName || calendarsToSearch[0].url)
+      ? calendarsToSearch[0]
       : `All Calendars (${calendarsToSearch.length})`;
 
-    return formatEventList(filteredEvents, calendarName);
+    return formatEventList(filteredEvents, calendarName, timeRangeOptions.timeRange);
   },
 };
