@@ -311,6 +311,11 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
  * does not know (Exchange emits "W. Europe Standard Time"). Handing such a TZID
  * to toLocaleDateString throws a RangeError.
  */
+function isFloating(icalTime) {
+  const tzid = icalTime.zone?.tzid || icalTime.timezone;
+  return !tzid || tzid === 'floating';
+}
+
 function displayTimeZone(icalTime) {
   // ical.js populates .timezone only when the TZID could NOT be resolved, so
   // .zone.tzid is the canonical accessor and .timezone the last-ditch one.
@@ -328,6 +333,31 @@ function displayTimeZone(icalTime) {
 }
 
 /**
+ * Render a time from its own UTC offset rather than from a named zone.
+ *
+ * Used when the TZID is not a name Intl knows — Exchange emits things like
+ * "W. Europe Standard Time" — but the object carries a VTIMEZONE that ical.js
+ * did resolve. Deferring to the host zone instead would show a wall time the
+ * organiser never chose, and at a large host offset it moves the date.
+ */
+function formatWithFixedOffset(icalTime) {
+  const offsetSeconds = icalTime.utcOffset();
+  const sign = offsetSeconds < 0 ? '-' : '+';
+  const hours = Math.floor(Math.abs(offsetSeconds) / 3600);
+  const minutes = Math.floor((Math.abs(offsetSeconds) % 3600) / 60);
+  const offset = offsetSeconds === 0
+    ? 'UTC'
+    : `UTC${sign}${hours}${minutes ? `:${String(minutes).padStart(2, '0')}` : ''}`;
+
+  const hour24 = icalTime.hour;
+  const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+  const meridiem = hour24 < 12 ? 'AM' : 'PM';
+  const time = `${String(hour12).padStart(2, '0')}:${String(icalTime.minute).padStart(2, '0')} ${meridiem}`;
+
+  return `${MONTHS[icalTime.month - 1]} ${icalTime.day}, ${icalTime.year}, ${time} ${offset}`;
+}
+
+/**
  * Format ICAL.Time to human-readable format with proper timezone support
  */
 function formatDateTime(icalTime) {
@@ -341,8 +371,15 @@ function formatDateTime(icalTime) {
       return `${MONTHS[icalTime.month - 1]} ${icalTime.day}, ${icalTime.year}`;
     }
 
-    const jsDate = icalTime.toJSDate();
     const timeZone = displayTimeZone(icalTime);
+
+    // A zone Intl cannot name, but whose offset ical.js resolved from the
+    // object's own VTIMEZONE: render the organiser's wall time, not the host's.
+    if (!timeZone && !isFloating(icalTime)) {
+      return formatWithFixedOffset(icalTime);
+    }
+
+    const jsDate = icalTime.toJSDate();
 
     const dateStr = jsDate.toLocaleDateString('en-US', {
       year: 'numeric',

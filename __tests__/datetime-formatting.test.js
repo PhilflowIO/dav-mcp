@@ -71,15 +71,30 @@ describe('formatDateTime', () => {
     expect(output).toContain('July 15, 2026');
   });
 
-  test('a TZID that Intl does not know still renders a date', () => {
-    // Exchange and Outlook emit these; handing one to toLocaleDateString
-    // throws RangeError, which used to be swallowed into an empty string
+  test('a TZID that Intl does not know renders the organiser\'s wall time', () => {
+    // Exchange and Outlook emit these. Handing one to toLocaleDateString throws
+    // a RangeError that used to be swallowed into an empty string; deferring to
+    // the host zone instead showed a time nobody chose and moved the date at
+    // large offsets. The object's own VTIMEZONE gives us the offset.
     const output = when(event([
       'DTSTART;TZID=W. Europe Standard Time:20260715T140000',
       'DTEND;TZID=W. Europe Standard Time:20260715T150000',
     ], BERLIN_VTIMEZONE.replace(/Europe\/Berlin/, 'W. Europe Standard Time')));
-    expect(output).not.toBe('');
-    expect(output).toContain('July 15, 2026');
+    expect(output).toBe('July 15, 2026, 02:00 PM UTC+2 to July 15, 2026, 03:00 PM UTC+2');
+  });
+
+  test('an unknown TZID west of Greenwich keeps its sign', () => {
+    const western = BERLIN_VTIMEZONE
+      .replace(/Europe\/Berlin/, 'Eastern Standard Time')
+      .replace(/TZOFFSETFROM:\+0200/, 'TZOFFSETFROM:-0400')
+      .replace(/TZOFFSETTO:\+0100/, 'TZOFFSETTO:-0500')
+      .replace(/TZOFFSETFROM:\+0100/, 'TZOFFSETFROM:-0500')
+      .replace(/TZOFFSETTO:\+0200/, 'TZOFFSETTO:-0400');
+    const output = when(event([
+      'DTSTART;TZID=Eastern Standard Time:20260715T090000',
+      'DTEND;TZID=Eastern Standard Time:20260715T093000',
+    ], western));
+    expect(output).toContain('09:00 AM UTC-4');
   });
 
   test('a floating time renders without throwing', () => {
