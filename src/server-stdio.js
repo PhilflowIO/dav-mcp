@@ -57,9 +57,12 @@ async function startStdioServer() {
   const { createToolErrorResponse, MCP_ERROR_CODES } = await import('./error-handler.js');
   const { logger } = await import('./logger.js');
   const { initializeToolCallLogger, getToolCallLogger } = await import('./tool-call-logger.js');
+  const { SERVER_NAME, SERVER_VERSION } = await import('./server-info.js');
 
-  // Load environment variables
-  dotenv.default.config();
+  // Load environment variables. quiet: true because dotenv otherwise prints a
+  // banner to STDOUT, which under this transport is the JSON-RPC channel — a
+  // strict client fails to parse the first message.
+  dotenv.default.config({ quiet: true });
 
   /**
    * Initialize tsdav clients based on auth method
@@ -111,8 +114,8 @@ async function startStdioServer() {
   function createMCPServer(ensureInit) {
     const server = new Server(
       {
-        name: process.env.MCP_SERVER_NAME || 'dav-mcp',
-        version: process.env.MCP_SERVER_VERSION || '3.0.1',
+        name: SERVER_NAME,
+        version: SERVER_VERSION,
       },
       {
         capabilities: {
@@ -220,8 +223,8 @@ async function startStdioServer() {
     await server.connect(transport);
 
     logger.info({
-      name: process.env.MCP_SERVER_NAME || 'dav-mcp',
-      version: process.env.MCP_SERVER_VERSION || '3.0.1',
+      name: SERVER_NAME,
+      version: SERVER_VERSION,
       tools: tools.length,
     }, 'dav-mcp STDIO server ready');
 

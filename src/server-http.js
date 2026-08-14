@@ -18,6 +18,7 @@
  */
 
 import express from 'express';
+import { SERVER_NAME, SERVER_VERSION } from './server-info.js';
 import cors from 'cors';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
@@ -174,8 +175,8 @@ function createMCPServer(requestId) {
 
   const server = new Server(
     {
-      name: process.env.MCP_SERVER_NAME || 'dav-mcp',
-      version: process.env.MCP_SERVER_VERSION || '3.0.1',
+      name: SERVER_NAME,
+      version: SERVER_VERSION,
     },
     {
       capabilities: {
@@ -309,8 +310,8 @@ app.delete('/mcp', (req, res) => {
 app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
-    server: process.env.MCP_SERVER_NAME || 'dav-mcp',
-    version: process.env.MCP_SERVER_VERSION || '3.0.1',
+    server: SERVER_NAME,
+    version: SERVER_VERSION,
     transport: 'http-stateless',
     timestamp: new Date().toISOString(),
     tools: tools.length,
@@ -323,8 +324,8 @@ app.get('/health', (req, res) => {
  */
 app.get('/', (req, res) => {
   res.json({
-    name: process.env.MCP_SERVER_NAME || 'dav-mcp',
-    version: process.env.MCP_SERVER_VERSION || '3.0.1',
+    name: SERVER_NAME,
+    version: SERVER_VERSION,
     transport: 'http-stateless',
     description: 'MCP Streamable HTTP Server for CalDAV/CardDAV integration (stateless)',
     endpoints: {
