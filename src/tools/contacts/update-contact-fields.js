@@ -1,5 +1,5 @@
 import { tsdavManager } from '../../tsdav-client.js';
-import { validateInput } from '../../validation.js';
+import { validateInput, davFieldMapSchema } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
 import { z } from 'zod';
 import { updateFields } from 'tsdav-utils';
@@ -13,7 +13,7 @@ import { updateFields } from 'tsdav-utils';
 const updateContactFieldsSchema = z.object({
   vcard_url: z.string().url('vCard URL must be a valid URL'),
   vcard_etag: z.string().min(1, 'vCard etag is required'),
-  fields: z.record(z.string()).optional()
+  fields: davFieldMapSchema
 });
 
 /**
@@ -41,7 +41,7 @@ export const updateContactFields = {
       },
       fields: {
         type: 'object',
-        description: 'Fields to update - use UPPERCASE property names (e.g., FN, EMAIL, TEL). Any RFC 6350 vCard property or custom X-* property is supported.',
+        description: 'Fields to update, keyed by bare UPPERCASE property name (e.g., FN, EMAIL, TEL). Any RFC 6350 vCard property or custom X-* property is supported. Property parameters such as "TEL;TYPE=CELL" are not accepted here, and values must not contain line breaks.',
         additionalProperties: {
           type: 'string'
         },

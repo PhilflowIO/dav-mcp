@@ -11,6 +11,39 @@ const dateTimeWithOptionalOffset = z.union([
   z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/, 'Invalid datetime format') // Without timezone
 ]);
 
+// Helper: field map for the field-based update tools (update_event/_todo/_contact)
+//
+// Both halves of this check are load-bearing. tsdav-utils' updateFields calls
+// updatePropertyWithValue(key.toLowerCase(), value), which keys on the property
+// NAME alone:
+//   - a key carrying a parameter ("DTSTART;VALUE=DATE") does not replace
+//     DTSTART, it appends a second one (RFC 5545 3.6.1: MUST NOT occur twice)
+//   - a key carrying ":" or a line break injects further properties outright
+//   - ical.js escapes line breaks for known TEXT properties, but writes X-* and
+//     non-TEXT values verbatim, so values must stay on one line too
+const DAV_PROPERTY_NAME = /^[A-Za-z][A-Za-z0-9-]*$/;
+
+export const davFieldMapSchema = z.record(z.string(), z.string())
+  .superRefine((fields, ctx) => {
+    for (const [key, value] of Object.entries(fields)) {
+      if (!DAV_PROPERTY_NAME.test(key)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `"${key}" is not a bare property name. Use letters, digits and "-" only (e.g. SUMMARY, X-ZOOM-LINK); parameters such as ";VALUE=DATE" are not supported here`,
+        });
+      }
+      if (/[\r\n]/.test(value)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `value for "${key}" must not contain line breaks`,
+        });
+      }
+    }
+  })
+  .optional();
+
 // Helper: Optional URL that gracefully handles LLM placeholder values
 // Transforms common LLM-generated placeholders ("", "unknown", "default", etc.) to undefined
 const optionalUrl = (message) =>

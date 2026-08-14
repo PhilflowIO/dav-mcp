@@ -1,5 +1,5 @@
 import { tsdavManager } from '../../tsdav-client.js';
-import { validateInput } from '../../validation.js';
+import { validateInput, davFieldMapSchema } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
 import { z } from 'zod';
 import { updateFields } from 'tsdav-utils';
@@ -13,7 +13,7 @@ import { updateFields } from 'tsdav-utils';
 const updateTodoFieldsSchema = z.object({
   todo_url: z.string().url('Todo URL must be a valid URL'),
   todo_etag: z.string().min(1, 'Todo etag is required'),
-  fields: z.record(z.string()).optional()
+  fields: davFieldMapSchema
 });
 
 /**
@@ -41,7 +41,7 @@ export const updateTodoFields = {
       },
       fields: {
         type: 'object',
-        description: 'Fields to update - use UPPERCASE property names (e.g., SUMMARY, STATUS, PRIORITY). Any RFC 5545 VTODO property or custom X-* property is supported.',
+        description: 'Fields to update, keyed by bare UPPERCASE property name (e.g., SUMMARY, STATUS, PRIORITY). Any RFC 5545 VTODO property or custom X-* property is supported. Property parameters such as "DUE;VALUE=DATE" are not accepted here, and values must not contain line breaks.',
         additionalProperties: {
           type: 'string'
         },
