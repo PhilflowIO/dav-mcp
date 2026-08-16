@@ -74,7 +74,7 @@ git clone https://github.com/PhilflowIO/dav-mcp.git
 cd dav-mcp
 cp .env.example .env
 # Edit .env with your credentials
-docker-compose up
+docker compose up
 ```
 
 ---
