@@ -1,5 +1,8 @@
 services:
   tsdav-mcp:
+    # image: tags local builds with the GHCR reference; `docker compose up` builds
+    # from source when the image is absent. Run `docker compose pull` first to use
+    # the prebuilt multi-arch GHCR image instead.
     image: ghcr.io/philflowio/dav-mcp:latest
     build: .
     container_name: tsdav-mcp-server

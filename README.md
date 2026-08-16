@@ -77,6 +77,12 @@ cp .env.example .env
 docker compose up
 ```
 
+Or use the prebuilt multi-arch image from GHCR instead of building locally:
+
+```bash
+docker compose pull && docker compose up
+```
+
 ---
 
 ## The Orchestration
