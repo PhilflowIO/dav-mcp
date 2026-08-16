@@ -8,6 +8,7 @@ RUN --mount=type=cache,target=/root/.npm \
     npm ci --omit=dev
 
 FROM gcr.io/distroless/nodejs22-debian12:nonroot AS runtime
+ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json ./
