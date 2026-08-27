@@ -8,10 +8,6 @@ on:
   pull_request:
   workflow_dispatch:
 
-permissions:
-  contents: read
-  packages: write
-
 concurrency:
   group: docker-publish
   cancel-in-progress: false
@@ -20,6 +16,9 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
