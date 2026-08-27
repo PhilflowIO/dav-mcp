@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: docker-publish
+  group: docker-publish-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
