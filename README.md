@@ -83,6 +83,14 @@ Or use the prebuilt multi-arch image from GHCR instead of building locally:
 docker compose pull && docker compose up
 ```
 
+> **Note — GHCR package visibility:** Packages on GHCR default to **private**. The
+> `docker compose pull` path above will return `401 Unauthorized` for anyone except the
+> repo owner until the package is made public. Do this once after the first publish:
+> **GitHub → Packages → dav-mcp → Package settings → Change visibility → Public**.
+> If you only need to run it yourself, you can skip the pull entirely — `docker compose up`
+> builds from your local checkout (the `compose.yaml` uses `pull_policy: build`), so no
+> prebuilt image is required.
+
 ---
 
 ## The Orchestration
