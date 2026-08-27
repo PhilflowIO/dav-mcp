@@ -2,9 +2,12 @@ services:
   tsdav-mcp:
     # image: tags local builds with the GHCR reference; `docker compose up` builds
     # from source when the image is absent. Run `docker compose pull` first to use
-    # the prebuilt multi-arch GHCR image instead.
+    # the prebuilt multi-arch GHCR image instead. pull_policy: build forces a local
+    # build even when a remote image exists, so the documented "build from checkout"
+    # behavior is preserved once the package is published.
     image: ghcr.io/philflowio/dav-mcp:latest
     build: .
+    pull_policy: build
     container_name: tsdav-mcp-server
     restart: unless-stopped
     ports:
