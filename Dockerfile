@@ -5,7 +5,6 @@
 # different image without any change in this repo (CVE-2025-30066 precedent).
 FROM node:22-alpine@sha256:76789712cd1ae89a1225eac9077010d68987a423588042dac30446f502f1858c AS deps
 WORKDIR /app
-RUN apk add --no-cache git
 # Copy package files
 COPY package*.json ./
 RUN --mount=type=cache,target=/root/.npm \
