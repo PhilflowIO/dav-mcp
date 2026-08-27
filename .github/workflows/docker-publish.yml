@@ -75,6 +75,6 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: false
-          tags: ghcr.io/${{ github.repository }}:pr-check
+          tags: dav-mcp:pr-check
           cache-from: type=gha
           cache-to: type=gha,mode=max
