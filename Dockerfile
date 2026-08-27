@@ -28,7 +28,7 @@ EXPOSE 3000
 # Health check (exec form; no shell in distroless). node is not on PATH in
 # distroless, so the absolute binary path is required.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD ["/nodejs/bin/node", "-e", "require('http').get('http://localhost:3000/health', (r) => { process.exit(r.statusCode === 200 ? 0 : 1); }).on('error', () => process.exit(1));"]
+    CMD ["/nodejs/bin/node", "-e", "require('http').get('http://localhost:' + (process.env.PORT || 3000) + '/health', (r) => { process.exit(r.statusCode === 200 ? 0 : 1); }).on('error', () => process.exit(1));"]
 
 # Start server (HTTP mode for Docker/remote deployments)
 CMD ["src/server-http.js"]
