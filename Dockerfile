@@ -1,8 +1,9 @@
 # syntax=docker/dockerfile:1
 
-# Stage 1: install production dependencies. Alpine provides npm and the git
-# required by the tsdav/tsdav-utils git dependencies in package.json.
-FROM node:22-alpine AS deps
+# Stage 1: install production dependencies. Alpine provides npm.
+# Base images are pinned by digest: tags are mutable and can be repointed at a
+# different image without any change in this repo (CVE-2025-30066 precedent).
+FROM node:22-alpine@sha256:76789712cd1ae89a1225eac9077010d68987a423588042dac30446f502f1858c AS deps
 WORKDIR /app
 RUN apk add --no-cache git
 # Copy package files
@@ -12,7 +13,8 @@ RUN --mount=type=cache,target=/root/.npm \
 
 # Stage 2: minimal runtime image (distroless: non-root user, no shell, no package manager).
 # Non-root is provided by the distroless :nonroot variant (uid 65532).
-FROM gcr.io/distroless/nodejs22-debian12:nonroot AS runtime
+# Base image pinned by digest (non-semver tag, but digest pinning keeps it reproducible).
+FROM gcr.io/distroless/nodejs22-debian12:nonroot@sha256:13593b7570658e8477de39e2f4a1dd25db2f836d68a0ba771251572d23bb4f8e AS runtime
 # Runtime config via env vars; NODE_ENV selects Express production mode.
 # Overridable at runtime: PORT (default 3000), BEARER_TOKEN, CALDAV_SERVER_URL,
 # CALDAV_USERNAME, CALDAV_PASSWORD, CORS_ALLOWED_ORIGINS.
