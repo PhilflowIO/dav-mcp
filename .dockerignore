@@ -14,6 +14,11 @@ test-*.js
 debug-*.js
 cleanup.js
 full-test.js
+comprehensive-test.js
+jest.config.js
+__tests__
+tests/
+docs/
 .vscode
 .idea
 *.swp
