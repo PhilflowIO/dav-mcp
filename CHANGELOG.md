@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.1] - 2026-09-10
+
+No functional change to the server. This release exists to correct the
+registry entry, which could not be fixed without publishing a version.
+
+### Fixed
+- **`server.json` advertised environment variables the code never read.**
+  The registry entry named `DAV_BASE_URL`, `DAV_USERNAME` and `DAV_PASSWORD`;
+  the code reads `CALDAV_SERVER_URL`, `CALDAV_USERNAME` and `CALDAV_PASSWORD`,
+  so a server configured from the registry exited during startup. The names
+  were written during the schema migration in April and never matched (#69).
+- **The changelog claimed two fixes were unreleased** that shipped in 4.0.0;
+  they are listed under that version below, where they belong.
+
+### Added
+- **Published container images.** Releases now push to
+  `ghcr.io/philflowio/dav-mcp`, tagged with the version, the minor line and
+  `latest`. Previously the only documented path was building from source.
+- **The registry entry documents the OAuth2 path.** `AUTH_METHOD` and the six
+  `GOOGLE_*` variables are declared optional, with secrets marked as such.
+
+### Changed
+- **The container runtime is distroless** (#64): non-root (uid 65532), no
+  shell, no package manager, both base images pinned by digest. The image is
+  roughly a quarter of its previous size.
+- **The image healthcheck follows `PORT`.** It previously probed `:3000`
+  regardless, reporting unhealthy against a healthy server on another port.
+
+### Internal
+- CI builds the image on every pull request, boots it against a live CalDAV
+  backend and waits for Docker's own healthy verdict, then asserts the
+  non-root user and the absence of a shell (#66). Nothing built the image
+  before, so the Dockerfile was the one file whose breakage went unnoticed.
+
+## [4.0.0] - 2026-08-14
+
+A correctness release. Several tools returned confidently wrong answers or
+accepted input that produced invalid objects on the server; the fixes change
+behaviour, hence the major version.
+
 ### Fixed
 - **dotenv printed a banner to stdout under the stdio transport**, so the first
   thing a strict MCP client read was not JSON-RPC. Same hazard as #48, from a
@@ -14,12 +54,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The version reported to clients was hardcoded** and still said `3.0.1` in
   five places. It now comes from `package.json`, with a protocol-level test that
   speaks to the real server over stdio and asserts the two agree.
-
-## [4.0.0] - 2026-08-14
-
-A correctness release. Several tools returned confidently wrong answers or
-accepted input that produced invalid objects on the server; the fixes change
-behaviour, hence the major version.
 
 ### Breaking Changes
 
