@@ -17,25 +17,74 @@
       },
       "environmentVariables": [
         {
-          "name": "DAV_BASE_URL",
-          "description": "Base URL of your CalDAV/CardDAV server",
+          "name": "CALDAV_SERVER_URL",
+          "description": "Base URL of your CalDAV/CardDAV server (e.g. https://example.com/dav.php/)",
           "isRequired": true,
           "format": "string",
           "isSecret": false
         },
         {
-          "name": "DAV_USERNAME",
+          "name": "CALDAV_USERNAME",
           "description": "Username for DAV server authentication",
           "isRequired": true,
           "format": "string",
           "isSecret": false
         },
         {
-          "name": "DAV_PASSWORD",
-          "description": "Password for DAV server authentication",
+          "name": "CALDAV_PASSWORD",
+          "description": "Password or app-specific password for DAV server authentication",
           "isRequired": true,
           "format": "string",
           "isSecret": true
+        },
+        {
+          "name": "AUTH_METHOD",
+          "description": "Authentication method: 'basic' (default) or 'oauth2' for Google",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "GOOGLE_SERVER_URL",
+          "description": "Google CalDAV endpoint; required when AUTH_METHOD=oauth2",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "GOOGLE_USER",
+          "description": "Google account email; required when AUTH_METHOD=oauth2",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "GOOGLE_CLIENT_ID",
+          "description": "OAuth2 client ID; required when AUTH_METHOD=oauth2",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "GOOGLE_CLIENT_SECRET",
+          "description": "OAuth2 client secret; required when AUTH_METHOD=oauth2",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true
+        },
+        {
+          "name": "GOOGLE_REFRESH_TOKEN",
+          "description": "OAuth2 refresh token; required when AUTH_METHOD=oauth2",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true
+        },
+        {
+          "name": "GOOGLE_TOKEN_URL",
+          "description": "OAuth2 token endpoint; required when AUTH_METHOD=oauth2",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
         }
       ]
     }
