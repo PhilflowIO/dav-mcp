@@ -1,6 +1,6 @@
 {
   "name": "dav-mcp",
-  "version": "4.0.0",
+  "version": "4.0.1",
   "mcpName": "io.github.PhilflowIO/dav-mcp",
   "description": "Complete DAV integration for AI - Calendar (CalDAV), Contacts (CardDAV), and Tasks (VTODO) management via MCP protocol",
   "type": "module",

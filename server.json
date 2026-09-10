@@ -6,12 +6,12 @@
     "url": "https://github.com/PhilflowIO/dav-mcp",
     "source": "github"
   },
-  "version": "4.0.0",
+  "version": "4.0.1",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "dav-mcp",
-      "version": "4.0.0",
+      "version": "4.0.1",
       "transport": {
         "type": "stdio"
       },
