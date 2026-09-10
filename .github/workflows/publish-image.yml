@@ -1,0 +1,100 @@
+name: Publish Container Image
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Built and smoke-tested before anything is pushed, so a release can
+      # never publish an image that was not observed booting.
+      - name: Build image for verification
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: dav-mcp:verify
+          cache-from: type=gha
+
+      # The server exits 1 when CalDAV initialization fails
+      # (src/server-http.js:166), so the smoke test needs a real backend.
+      - name: Start CalDAV backend
+        run: |
+          docker network create davci
+          docker run -d --name radicale --network davci tomsquest/docker-radicale:latest
+          for _ in $(seq 1 30); do
+            docker logs radicale 2>&1 | grep -q 'Radicale server ready' && exit 0
+            sleep 2
+          done
+          echo "::error::Radicale did not become ready"
+          docker logs radicale
+          exit 1
+
+      - name: Verify image boots and reports healthy
+        run: |
+          docker run -d --name dav-mcp --network davci \
+            -e CALDAV_SERVER_URL=http://radicale:5232 \
+            -e CALDAV_USERNAME=ci \
+            -e CALDAV_PASSWORD=ci \
+            -e PORT=8080 \
+            dav-mcp:verify
+          for _ in $(seq 1 30); do
+            status=$(docker inspect -f '{{.State.Health.Status}}' dav-mcp)
+            case "$status" in
+              healthy) echo "container reported healthy"; exit 0 ;;
+              unhealthy) break ;;
+            esac
+            sleep 2
+          done
+          echo "::error::Container never reported healthy (last status: ${status:-unknown})"
+          docker inspect -f '{{json .State.Health}}' dav-mcp
+          docker logs dav-mcp
+          exit 1
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          # latest only moves on a real release, never on a manual dispatch.
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ github.event_name == 'release' }}
+            type=sha,enable=${{ github.event_name == 'workflow_dispatch' }}
+
+      # docker format keeps HEALTHCHECK, which the OCI format drops.
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
