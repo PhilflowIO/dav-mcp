@@ -20,6 +20,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # QEMU runs the arm64 variant for the boot smoke test below. The build
+      # itself avoids emulation for npm ci (deps stage runs on BUILDPLATFORM).
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -68,6 +73,43 @@ jobs:
           docker logs dav-mcp
           exit 1
 
+      # Every published platform is observed booting, not just the runner's
+      # native one. --load holds a single platform, hence a separate build.
+      - name: Build arm64 image for verification
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64
+          load: true
+          tags: dav-mcp:verify-arm64
+          cache-from: type=gha
+
+      # Same backend as the amd64 check; the arm64 container runs under QEMU,
+      # so it gets a longer window to report healthy.
+      - name: Verify arm64 image boots and reports healthy
+        run: |
+          docker run -d --name dav-mcp-arm64 --network davci \
+            --platform linux/arm64 \
+            -e CALDAV_SERVER_URL=http://radicale:5232 \
+            -e CALDAV_USERNAME=ci \
+            -e CALDAV_PASSWORD=ci \
+            -e PORT=8080 \
+            dav-mcp:verify-arm64
+          arch=$(docker image inspect dav-mcp:verify-arm64 --format '{{.Architecture}}')
+          [ "$arch" = "arm64" ] || { echo "::error::expected arm64 image, got '${arch}'"; exit 1; }
+          for _ in $(seq 1 60); do
+            status=$(docker inspect -f '{{.State.Health.Status}}' dav-mcp-arm64)
+            case "$status" in
+              healthy) echo "arm64 container reported healthy"; exit 0 ;;
+              unhealthy) break ;;
+            esac
+            sleep 2
+          done
+          echo "::error::arm64 container never reported healthy (last status: ${status:-unknown})"
+          docker inspect -f '{{json .State.Health}}' dav-mcp-arm64
+          docker logs dav-mcp-arm64
+          exit 1
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -92,6 +134,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

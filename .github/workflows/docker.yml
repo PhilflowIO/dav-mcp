@@ -16,8 +16,21 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
+
+      # Builds every platform the release publishes, so an arm64 break shows up
+      # in the PR instead of at release time. Nothing is loaded: --load holds a
+      # single platform; the amd64 build below is the one that gets booted.
+      - name: Build all published platforms
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
 
       - name: Build image
         uses: docker/build-push-action@v6
