@@ -12,7 +12,6 @@ on:
         required: true
 
 env:
-  MCPB_VERSION: 2.1.2
   TAG: ${{ github.event.release.tag_name || inputs.tag }}
 
 jobs:
@@ -46,13 +45,17 @@ jobs:
       - name: Install production dependencies
         run: npm ci --omit=dev
 
+      # The mcpb CLI and its dependencies are pinned in .github/mcpb.
+      - name: Install the mcpb CLI
+        run: npm ci --prefix .github/mcpb
+
       - name: Pack the bundle
-        run: npx --yes @anthropic-ai/mcpb@${MCPB_VERSION} pack . "dav-mcp-${{ steps.version.outputs.version }}.mcpb"
+        run: .github/mcpb/node_modules/.bin/mcpb pack . "dav-mcp-${{ steps.version.outputs.version }}.mcpb"
 
       # Checks the file that gets uploaded, not the working tree it came from.
       - name: Verify bundle contents and boot
         run: |
-          npx --yes @anthropic-ai/mcpb@${MCPB_VERSION} unpack "dav-mcp-${{ steps.version.outputs.version }}.mcpb" "${RUNNER_TEMP}/bundle"
+          .github/mcpb/node_modules/.bin/mcpb unpack "dav-mcp-${{ steps.version.outputs.version }}.mcpb" "${RUNNER_TEMP}/bundle"
           node scripts/verify-mcpb.js "${RUNNER_TEMP}/bundle"
 
       - name: Attach bundle to the release

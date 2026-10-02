@@ -92,12 +92,14 @@ jobs:
       - name: Install production dependencies
         run: npm ci --omit=dev
 
+      # The mcpb CLI and its dependencies are pinned in .github/mcpb.
+      - name: Install the mcpb CLI
+        run: npm ci --prefix .github/mcpb
+
       - name: Pack and unpack the bundle
         run: |
-          npx --yes @anthropic-ai/mcpb@${MCPB_VERSION} pack . "${RUNNER_TEMP}/dav-mcp.mcpb"
-          npx --yes @anthropic-ai/mcpb@${MCPB_VERSION} unpack "${RUNNER_TEMP}/dav-mcp.mcpb" "${RUNNER_TEMP}/bundle"
-        env:
-          MCPB_VERSION: 2.1.2
+          .github/mcpb/node_modules/.bin/mcpb pack . "${RUNNER_TEMP}/dav-mcp.mcpb"
+          .github/mcpb/node_modules/.bin/mcpb unpack "${RUNNER_TEMP}/dav-mcp.mcpb" "${RUNNER_TEMP}/bundle"
 
       - name: Verify bundle contents and boot
         run: node scripts/verify-mcpb.js "${RUNNER_TEMP}/bundle"
