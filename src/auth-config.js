@@ -26,20 +26,30 @@ const DEFAULT_GOOGLE_TOKEN_URL = 'https://accounts.google.com/o/oauth2/token';
 
 /**
  * Normalize an AUTH_METHOD value to 'Basic', 'Digest' or 'OAuth'.
- * An unknown value is an error rather than a silent fallback to Basic, so a
- * typo does not send the password with a scheme the user did not ask for.
+ *
+ * Surrounding whitespace and one pair of quotes are ignored: a Docker
+ * --env-file passes `AUTH_METHOD="Basic"` on with the quotes, and that is
+ * plainly Basic. An unknown value is an error rather than a silent fallback to
+ * Basic, so a typo does not send the password with a scheme the user did not
+ * ask for.
  *
  * @param {string|undefined} value - Raw AUTH_METHOD value
  * @returns {'Basic'|'Digest'|'OAuth'}
  */
 export function parseAuthMethod(value) {
-  const key = (value ?? '').trim().toLowerCase();
+  const key = String(value ?? '')
+    .trim()
+    .replace(/^(["'])(.*)\1$/, '$2')
+    .trim()
+    .toLowerCase();
   if (key === '') {
     return 'Basic';
   }
   const method = AUTH_METHODS[key];
   if (!method) {
-    throw new Error(`Unsupported AUTH_METHOD '${value}'. Use Basic (default), Digest or OAuth.`);
+    throw new Error(
+      `Unsupported AUTH_METHOD '${value}'. Valid values: Basic (default), Digest, OAuth (or OAuth2).`
+    );
   }
   return method;
 }

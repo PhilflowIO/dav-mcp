@@ -39,9 +39,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **`AUTH_METHOD` is case-insensitive and accepts `OAuth2`** as another name
-  for `OAuth`. `oauth2` — the value the registry entry documented — used to
-  run Basic silently. A value dav-mcp does not know now stops the server at
-  startup instead of falling back to Basic.
+  for `OAuth`; surrounding quotes and spaces are ignored. `oauth2` — the value
+  the registry entry documented — used to run Basic silently. **If you have
+  `AUTH_METHOD=oauth` or `oauth2` set but use `CALDAV_*` credentials, the
+  server now stops at startup asking for the `GOOGLE_*` variables:** set
+  `AUTH_METHOD=Basic` or remove it. A value dav-mcp does not know also stops
+  the server at startup, listing the valid values, instead of falling back to
+  Basic. See MIGRATION.md.
 - **The tsdav dependency is pinned to a release tarball of the fork**
   (`2.3.5+philflow.4`) instead of following the fork's `master`. Fresh
   installs of a dav-mcp release now always get the tsdav version that release

@@ -45,13 +45,22 @@ describe('parseAuthMethod', () => {
     ['Oauth', 'OAuth'],
     ['oauth2', 'OAuth'],
     ['OAuth2', 'OAuth'],
+    // Docker --env-file keeps the quotes of AUTH_METHOD="Basic"
+    ['"Basic"', 'Basic'],
+    ["'digest'", 'Digest'],
+    [' "OAuth2" ', 'OAuth'],
+    ['" Basic "', 'Basic'],
+    ['""', 'Basic'],
   ])('%p -> %s', (value, expected) => {
     expect(parseAuthMethod(value)).toBe(expected);
   });
 
   test('rejects an unknown method instead of falling back to Basic', () => {
     expect(() => parseAuthMethod('Bearer')).toThrow("Unsupported AUTH_METHOD 'Bearer'");
-    expect(() => parseAuthMethod('digets')).toThrow(/Use Basic \(default\), Digest or OAuth/);
+    expect(() => parseAuthMethod('digets')).toThrow('Valid values: Basic (default), Digest, OAuth (or OAuth2).');
+    expect(() => parseAuthMethod('"Bearer"')).toThrow("Unsupported AUTH_METHOD '\"Bearer\"'");
+    // only a matching pair of quotes is removed
+    expect(() => parseAuthMethod('"Basic')).toThrow('Unsupported AUTH_METHOD');
   });
 });
 
