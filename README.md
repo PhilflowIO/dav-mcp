@@ -223,7 +223,7 @@ For Google Calendar, use OAuth2 authentication:
 ## Security
 
 - **Input Validation**: All inputs validated with Zod schemas before execution
-- **Rate Limiting**: 100 requests/minute per session (HTTP mode)
+- **Rate Limiting** (HTTP mode): 100 requests per 15 minutes per client address, counted before the bearer token is checked. Clients on loopback or a private network (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) — another container on the same Docker network, for example — get 10,000. Limitation: dav-mcp sees the address of whatever connects to it. Behind a Docker port mapping or a reverse proxy that is the bridge gateway or the proxy, so all outside clients share that one address, its one counter and its raised limit. Rate-limit per client at the proxy if you expose the HTTP transport.
 - **Bearer Auth**: Token authentication for HTTP transport
 - **No Credential Storage**: Pass-through only, never logged or cached
 - **Structured Logging**: Audit trail with request IDs, no PII exposure

@@ -30,6 +30,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 import { tsdavManager } from './tsdav-client.js';
+import { isLocalOrPrivateAddress } from './client-address.js';
 import { buildTsdavConfig } from './auth-config.js';
 import { tools } from './tools/index.js';
 import { createToolErrorResponse, MCP_ERROR_CODES } from './error-handler.js';
@@ -74,11 +75,8 @@ app.use(express.json());
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: (req) => {
-    const ip = req.ip || req.connection.remoteAddress;
-    if (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1' || ip?.startsWith('::ffff:172.')) {
-      return 10000;
-    }
-    return 100;
+    const ip = req.ip || req.socket?.remoteAddress;
+    return isLocalOrPrivateAddress(ip) ? 10000 : 100;
   },
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
