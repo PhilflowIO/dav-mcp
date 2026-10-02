@@ -11,6 +11,14 @@ Built on 27 production-ready tools spanning CalDAV, CardDAV, and VTODO protocols
 
 ## Quick Start
 
+### One-click install (Claude Desktop)
+
+1. Download `dav-mcp-<version>.mcpb` from the [latest release](https://github.com/PhilflowIO/dav-mcp/releases/latest). Releases after 4.1.1 carry this file.
+2. Open it with Claude Desktop (macOS or Windows). Claude shows an install dialog.
+3. Enter your server URL, username and password. The password is stored as a secret. Leave the authentication method at `Basic` unless your server needs `Digest`.
+
+The `.mcpb` file is an [MCP Bundle](https://github.com/modelcontextprotocol/mcpb): the server with its dependencies, so neither Node.js nor npx needs to be installed.
+
 ### Claude Desktop / Cursor (Local)
 
 Add to your MCP config file:
