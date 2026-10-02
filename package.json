@@ -15,7 +15,7 @@
     "dev": "MCP_TRANSPORT=stdio node --watch src/server-stdio.js",
     "dev:http": "node --watch src/server-http.js",
     "install:fresh": "rm -rf node_modules package-lock.json && npm cache clean --force && npm install",
-    "update:tsdav": "npm cache clean --force && npm install tsdav@github:PhilflowIO/tsdav#master",
+    "update:tsdav": "npm install tsdav@github:PhilflowIO/tsdav#${TSDAV_TAG:?set TSDAV_TAG to a PhilflowIO/tsdav release tag, e.g. TSDAV_TAG=v2.3.5+philflow.3}",
     "test": "NODE_ENV=test NODE_OPTIONS='--experimental-vm-modules' jest",
     "test:watch": "NODE_ENV=test NODE_OPTIONS='--experimental-vm-modules' jest --watch",
     "test:coverage": "NODE_ENV=test NODE_OPTIONS='--experimental-vm-modules' jest --coverage",
@@ -67,7 +67,7 @@
     "express": "^5.2.1",
     "express-rate-limit": "^8.1.0",
     "ical.js": "^2.2.1",
-    "tsdav": "github:PhilflowIO/tsdav#master",
+    "tsdav": "github:PhilflowIO/tsdav#v2.3.5+philflow.3",
     "tsdav-utils": "github:PhilflowIO/tsdav-utils#main",
     "zod": "^3.25.76"
   },

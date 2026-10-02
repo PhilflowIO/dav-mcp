@@ -28,6 +28,13 @@ cp .env.example .env   # fill in your CalDAV/CardDAV server
 
 Run the server locally with `npm run dev` (stdio) or `npm run dev:http` (HTTP).
 
+dav-mcp uses a fork of tsdav (`PhilflowIO/tsdav`), pinned to a release tag in
+`package.json`. To move to a newer fork release, name the tag explicitly:
+
+```bash
+TSDAV_TAG=v2.3.5+philflow.3 npm run update:tsdav
+```
+
 ## Tests
 
 ```bash
