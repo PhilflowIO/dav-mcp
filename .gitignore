@@ -63,3 +63,6 @@ DISTRIBUTION-PLAN.md
 TEST_RESULTS_SUMMARY.md
 .mcpregistry_github_token
 .mcpregistry_registry_token
+
+# MCP Bundles built by `mcpb pack`
+*.mcpb
