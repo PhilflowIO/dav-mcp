@@ -139,6 +139,32 @@ describe('make_calendar', () => {
     expect(sent('MKCALENDAR')).toHaveLength(1);
   });
 
+  test.each([
+    [500, 'Internal Server Error'],
+    [507, 'Insufficient Storage'],
+    [403, 'Forbidden'],
+  ])('a %i is not a collision: the original error, even with a live calendar at the URL', async (status, statusText) => {
+    mkcalendar = [xml(status, statusText, sabreError('Sabre\\DAV\\Exception', 'Server said no'))];
+    propfind = [activeCalendar('Team Plan')];
+
+    const error = await makeCalendar.handler({ display_name: 'Team Plan' }).catch(e => e);
+
+    expect(error.message).toBe(`Failed to create calendar ${HOME}team-plan/: server responded ${status} ${statusText}: Server said no`);
+    expect(error.httpStatus).toBe(status);
+    expect(sent('PROPFIND')).toHaveLength(0);
+    expect(sent('MKCALENDAR')).toHaveLength(1);
+  });
+
+  test.each([
+    [409, 'Conflict', ''],
+    [403, 'Forbidden', '<d:resource-must-be-null/>'],
+  ])('a %i collision is classified by what holds the URL', async (status, statusText, precondition) => {
+    mkcalendar = [xml(status, statusText, sabreError('Sabre\\DAV\\Exception', 'Taken', precondition)), created];
+    propfind = [trashedCalendar('Team Plan')];
+    const result = await makeCalendar.handler({ display_name: 'Team Plan' });
+    expect(result.content[0].text).toContain(`${HOME}team-plan-2/`);
+  });
+
   test('the same calendar on a numbered URL (earlier call, lost answer) is an error', async () => {
     mkcalendar = [exists];
     propfind = [trashedCalendar('Team Plan'), activeCalendar('Team Plan')];

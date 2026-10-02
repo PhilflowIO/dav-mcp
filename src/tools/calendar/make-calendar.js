@@ -54,6 +54,20 @@ async function inspectOccupant(client, url) {
   };
 }
 
+/**
+ * Did MKCALENDAR fail because the URL is taken?
+ *
+ * SabreDAV answers 405, others 409; RFC 4791 §5.3.1 names the precondition
+ * DAV:resource-must-be-null, which servers send with a 403.
+ */
+function isCollision(response, failure) {
+  if (failure.status === 405 || failure.status === 409) return true;
+  if (failure.status !== 403) return false;
+  const raw = Array.isArray(response) ? response.find(entry => entry && entry.ok === false)?.raw : undefined;
+  const body = typeof raw === 'string' ? raw : JSON.stringify(raw ?? '');
+  return /resource-must-be-null/i.test(body);
+}
+
 function alreadyExistsError(url, displayName) {
   const error = new Error(
     `A calendar already exists at ${url} (display name: ${displayName ? `"${displayName}"` : 'none'}). ` +
@@ -154,7 +168,11 @@ export const makeCalendar = {
         });
       }
 
-      const occupant = await inspectOccupant(client, url);
+      // Only a collision is worth a look at the URL. On any other failure
+      // (500, 507, plain 403) a calendar that happens to live there says
+      // nothing about why this request failed, and "already exists" would
+      // send the caller the wrong way.
+      const occupant = isCollision(response, failure) ? await inspectOccupant(client, url) : null;
       // Nothing there: the server refused for another reason (no MKCALENDAR
       // support, wrong calendar home, no permission). Retrying cannot help.
       if (!occupant) {
