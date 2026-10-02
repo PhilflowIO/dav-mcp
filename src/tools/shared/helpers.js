@@ -64,6 +64,55 @@ export async function getCalendarHome(client) {
   return calendarHome;
 }
 
+// tsdav strips the namespace and camelCases element names, and 2.3.5+ keeps a
+// "{namespace}" prefix where two namespaces use the same name.
+const localNames = (resourcetype) =>
+  Object.keys(resourcetype && typeof resourcetype === 'object' ? resourcetype : {})
+    .map(key => key.replace(/^\{[^}]*\}/, ''));
+
+function textValue(value) {
+  if (typeof value === 'string' || typeof value === 'number') return String(value);
+  return value?._cdata ?? value?._text ?? '';
+}
+
+/**
+ * What is at a collection URL: a live calendar, a calendar in the trash bin,
+ * or something else?
+ *
+ * Status codes cannot answer that. SabreDAV (Nextcloud, Baikal) says 405
+ * "already exists" to a MKCALENDAR both for a live calendar and for one in
+ * Nextcloud's trash bin, which list_calendars does not show, and a DELETE on a
+ * trashed calendar is answered like one on a live calendar. So we look. Goes
+ * through the client so the request is authenticated; no headers are passed,
+ * as that would replace the auth headers in tsdav before 2.3.5.
+ *
+ * @returns {Promise<{activeCalendar: boolean, trashedCalendar: boolean, displayName: string}|null>}
+ *   null if nothing is there or the server would not tell us
+ */
+export async function inspectCollection(client, url) {
+  let responses;
+  try {
+    responses = await client.propfind({
+      url,
+      depth: '0',
+      props: { 'd:resourcetype': {}, 'd:displayname': {} },
+    });
+  } catch {
+    return null;
+  }
+  const entry = Array.isArray(responses) ? responses[0] : undefined;
+  if (!entry || entry.ok === false || entry.status < 200 || entry.status >= 300) return null;
+
+  const types = localNames(entry.props?.resourcetype);
+  return {
+    // Nextcloud marks a trashed calendar {http://nextcloud.com/ns}deleted-calendar
+    // instead of calendar; it only holds the URL until the trash is emptied.
+    activeCalendar: types.includes('calendar') && !types.includes('deletedCalendar'),
+    trashedCalendar: types.includes('deletedCalendar'),
+    displayName: textValue(entry.props?.displayname),
+  };
+}
+
 /**
  * Sanitize calendar/event name for URL usage
  * @param {string} name - Display name

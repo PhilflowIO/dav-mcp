@@ -13,7 +13,7 @@ const requests = [];
 let nextResponse;
 const fetchStub = jest.fn(async (url, init) => {
   requests.push({ url, ...init });
-  return nextResponse();
+  return nextResponse(url, init);
 });
 
 const client = new DAVClient({
@@ -47,22 +47,54 @@ beforeEach(() => {
   fetchStub.mockClear();
 });
 
+// What a PROPFIND Depth 0 on the calendar URL answers before the DELETE
+const collection = (resourcetype) => response(207, 'Multi-Status',
+  '<?xml version="1.0"?>\n<d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav" xmlns:x1="http://nextcloud.com/ns">' +
+  `<d:response><d:href>/calendars/user/work/</d:href><d:propstat><d:prop><d:resourcetype>${resourcetype}</d:resourcetype>` +
+  '<d:displayname>Work</d:displayname></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>');
+const liveCalendar = collection('<d:collection/><cal:calendar/>');
+const trashedCalendar = collection('<d:collection/><x1:deleted-calendar/>');
+const answer = (inspect, del) => (url, init) => (init.method === 'PROPFIND' ? inspect : del)();
+
 describe('delete_calendar', () => {
   test('sends the DELETE with the client auth header and no Content-Type', async () => {
-    nextResponse = response(204, 'No Content');
-    await deleteCalendar.handler({ calendar_url: CALENDAR_URL });
+    nextResponse = answer(liveCalendar, response(204, 'No Content'));
+    const result = await deleteCalendar.handler({ calendar_url: CALENDAR_URL });
 
-    expect(requests).toHaveLength(1);
-    expect(requests[0].method).toBe('DELETE');
-    expect(requests[0].url).toBe(CALENDAR_URL);
+    expect(requests.map(r => r.method)).toEqual(['PROPFIND', 'DELETE']);
+    const del = requests[1];
+    expect(del.url).toBe(CALENDAR_URL);
+    expect(header(del, 'authorization')).toBe(AUTH);
+    expect(header(del, 'content-type')).toBeUndefined();
     expect(header(requests[0], 'authorization')).toBe(AUTH);
-    expect(header(requests[0], 'content-type')).toBeUndefined();
+    expect(result.content[0].text).toContain('Calendar deleted successfully');
+    expect(result.content[0].text).not.toContain('permanently');
   });
 
   test('a 401 is reported, not swallowed', async () => {
     nextResponse = response(401, 'Unauthorized', 'No public access to this resource.', 'text/plain');
     await expect(deleteCalendar.handler({ calendar_url: CALENDAR_URL }))
       .rejects.toThrow(/401 Unauthorized.*still exists/);
+  });
+
+  test('a calendar already in the trash bin is reported as already deleted, without a DELETE', async () => {
+    // Nextcloud answers a DELETE on a trashed calendar like one on a live calendar
+    nextResponse = answer(trashedCalendar, response(204, 'No Content'));
+    const result = await deleteCalendar.handler({ calendar_url: CALENDAR_URL });
+
+    expect(requests.map(r => r.method)).toEqual(['PROPFIND']);
+    const text = result.content[0].text;
+    expect(text).toContain('Calendar was already deleted');
+    expect(text).toContain("in the server's trash bin");
+    expect(text).toContain('"alreadyDeleted": true');
+    expect(text).not.toContain('deleted successfully');
+  });
+
+  test('a calendar that is gone answers 404 to both requests and counts as deleted', async () => {
+    nextResponse = response(404, 'Not Found');
+    const result = await deleteCalendar.handler({ calendar_url: CALENDAR_URL });
+    expect(requests.map(r => r.method)).toEqual(['PROPFIND', 'DELETE']);
+    expect(result.content[0].text).toContain('Calendar deleted successfully');
   });
 });
 

@@ -121,7 +121,7 @@ When partial tools force your AI to improvise, complete tools let it **execute p
 7. **calendar_query** - PREFERRED: Search and filter events efficiently by text, date range, or location
 8. **make_calendar** - Create a new calendar collection
 9. **update_calendar** - Update calendar properties (display name, description, color, timezone)
-10. **delete_calendar** - Permanently delete a calendar and all its events
+10. **delete_calendar** - Delete a calendar and all its events
 11. **calendar_multi_get** - Batch fetch multiple specific events by URLs
 12. **freebusy_query** - Find free and busy time in a range ("when am I free?"), calculated client-side
 

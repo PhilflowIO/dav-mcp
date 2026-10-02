@@ -821,11 +821,35 @@ export function formatCalendarUpdateSuccess(calendar, updatedFields) {
 export function formatCalendarDeleteSuccess(calendarUrl) {
   let output = `✅ **Calendar deleted successfully**\n\n`;
 
-  output += `⚠️ **Warning**: The calendar and all its events have been permanently deleted.\n\n`;
+  // Not "permanently": a server with a trash bin (Nextcloud) keeps the
+  // calendar there, and we cannot tell which kind of server this is.
+  output += `⚠️ **Warning**: The calendar and all its events have been deleted. ` +
+    `Servers with a trash bin keep them there for a while; on other servers they are gone for good.\n\n`;
   output += `- **Deleted URL**: ${calendarUrl}\n`;
 
   output += `\n---\n<details>\n<summary>Raw Data (JSON)</summary>\n\n\`\`\`json\n`;
   output += JSON.stringify({ success: true, deleted: true, url: calendarUrl }, null, 2);
+  output += '\n```\n</details>';
+
+  return {
+    content: [{
+      type: 'text',
+      text: output
+    }]
+  };
+}
+
+/**
+ * Result for a delete_calendar whose target is already in the trash bin
+ */
+export function formatCalendarAlreadyDeleted(calendarUrl) {
+  let output = `ℹ️ **Calendar was already deleted**\n\n`;
+
+  output += `The calendar at this URL is in the server's trash bin. Nothing was changed.\n\n`;
+  output += `- **URL**: ${calendarUrl}\n`;
+
+  output += `\n---\n<details>\n<summary>Raw Data (JSON)</summary>\n\n\`\`\`json\n`;
+  output += JSON.stringify({ success: true, deleted: false, alreadyDeleted: true, url: calendarUrl }, null, 2);
   output += '\n```\n</details>';
 
   return {

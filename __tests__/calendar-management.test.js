@@ -167,7 +167,9 @@ describe('Calendar Management', () => {
       expect(result.content[0].type).toBe('text');
       expect(result.content[0].text).toContain('Calendar deleted successfully');
       expect(result.content[0].text).toContain('Warning');
-      expect(result.content[0].text).toContain('permanently deleted');
+      // a server with a trash bin keeps the calendar, so no "permanently"
+      expect(result.content[0].text).toContain('have been deleted');
+      expect(result.content[0].text).not.toContain('permanently');
       expect(result.content[0].text).toContain(calendarUrl);
     });
 

@@ -2,57 +2,10 @@ import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, makeCalendarSchema } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
 import { MCP_ERROR_CODES } from '../../error-handler.js';
-import { getCalendarHome, sanitizeNameForUrl, davFailure, davFailureError } from '../shared/helpers.js';
+import { getCalendarHome, sanitizeNameForUrl, davFailure, davFailureError, inspectCollection } from '../shared/helpers.js';
 
 // How many URLs to try before giving up: <slug>, <slug>-2 … <slug>-10.
 const MAX_SLUG_ATTEMPTS = 10;
-
-// tsdav strips the namespace and camelCases element names, and 2.3.5+ keeps a
-// "{namespace}" prefix where two namespaces use the same name.
-const localNames = (resourcetype) =>
-  Object.keys(resourcetype && typeof resourcetype === 'object' ? resourcetype : {})
-    .map(key => key.replace(/^\{[^}]*\}/, ''));
-
-function textValue(value) {
-  if (typeof value === 'string' || typeof value === 'number') return String(value);
-  return value?._cdata ?? value?._text ?? '';
-}
-
-/**
- * What occupies a URL that MKCALENDAR refused?
- *
- * The status code cannot answer that: SabreDAV (Nextcloud, Baikal) says 405
- * "already exists" both for a live calendar and for one in Nextcloud's trash
- * bin, which list_calendars does not show, and a server without MKCALENDAR
- * support says 405 too. So we look. Goes through the client so the request is
- * authenticated; no headers are passed, as that would replace the auth headers
- * in tsdav before 2.3.5.
- *
- * @returns {Promise<{activeCalendar: boolean, displayName: string}|null>}
- *   null if nothing is there or the server would not tell us
- */
-async function inspectOccupant(client, url) {
-  let responses;
-  try {
-    responses = await client.propfind({
-      url,
-      depth: '0',
-      props: { 'd:resourcetype': {}, 'd:displayname': {} },
-    });
-  } catch {
-    return null;
-  }
-  const entry = Array.isArray(responses) ? responses[0] : undefined;
-  if (!entry || entry.ok === false || entry.status < 200 || entry.status >= 300) return null;
-
-  const types = localNames(entry.props?.resourcetype);
-  return {
-    // Nextcloud marks a trashed calendar {http://nextcloud.com/ns}deleted-calendar
-    // instead of calendar; it only holds the URL until the trash is emptied.
-    activeCalendar: types.includes('calendar') && !types.includes('deletedCalendar'),
-    displayName: textValue(entry.props?.displayname),
-  };
-}
 
 /**
  * Did MKCALENDAR fail because the URL is taken?
@@ -172,7 +125,7 @@ export const makeCalendar = {
       // (500, 507, plain 403) a calendar that happens to live there says
       // nothing about why this request failed, and "already exists" would
       // send the caller the wrong way.
-      const occupant = isCollision(response, failure) ? await inspectOccupant(client, url) : null;
+      const occupant = isCollision(response, failure) ? await inspectCollection(client, url) : null;
       // Nothing there: the server refused for another reason (no MKCALENDAR
       // support, wrong calendar home, no permission). Retrying cannot help.
       if (!occupant) {
