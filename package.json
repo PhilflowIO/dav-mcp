@@ -20,7 +20,8 @@
     "test:watch": "NODE_ENV=test NODE_OPTIONS='--experimental-vm-modules' jest --watch",
     "test:coverage": "NODE_ENV=test NODE_OPTIONS='--experimental-vm-modules' jest --coverage",
     "test:integration": "node tests/integration/mcp-test-runner.js",
-    "test:setup-data": "node tests/integration/setup-test-data.js"
+    "test:setup-data": "node tests/integration/setup-test-data.js",
+    "mcpb:sync": "node scripts/sync-mcpb-manifest.js"
   },
   "author": "dav-mcp contributors",
   "license": "MIT",
