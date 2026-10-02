@@ -169,9 +169,18 @@ function extractDavMessage(body) {
  * 2xx. PROPPATCH reports per-property failures only there: the HTTP status is
  * 207 and tsdav marks the entry ok, so without this a refused property change
  * reads as success.
+ *
+ * tsdav 2.3.5+ hands the per-property results over as `propStats`; older
+ * versions only have the parsed body in `raw`.
  */
-function failedPropstat(raw) {
-  const responses = raw?.multistatus?.response;
+function failedPropstat(entry) {
+  if (Array.isArray(entry.propStats)) {
+    const failed = entry.propStats.find(stat =>
+      typeof stat?.status === 'number' && (stat.status < 200 || stat.status >= 300));
+    return failed ? { status: failed.status, statusText: failed.statusText || '' } : null;
+  }
+
+  const responses = entry.raw?.multistatus?.response;
   if (!responses) return null;
   for (const response of [].concat(responses)) {
     for (const propstat of [].concat(response?.propstat ?? [])) {
@@ -210,7 +219,7 @@ export async function davFailure(result) {
           url: entry.href,
         };
       }
-      const propFailure = failedPropstat(entry.raw);
+      const propFailure = failedPropstat(entry);
       if (propFailure) {
         return { ...propFailure, message: '', url: entry.href };
       }

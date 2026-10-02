@@ -102,6 +102,33 @@ describe('assertDavSuccess', () => {
       .rejects.toThrow('server responded 403 Forbidden');
   });
 
+  test('a 207 whose propStats (tsdav 2.3.5+) refused a property is a failure', async () => {
+    const entry = {
+      ok: true,
+      status: 207,
+      statusText: 'Multi-Status',
+      href: '/calendars/user/work/',
+      raw: {},
+      propStats: [
+        { props: { displayname: {} }, status: 200, statusText: 'OK', ok: true },
+        { props: { calendarTimezone: {} }, status: 403, statusText: 'Forbidden', ok: false },
+      ],
+    };
+    await expect(assertDavSuccess([entry], 'update calendar'))
+      .rejects.toThrow('Failed to update calendar: server responded 403 Forbidden');
+  });
+
+  test('propStats that all succeeded are not a failure, whatever raw holds', async () => {
+    const entry = {
+      ok: true,
+      status: 207,
+      statusText: 'Multi-Status',
+      raw: { multistatus: { response: { propstat: { status: 'HTTP/1.1 403 Forbidden' } } } },
+      propStats: [{ props: { displayname: {} }, status: 200, statusText: 'OK', ok: true }],
+    };
+    await expect(assertDavSuccess([entry], 'update calendar')).resolves.toBeUndefined();
+  });
+
   test('a result without a status is not turned into a failure', async () => {
     await expect(davFailure(undefined)).resolves.toBeNull();
     await expect(davFailure({ url: 'x' })).resolves.toBeNull();
