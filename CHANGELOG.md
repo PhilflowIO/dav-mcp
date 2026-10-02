@@ -19,11 +19,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   calendar created as "Team Plan" was named "team-plan". If a live calendar
   already holds the URL, nothing is created and the error names it; if the URL
   is only held by a deleted calendar in the trash, a numbered URL is used.
+  A `timezone` is accepted but **not applied yet**: the calendar gets the
+  server's default timezone and the result says so (#78).
 - **`calendar_multi_get`, `todo_multi_get` and `addressbook_multi_get` returned
   objects without data** (#77). They now return URL, ETag and data for every
   object, and list a URL that no longer exists as not found instead of failing
   the whole call. `todo_multi_get` also finds todos from more than one task
-  list in a single call.
+  list in a single call, and a task list that no longer exists only costs its
+  own todos. Long URL lists are fetched 100 at a time.
+- **Error codes for conflicts and busy servers.** A URL that is already taken
+  (405, 409), a locked resource (423) and "all calendar URLs taken" are
+  reported as conflicts; 429, 502 and 503 as network errors instead of
+  internal errors.
 
 ### Added
 - **Digest authentication** (#74). Servers that only accept Digest — Baikal in
