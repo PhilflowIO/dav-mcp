@@ -37,7 +37,17 @@ export const todoMultiGet = {
     const todos = [];
     const missing = [];
     for (const [calendarUrl, objectUrls] of byCalendar) {
-      const result = await multiGetObjects(client, { kind: 'calendar', collectionUrl: calendarUrl, objectUrls });
+      let result;
+      try {
+        result = await multiGetObjects(client, { kind: 'calendar', collectionUrl: calendarUrl, objectUrls });
+      } catch (error) {
+        // A task list that does not exist (any more) only means its todos are
+        // gone; the todos from the other lists are still wanted. Everything
+        // else (401, 500, ...) is a real failure and names its collection.
+        if (error.httpStatus !== 404 && error.httpStatus !== 410) throw error;
+        missing.push(...objectUrls.map(url => ({ url, statusText: `task list ${calendarUrl} does not exist` })));
+        continue;
+      }
       todos.push(...result.found);
       missing.push(...result.missing);
     }

@@ -174,6 +174,37 @@ describe('todo_multi_get', () => {
   });
 });
 
+describe('todo_multi_get with a failing collection', () => {
+  const gone = `${SERVER}/calendars/user/deleted-list/`;
+  const urls = [`${TASKS_URL}t1.ics`, `${gone}t7.ics`, `${gone}t8.ics`];
+  const tasksAnswer = multistatus(found('/calendars/user/tasks/t1.ics', 'e-1', 'cal:calendar-data', ics('t1', 'Task one', 'VTODO')));
+  const failWith = (status, statusText) => (url) => url === TASKS_URL
+    ? tasksAnswer()
+    : new Response('<d:error xmlns:d="DAV:"/>', { status, statusText, headers: { 'content-type': 'application/xml' } });
+
+  test.each([[404, 'Not Found'], [410, 'Gone']])(
+    'a task list that answers %i only loses its own todos', async (status, statusText) => {
+      respond = failWith(status, statusText);
+      const result = await todoMultiGet.handler({ todo_urls: urls });
+
+      expect(rawData(result).map(t => t.url)).toEqual([urls[0]]);
+      expect(text(result)).toContain('Not found: **2**');
+      expect(text(result)).toContain(`- ${urls[1]} — not found (task list ${gone} does not exist)`);
+      expect(text(result)).toContain(`- ${urls[2]} — not found (task list ${gone} does not exist)`);
+    });
+
+  test.each([[401, 'Unauthorized'], [500, 'Internal Server Error']])(
+    'a task list that answers %i fails the call and names the collection', async (status, statusText) => {
+      respond = failWith(status, statusText);
+      const error = await todoMultiGet.handler({ todo_urls: urls }).catch(e => e);
+
+      expect(error).toBeInstanceOf(Error);
+      expect(error.message).toContain(`Failed to fetch objects from ${gone}`);
+      expect(error.message).toContain(`${status} ${statusText}`);
+      expect(error.httpStatus).toBe(status);
+    });
+});
+
 describe('addressbook_multi_get', () => {
   test('sends an addressbook-multiget asking for getetag and address-data, 404 reported per URL', async () => {
     const urls = [`${BOOK_URL}c1.vcf`, `${BOOK_URL}c2.vcf`, `${BOOK_URL}missing.vcf`];
