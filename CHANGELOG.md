@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-10-02
+
+Digest authentication, `linux/arm64` images, and a round of fixes to tools
+that reported success for writes and deletes the server had refused.
+
+**Check `AUTH_METHOD` before upgrading.** A value dav-mcp does not know now
+stops the server at startup instead of silently running Basic, and `oauth` /
+`oauth2` now really select OAuth2. Details under Changed and in MIGRATION.md.
+
 ### Fixed
 - **Tools reported success when the server had refused the write** (#72).
   A create or update the server rejected (403, 412, 405) was reported as done.
@@ -63,6 +72,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   installs of a dav-mcp release now always get the tsdav version that release
   was tested with, and tsdav no longer has to be cloned and built at install
   time. (`tsdav-utils` is still a git dependency, so git is still needed.)
+
+### Internal
+- CI builds and boots the image on a native arm64 runner for every pull
+  request, and each release pulls the published image by digest on native
+  amd64 and arm64 runners and waits for it to report healthy. Before, arm64
+  had only ever run under emulation, and only as a local build.
 
 ## [4.0.1] - 2026-09-10
 
