@@ -18,6 +18,7 @@ jest.unstable_mockModule('../src/tsdav-client.js', () => ({
 }));
 
 const { makeCalendar } = await import('../src/tools/calendar/make-calendar.js');
+const { makeCalendar: tsdavMakeCalendar } = await import('tsdav');
 
 const created = () => [{ ok: true, status: 201, statusText: 'Created', raw: '' }];
 const exists = () => [{
@@ -140,6 +141,33 @@ describe('make_calendar', () => {
     await expect(makeCalendar.handler({ display_name: 'Team Plan' }))
       .rejects.toThrow(/all taken.*405.*already exists/);
     expect(makeCalendarMock).toHaveBeenCalledTimes(10);
+  });
+
+  test('properties are sent under their DAV names, so the server applies them', async () => {
+    makeCalendarMock.mockResolvedValueOnce(created());
+    await makeCalendar.handler({
+      display_name: 'Work & Life',
+      description: 'Shared plans',
+      color: '#FF5733',
+      components: ['VEVENT'],
+    });
+    const [{ props }] = makeCalendarMock.mock.calls[0];
+
+    // what tsdav puts on the wire for these props
+    let body;
+    await tsdavMakeCalendar({
+      url: `${HOME}x/`,
+      props,
+      fetch: async (url, init) => {
+        body = init.body;
+        return new Response('', { status: 201 });
+      },
+    });
+    expect(body).toContain('<d:displayname>Work &amp; Life</d:displayname>');
+    expect(body).toContain('<c:calendar-description>Shared plans</c:calendar-description>');
+    expect(body).toContain('<ca:calendar-color>#FF5733</ca:calendar-color>');
+    expect(body).toMatch(/<c:supported-calendar-component-set>\s*<c:comp name="VEVENT"\/>\s*<\/c:supported-calendar-component-set>/);
+    expect(body).not.toMatch(/displayName|calendarColor|<d:description|<d:timezone/);
   });
 
   test('a name without ASCII letters or digits does not target the calendar home', async () => {

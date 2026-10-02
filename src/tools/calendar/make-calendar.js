@@ -111,20 +111,25 @@ export const makeCalendar = {
     // would otherwise produce an empty slug and target the calendar home itself
     const slug = sanitizeNameForUrl(validated.display_name) || 'calendar';
 
-    // Prepare calendar props
-    const calendarProps = {
-      displayName: validated.display_name,
-      description: validated.description,
-      calendarColor: validated.color,
-      timezone: validated.timezone,
-    };
-
-    // Add supported component set if specified
-    // NOTE: Radicale ignores this property (known limitation), but works with Nextcloud/Baikal
-    // Format: supportedCalendarComponentSet.comp[{_attributes: {name: 'VEVENT'}}]
+    // tsdav writes these keys verbatim as XML element names, prefixing the
+    // unprefixed ones with d:. A camelCase key such as displayName becomes
+    // <d:displayName>, which no server knows, so name, colour and description
+    // were silently dropped and Nextcloud named the calendar after its URL.
+    // c: and ca: are declared on the MKCALENDAR element by tsdav.
+    const calendarProps = { displayname: validated.display_name };
+    if (validated.description) {
+      calendarProps['c:calendar-description'] = validated.description;
+    }
+    if (validated.color) {
+      calendarProps['ca:calendar-color'] = validated.color;
+    }
+    if (validated.timezone) {
+      // Same property update_calendar sets
+      calendarProps['c:calendar-timezone'] = validated.timezone;
+    }
     if (validated.components && validated.components.length > 0) {
-      calendarProps.supportedCalendarComponentSet = {
-        comp: validated.components.map(comp => ({ _attributes: { name: comp } }))
+      calendarProps['c:supported-calendar-component-set'] = {
+        'c:comp': validated.components.map(name => ({ _attributes: { name } })),
       };
     }
 
