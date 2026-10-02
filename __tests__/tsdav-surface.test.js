@@ -26,6 +26,8 @@ describe('the tsdav build we install actually exposes what we call', () => {
     'updateVCard',
     'deleteVCard',
     'deleteObject',
+    'makeCalendar',
+    'davRequest',
   ];
 
   test.each(clientMethods)('DAVClient.prototype.%s is a function', (method) => {

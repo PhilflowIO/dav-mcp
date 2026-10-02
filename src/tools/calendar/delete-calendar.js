@@ -23,11 +23,11 @@ export const deleteCalendar = {
     const validated = validateInput(deleteCalendarSchema, args);
     const client = tsdavManager.getCalDavClient();
 
+    // No headers here: tsdav's client merges its auth headers into ours, and
+    // tsdav before the v2.3.5 sync replaced them instead — a body-less DELETE
+    // has no use for a Content-Type, and passing one sent it unauthenticated.
     const response = await client.deleteObject({
       url: validated.calendar_url,
-      headers: {
-        'Content-Type': 'text/calendar; charset=utf-8',
-      },
     });
     await assertDeleted(response, `calendar ${validated.calendar_url}`);
 

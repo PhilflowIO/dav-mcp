@@ -90,6 +90,40 @@ describe('a successful delete still succeeds', () => {
   });
 });
 
+describe('what the delete tools hand to tsdav', () => {
+  // tsdav's client shallow-merges its auth headers with the caller's; before
+  // the v2.3.5 sync a caller `headers` object replaced them outright. Passing
+  // nothing is what keeps the request authenticated (#72).
+  test('delete_calendar passes only the URL — no headers to override auth', async () => {
+    deleteObject.mockResolvedValue(davResponse(204));
+    await deleteCalendar.handler({ calendar_url: CALENDAR_URL });
+    expect(deleteObject).toHaveBeenCalledTimes(1);
+    expect(deleteObject).toHaveBeenCalledWith({ url: CALENDAR_URL });
+  });
+
+  test('delete_event passes URL and etag, no headers', async () => {
+    deleteCalendarObject.mockResolvedValue(davResponse(204));
+    await deleteEvent.handler({ event_url: EVENT_URL, event_etag: '"1"' });
+    expect(deleteCalendarObject).toHaveBeenCalledWith({
+      calendarObject: { url: EVENT_URL, etag: '"1"' },
+    });
+  });
+
+  test('delete_contact passes URL and etag, no headers', async () => {
+    deleteVCard.mockResolvedValue(davResponse(204));
+    const url = 'https://dav.example.com/addressbooks/user/default/c.vcf';
+    await deleteContact.handler({ vcard_url: url, vcard_etag: '"1"' });
+    expect(deleteVCard).toHaveBeenCalledWith({ vCard: { url, etag: '"1"' } });
+  });
+
+  test('delete_todo passes URL and etag, no headers', async () => {
+    deleteTodo.mockResolvedValue(davResponse(204));
+    const url = `${CALENDAR_URL}t.ics`;
+    await deleteTodoTool.handler({ todo_url: url, todo_etag: '"1"' });
+    expect(deleteTodo).toHaveBeenCalledWith({ calendarObject: { url, etag: '"1"' } });
+  });
+});
+
 describe('success messages read as English', () => {
   test('a create message is not doubled', async () => {
     deleteObject.mockResolvedValue(davResponse(204));
