@@ -16,6 +16,9 @@ jobs:
       contents: read
       packages: write
 
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -131,6 +134,7 @@ jobs:
 
       # docker format keeps HEALTHCHECK, which the OCI format drops.
       - name: Build and push
+        id: push
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -141,3 +145,89 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: false
+
+  # The checks above run before the push, on locally built images, and the
+  # arm64 one under QEMU: they prove the build. This job proves the published
+  # artifact: each runner pulls what the registry actually serves and boots it
+  # on real hardware of that architecture. No QEMU is set up here, so an arm64
+  # image can only start on the arm64 runner.
+  verify:
+    needs: publish
+    name: verify (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: amd64
+            machine: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+            machine: aarch64
+
+    # The package is public and pulled anonymously, the way a user pulls it.
+    # If it ever turns private this job fails on the pull instead of passing
+    # on credentials a user does not have.
+    permissions: {}
+
+    steps:
+      - name: Runner is native ${{ matrix.arch }}
+        run: |
+          machine=$(uname -m)
+          echo "runner machine: ${machine}"
+          [ "$machine" = "${{ matrix.machine }}" ] || { echo "::error::expected ${{ matrix.machine }} runner, got '${machine}'"; exit 1; }
+
+      # By digest, not by tag: the digest is the multi-arch index this run
+      # pushed, so a tag moved by a later run cannot be verified by mistake.
+      # Docker resolves the index to the manifest for the runner's platform.
+      - name: Pull the published image by digest
+        env:
+          DIGEST: ${{ needs.publish.outputs.digest }}
+        run: |
+          [ -n "$DIGEST" ] || { echo "::error::publish job reported no digest"; exit 1; }
+          ref="${IMAGE,,}@${DIGEST}"
+          docker pull "$ref"
+          docker tag "$ref" dav-mcp:published
+          arch=$(docker image inspect dav-mcp:published --format '{{.Architecture}}')
+          echo "pulled ${ref} (architecture: ${arch})"
+          [ "$arch" = "${{ matrix.arch }}" ] || { echo "::error::expected ${{ matrix.arch }} image, got '${arch}'"; exit 1; }
+
+      - name: Start CalDAV backend
+        run: |
+          docker network create davci
+          docker run -d --name radicale --network davci tomsquest/docker-radicale:latest
+          for _ in $(seq 1 30); do
+            docker logs radicale 2>&1 | grep -q 'Radicale server ready' && exit 0
+            sleep 2
+          done
+          echo "::error::Radicale did not become ready"
+          docker logs radicale
+          exit 1
+
+      - name: Verify published image boots and reports healthy
+        run: |
+          docker run -d --name dav-mcp --network davci \
+            -e CALDAV_SERVER_URL=http://radicale:5232 \
+            -e CALDAV_USERNAME=ci \
+            -e CALDAV_PASSWORD=ci \
+            -e PORT=8080 \
+            dav-mcp:published
+          for _ in $(seq 1 30); do
+            status=$(docker inspect -f '{{.State.Health.Status}}' dav-mcp)
+            case "$status" in
+              healthy) echo "published ${{ matrix.arch }} container reported healthy"; exit 0 ;;
+              unhealthy) break ;;
+            esac
+            sleep 2
+          done
+          echo "::error::Published ${{ matrix.arch }} container never reported healthy (last status: ${status:-unknown})"
+          docker inspect -f '{{json .State.Health}}' dav-mcp
+          exit 1
+
+      - name: Dump logs on failure
+        if: failure()
+        run: |
+          docker logs dav-mcp 2>&1 || true
+          docker logs radicale 2>&1 || true
