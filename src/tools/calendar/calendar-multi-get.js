@@ -1,6 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, calendarMultiGetSchema } from '../../validation.js';
-import { formatEventList } from '../../formatters.js';
+import { formatEventList, withMissingObjects } from '../../formatters.js';
+import { multiGetObjects } from '../shared/multiget.js';
 
 /**
  * Batch fetch multiple specific calendar events by their URLs
@@ -27,12 +28,12 @@ export const calendarMultiGet = {
     const validated = validateInput(calendarMultiGetSchema, args);
     const client = tsdavManager.getCalDavClient();
 
-    const events = await client.calendarMultiGet({
-      url: validated.calendar_url,
-      props: [{ name: 'getetag', namespace: 'DAV:' }, 'calendar-data'],
+    const { found, missing } = await multiGetObjects(client, {
+      kind: 'calendar',
+      collectionUrl: validated.calendar_url,
       objectUrls: validated.event_urls,
     });
 
-    return formatEventList(events, { url: validated.calendar_url });
+    return withMissingObjects(formatEventList(found, { url: validated.calendar_url }), missing);
   },
 };

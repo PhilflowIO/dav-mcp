@@ -1,6 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, todoMultiGetSchema } from '../../validation.js';
-import { formatTodoList } from '../../formatters.js';
+import { formatTodoList, withMissingObjects } from '../../formatters.js';
+import { multiGetObjects } from '../shared/multiget.js';
 
 /**
  * Batch fetch multiple specific todos by their URLs
@@ -24,14 +25,14 @@ export const todoMultiGet = {
     const client = tsdavManager.getCalDavClient();
 
     // Extract calendar URL from first todo URL
-    const calendarUrl = validated.todo_urls[0].split('/').slice(0, -1).join('/');
+    const calendarUrl = new URL('.', validated.todo_urls[0]).href;
 
-    const todos = await client.todoMultiGet({
-      url: calendarUrl,
-      props: [{ name: 'getetag', namespace: 'DAV:' }, { name: 'calendar-data', namespace: 'urn:ietf:params:xml:ns:caldav' }],
+    const { found, missing } = await multiGetObjects(client, {
+      kind: 'calendar',
+      collectionUrl: calendarUrl,
       objectUrls: validated.todo_urls,
     });
 
-    return formatTodoList(todos, calendarUrl);
+    return withMissingObjects(formatTodoList(found, calendarUrl), missing);
   },
 };

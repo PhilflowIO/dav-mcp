@@ -1,6 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, addressBookMultiGetSchema } from '../../validation.js';
-import { formatContactList } from '../../formatters.js';
+import { formatContactList, withMissingObjects } from '../../formatters.js';
+import { multiGetObjects } from '../shared/multiget.js';
 
 /**
  * Batch fetch multiple specific contacts by their URLs
@@ -27,12 +28,12 @@ export const addressbookMultiGet = {
     const validated = validateInput(addressBookMultiGetSchema, args);
     const client = tsdavManager.getCardDavClient();
 
-    const vcards = await client.addressBookMultiGet({
-      url: validated.addressbook_url,
-      props: [{ name: 'getetag', namespace: 'DAV:' }, { name: 'address-data', namespace: 'urn:ietf:params:xml:ns:carddav' }],
+    const { found, missing } = await multiGetObjects(client, {
+      kind: 'addressbook',
+      collectionUrl: validated.addressbook_url,
       objectUrls: validated.contact_urls,
     });
 
-    return formatContactList(vcards, { url: validated.addressbook_url });
+    return withMissingObjects(formatContactList(found, { url: validated.addressbook_url }), missing);
   },
 };

@@ -966,6 +966,32 @@ export function formatTodoList(todos, calendar = 'Unknown Calendar', total = nul
 }
 
 /**
+ * Add the URLs a multiget could not return to a formatted list result.
+ *
+ * A multiget answers per URL, so one deleted object must not read as "nothing
+ * found" or fail the call: the caller gets what exists, plus which URLs did
+ * not and why.
+ *
+ * @param {{content: Array<{type:string, text:string}>}} result - formatted list
+ * @param {Array<{url:string, status?:number, statusText:string}>} missing
+ */
+export function withMissingObjects(result, missing) {
+  if (!missing || missing.length === 0) return result;
+
+  let output = `\n\n---\nNot found: **${missing.length}**\n\n`;
+  for (const { url, status, statusText } of missing) {
+    let reason;
+    if (status === 404) reason = 'not found';
+    else if (status === undefined) reason = `not found (${statusText})`;
+    else reason = `${status} ${statusText}`.trim();
+    output += `- ${url} — ${reason}\n`;
+  }
+
+  const [first, ...rest] = result.content;
+  return { ...result, content: [{ ...first, text: first.text + output }, ...rest] };
+}
+
+/**
  * Format error message in a user-friendly way
  */
 export function formatError(error, context = '') {
