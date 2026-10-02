@@ -109,7 +109,7 @@ export const makeCalendar = {
           type: 'string',
           enum: ['VEVENT', 'VTODO', 'VJOURNAL']
         },
-        description: 'Optional: Supported component types. Default: ["VEVENT", "VTODO"]. Use ["VEVENT"] for events only, ["VTODO"] for tasks only.',
+        description: 'Optional: Supported component types. If omitted, nothing is sent and the server applies its own default. Use ["VEVENT"] for events only, ["VTODO"] for tasks only, ["VEVENT", "VTODO"] for both.',
       },
     },
     required: ['display_name'],

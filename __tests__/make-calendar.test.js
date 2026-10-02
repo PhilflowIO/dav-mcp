@@ -238,6 +238,15 @@ describe('make_calendar', () => {
     expect(result.content[0].text).not.toMatch(/timezone/i);
   });
 
+  test('without components nothing is sent, and the description does not promise a default', async () => {
+    mkcalendar = [created];
+    await makeCalendar.handler({ display_name: 'Team Plan' });
+    expect(sent('MKCALENDAR')[0].body).not.toContain('supported-calendar-component-set');
+    const described = makeCalendar.inputSchema.properties.components.description;
+    expect(described).toContain('server applies its own default');
+    expect(described).not.toMatch(/Default: \[/);
+  });
+
   test('a name without ASCII letters or digits does not target the calendar home', async () => {
     mkcalendar = [created];
     await makeCalendar.handler({ display_name: '日本' });
