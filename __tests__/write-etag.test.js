@@ -198,6 +198,8 @@ describe('etagAfterWrite', () => {
     expect(result.etag_note).toContain('weak ETag');
     expect(result.etag_note).toContain('W/"abc"');
     expect(result.etag_note).toContain('fetch the object before the next update');
+    // the weak prefix is case-sensitive (RFC 9110 8.8.3): this is not one
+    expect(etagAfterWrite(responseWith('w/"abc"'))).toEqual({ etag: 'w/"abc"' });
   });
 
   test.each([

@@ -360,7 +360,7 @@ export async function assertDavSuccess(result, action) {
  *
  * A server may leave the header out — RFC 4791 5.3.4 and RFC 6352 6.3.2.3
  * tell it to when what it stored is not octet-for-octet what was sent. A weak
- * ETag (W/"...") is no better: If-Match compares strongly (RFC 9110 13.1.1),
+ * ETag (W/"...", the prefix is case-sensitive) is no better: If-Match compares strongly (RFC 9110 13.1.1),
  * so it can never match. Both cases are said out loud, because a missing
  * field reads as "nothing to do" and the next update would fail with a 412.
  *
@@ -373,7 +373,7 @@ export function etagAfterWrite(response) {
   if (!etag) {
     return { etag_note: 'no ETag returned — fetch the object before the next update' };
   }
-  if (/^W\//i.test(etag)) {
+  if (etag.startsWith('W/')) {
     return { etag_note: `only a weak ETag returned (${etag}), which cannot be used for an update — fetch the object before the next update` };
   }
   return { etag };
