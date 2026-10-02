@@ -5,8 +5,11 @@ import { CalDAVError, CardDAVError } from './error-handler.js';
 /**
  * Singleton CalDAV/CardDAV Client Manager
  *
- * Supports both Basic Auth and OAuth2 authentication:
- * - Basic Auth: Standard CalDAV servers (Radicale, Baikal, Nextcloud)
+ * Supports Basic, Digest and OAuth2 authentication:
+ * - Basic Auth: Standard CalDAV servers (Radicale, Baikal, Nextcloud). tsdav
+ *   switches to Digest by itself when a server's 401 offers only Digest.
+ * - Digest Auth: Servers that only accept Digest (RFC 7616); the password is
+ *   never sent, not even once. Needs WebCrypto (Node.js 20 or newer).
  * - OAuth2: Google Calendar and other OAuth2-enabled CalDAV servers
  */
 class TsdavClientManager {
@@ -22,9 +25,9 @@ class TsdavClientManager {
    *
    * @param {Object} config - Client configuration
    * @param {string} config.serverUrl - CalDAV/CardDAV server URL
-   * @param {string} config.authMethod - 'Basic' or 'OAuth' (note: tsdav uses 'Oauth')
+   * @param {string} config.authMethod - 'Basic', 'Digest' or 'OAuth' (note: tsdav uses 'Oauth')
    *
-   * For Basic Auth:
+   * For Basic and Digest Auth:
    * @param {string} config.username - Username
    * @param {string} config.password - Password
    *
@@ -46,9 +49,11 @@ class TsdavClientManager {
       if (useOAuth) {
         logger.info({ serverUrl: config.serverUrl }, 'Initializing tsdav clients with OAuth2');
         await this._initializeOAuth(config);
+      } else if (this.authMethod === 'Basic' || this.authMethod === 'Digest') {
+        logger.info({ serverUrl: config.serverUrl }, `Initializing tsdav clients with ${this.authMethod} Auth`);
+        await this._initializePasswordAuth(config, this.authMethod);
       } else {
-        logger.info({ serverUrl: config.serverUrl }, 'Initializing tsdav clients with Basic Auth');
-        await this._initializeBasicAuth(config);
+        throw new Error(`Unsupported authMethod '${this.authMethod}'. Use Basic, Digest or OAuth.`);
       }
 
       logger.info({
@@ -66,13 +71,15 @@ class TsdavClientManager {
   }
 
   /**
-   * Initialize clients with Basic Authentication
+   * Initialize clients with username/password authentication
    * @private
+   * @param {Object} config - Client configuration
+   * @param {'Basic'|'Digest'} authMethod - tsdav auth method
    */
-  async _initializeBasicAuth(config) {
+  async _initializePasswordAuth(config, authMethod) {
     // Validate required fields
     if (!config.username || !config.password) {
-      throw new Error('Basic Auth requires username and password');
+      throw new Error(`${authMethod} Auth requires username and password`);
     }
 
     // CalDAV Client
@@ -82,7 +89,7 @@ class TsdavClientManager {
         username: config.username,
         password: config.password,
       },
-      authMethod: 'Basic',
+      authMethod,
       defaultAccountType: 'caldav',
     });
 
@@ -93,16 +100,16 @@ class TsdavClientManager {
         username: config.username,
         password: config.password,
       },
-      authMethod: 'Basic',
+      authMethod,
       defaultAccountType: 'carddav',
     });
 
     // Login to both clients
     await this.calDavClient.login();
-    logger.debug({ accountType: 'caldav' }, 'CalDAV client logged in (Basic Auth)');
+    logger.debug({ accountType: 'caldav' }, `CalDAV client logged in (${authMethod} Auth)`);
 
     await this.cardDavClient.login();
-    logger.debug({ accountType: 'carddav' }, 'CardDAV client logged in (Basic Auth)');
+    logger.debug({ accountType: 'carddav' }, `CardDAV client logged in (${authMethod} Auth)`);
   }
 
   /**

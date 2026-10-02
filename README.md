@@ -176,6 +176,22 @@ Works with any CalDAV/CardDAV server that follows RFC 4791 and RFC 6352:
 
 ---
 
+## Authentication
+
+`AUTH_METHOD` selects how dav-mcp logs in (case-insensitive):
+
+| `AUTH_METHOD` | Credentials | Use for |
+|---|---|---|
+| `Basic` (default) | `CALDAV_USERNAME`, `CALDAV_PASSWORD` | Almost every server. If the server only offers Digest (for example Baikal set to Digest), dav-mcp switches to Digest by itself — no setting needed. |
+| `Digest` | `CALDAV_USERNAME`, `CALDAV_PASSWORD` | Servers that only accept Digest (RFC 7616). Unlike the automatic switch under `Basic`, which first sends the password once Basic-encoded and is then rejected, `Digest` never sends the password — use it when the connection is not HTTPS. |
+| `OAuth` (or `OAuth2`) | `GOOGLE_*`, see below | Google Calendar |
+
+Digest needs Node.js 20 or newer; on Node.js 18 a Digest server fails at
+startup with an error saying so. Basic and OAuth work on Node.js 18. An unknown
+`AUTH_METHOD` value stops the server at startup instead of falling back to Basic.
+
+---
+
 ## Google Calendar (OAuth2)
 
 For Google Calendar, use OAuth2 authentication:
