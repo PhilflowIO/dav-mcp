@@ -15,7 +15,7 @@ jest.unstable_mockModule('tsdav', () => ({
   },
 }));
 
-const { parseAuthMethod, buildTsdavConfig } = await import('../src/auth-config.js');
+const { parseAuthMethod, buildTsdavConfig, ConfigurationError } = await import('../src/auth-config.js');
 const { tsdavManager } = await import('../src/tsdav-client.js');
 
 const PASSWORD_ENV = {
@@ -57,6 +57,7 @@ describe('parseAuthMethod', () => {
 
   test('rejects an unknown method instead of falling back to Basic', () => {
     expect(() => parseAuthMethod('Bearer')).toThrow("Unsupported AUTH_METHOD 'Bearer'");
+    expect(() => parseAuthMethod('Bearer')).toThrow(ConfigurationError);
     expect(() => parseAuthMethod('digets')).toThrow('Valid values: Basic (default), Digest, OAuth (or OAuth2).');
     expect(() => parseAuthMethod('"Bearer"')).toThrow("Unsupported AUTH_METHOD '\"Bearer\"'");
     // only a matching pair of quotes is removed

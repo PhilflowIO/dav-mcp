@@ -14,6 +14,18 @@
  *   - OAuth (alias OAuth2): Google Calendar and other OAuth2 CalDAV servers.
  */
 
+/**
+ * The configuration itself is wrong (unknown AUTH_METHOD, missing
+ * credentials). Unlike an unreachable server this cannot heal by waiting, so
+ * both transports stop at startup instead of retrying on the first tool call.
+ */
+export class ConfigurationError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'ConfigurationError';
+  }
+}
+
 const AUTH_METHODS = {
   basic: 'Basic',
   digest: 'Digest',
@@ -47,7 +59,7 @@ export function parseAuthMethod(value) {
   }
   const method = AUTH_METHODS[key];
   if (!method) {
-    throw new Error(
+    throw new ConfigurationError(
       `Unsupported AUTH_METHOD '${value}'. Valid values: Basic (default), Digest, OAuth (or OAuth2).`
     );
   }
@@ -65,7 +77,7 @@ export function buildTsdavConfig(env) {
 
   if (authMethod === 'OAuth') {
     if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET || !env.GOOGLE_REFRESH_TOKEN) {
-      throw new Error('OAuth2 requires GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REFRESH_TOKEN');
+      throw new ConfigurationError('OAuth2 requires GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REFRESH_TOKEN');
     }
     return {
       serverUrl: env.GOOGLE_SERVER_URL || DEFAULT_GOOGLE_SERVER_URL,
@@ -79,7 +91,7 @@ export function buildTsdavConfig(env) {
   }
 
   if (!env.CALDAV_SERVER_URL || !env.CALDAV_USERNAME || !env.CALDAV_PASSWORD) {
-    throw new Error(`${authMethod} Auth requires CALDAV_SERVER_URL, CALDAV_USERNAME, and CALDAV_PASSWORD`);
+    throw new ConfigurationError(`${authMethod} Auth requires CALDAV_SERVER_URL, CALDAV_USERNAME, and CALDAV_PASSWORD`);
   }
   return {
     serverUrl: env.CALDAV_SERVER_URL,

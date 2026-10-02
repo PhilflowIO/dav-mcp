@@ -57,3 +57,57 @@ describe('stdio transport keeps stdout clean', () => {
     expect(listed.result.tools).toHaveLength(tools.length);
   }, 20000);
 });
+
+// A wrong configuration will not be any better on the first tool call. Over
+// stdio it used to be swallowed as "DAV server not reachable at startup" and
+// the server reported ready; the HTTP server already exited.
+const start = (script, env) => new Promise((resolve, reject) => {
+  const child = spawn(process.execPath, [script], {
+    env: {
+      PATH: process.env.PATH,
+      NODE_ENV: 'test',
+      PORT: '0',
+      BEARER_TOKEN: 'test-token',
+      CALDAV_SERVER_URL: 'https://example.invalid',
+      CALDAV_USERNAME: 'x',
+      CALDAV_PASSWORD: 'y',
+      ...env,
+    },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  let output = '';
+  child.stdout.on('data', d => { output += d; });
+  child.stderr.on('data', d => { output += d; });
+  child.on('error', reject);
+  const timer = setTimeout(() => { child.kill(); resolve({ code: 'still running', output }); }, 6000);
+  child.on('exit', (code) => { clearTimeout(timer); resolve({ code, output }); });
+});
+
+describe('configuration errors are fatal at startup', () => {
+  test.each([
+    ['stdio', 'src/server-stdio.js'],
+    ['http', 'src/server-http.js'],
+  ])('%s: an unknown AUTH_METHOD exits 1 and names the valid values', async (_, script) => {
+    const { code, output } = await start(script, { AUTH_METHOD: 'Bearer' });
+    expect(code).toBe(1);
+    expect(output).toContain("Unsupported AUTH_METHOD 'Bearer'");
+    expect(output).toContain('Valid values: Basic (default), Digest, OAuth (or OAuth2).');
+    expect(output).not.toContain('server ready');
+  }, 20000);
+
+  test.each([
+    ['stdio', 'src/server-stdio.js'],
+    ['http', 'src/server-http.js'],
+  ])('%s: missing credentials for the chosen method exit 1', async (_, script) => {
+    const { code, output } = await start(script, { AUTH_METHOD: 'oauth2' });
+    expect(code).toBe(1);
+    expect(output).toContain('OAuth2 requires GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REFRESH_TOKEN');
+  }, 20000);
+
+  test('stdio: an unreachable DAV server is not a configuration error — the server stays up', async () => {
+    const { code, output } = await start('src/server-stdio.js', {});
+    expect(code).toBe('still running');
+    expect(output).toContain('will retry on first tool call');
+    expect(output).toContain('dav-mcp STDIO server ready');
+  }, 20000);
+});

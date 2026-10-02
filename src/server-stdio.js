@@ -69,9 +69,8 @@ async function startStdioServer() {
    * Initialize tsdav clients based on auth method
    */
   async function initializeTsdav() {
-    const config = buildTsdavConfig(process.env);
-    logger.info({ authMethod: config.authMethod }, 'Initializing tsdav clients');
-    await tsdavManager.initialize(config);
+    logger.info({ authMethod: tsdavConfig.authMethod }, 'Initializing tsdav clients');
+    await tsdavManager.initialize(tsdavConfig);
   }
 
   /**
@@ -152,6 +151,9 @@ async function startStdioServer() {
     return server;
   }
 
+  // Read once at startup, see the main entry point
+  let tsdavConfig;
+
   // Lazy initialization flag
   let tsdavInitialized = false;
 
@@ -165,6 +167,11 @@ async function startStdioServer() {
   // Main entry point
   try {
     logger.info('Starting dav-mcp STDIO server...');
+
+    // A wrong configuration (unknown AUTH_METHOD, missing credentials) is
+    // fatal: unlike an unreachable server it will not be any better on the
+    // first tool call, and the user would only learn about it there.
+    tsdavConfig = buildTsdavConfig(process.env);
 
     // Try to initialize tsdav clients eagerly, but don't fail if unavailable
     try {
@@ -195,7 +202,11 @@ async function startStdioServer() {
     }, 'dav-mcp STDIO server ready');
 
   } catch (error) {
-    logger.error({ error: error.message, stack: error.stack }, 'Fatal error starting server');
+    if (error.name === 'ConfigurationError') {
+      logger.error({ error: error.message }, 'Invalid configuration — server not started');
+    } else {
+      logger.error({ error: error.message, stack: error.stack }, 'Fatal error starting server');
+    }
     process.exit(1);
   }
 

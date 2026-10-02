@@ -131,7 +131,9 @@ async function initializeTsdav() {
     logger.info({ authMethod: config.authMethod }, 'Initializing tsdav clients');
     await tsdavManager.initialize(config);
   } catch (error) {
-    logger.error({ error: error.message }, 'Failed to initialize tsdav clients');
+    logger.error({ error: error.message }, error.name === 'ConfigurationError'
+      ? 'Invalid configuration — server not started'
+      : 'Failed to initialize tsdav clients');
     process.exit(1);
   }
 }
