@@ -25,12 +25,16 @@ jobs:
       # Builds every platform the release publishes, so an arm64 break shows up
       # in the PR instead of at release time. Nothing is loaded: --load holds a
       # single platform; the amd64 build below is the one that gets booted.
+      # This step exports the cache, not the amd64-only one: the GHA cache scope
+      # is shared with publish-image.yml, and an amd64-only export from main
+      # would replace the release's multi-arch cache and drop its arm64 layers.
       - name: Build all published platforms
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Build image
         uses: docker/build-push-action@v6
@@ -39,7 +43,6 @@ jobs:
           load: true
           tags: dav-mcp:ci
           cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       # The server exits 1 when CalDAV initialization fails (src/server-http.js:166),
       # so the smoke test needs a real backend to prove anything.
