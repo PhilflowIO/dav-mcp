@@ -649,10 +649,15 @@ export function formatContactList(contacts, addressBook = 'Unknown Address Book'
  * tsdav sometimes returns { _text: "value" } instead of "value"
  */
 function extractPropertyValue(prop) {
-  if (!prop) return '';
+  if (prop === undefined || prop === null) return '';
   if (typeof prop === 'string') return prop;
   if (typeof prop === 'object') {
-    return prop._text || prop.value || String(prop);
+    // tsdav hands over a text or CDATA node — or, for an empty element such
+    // as Baikal's unset <x1:calendar-color/>, an object holding only the
+    // namespace attributes. That one has no value; String() made it
+    // "[object Object]".
+    const text = prop._text ?? prop._cdata ?? prop.value;
+    return text === undefined || text === null ? '' : String(text);
   }
   return String(prop);
 }
@@ -676,16 +681,18 @@ export function formatCalendarList(calendars) {
     const displayName = extractPropertyValue(cal.displayName) || 'Unnamed Calendar';
     output += `### ${index + 1}. ${displayName}\n\n`;
 
-    if (cal.description) {
-      output += `- **Description**: ${cal.description}\n`;
+    const description = extractPropertyValue(cal.description);
+    if (description) {
+      output += `- **Description**: ${description}\n`;
     }
 
     if (cal.components) {
       output += `- **Components**: ${cal.components.join(', ')}\n`;
     }
 
-    if (cal.calendarColor) {
-      output += `- **Color**: ${cal.calendarColor}\n`;
+    const color = extractPropertyValue(cal.calendarColor);
+    if (color) {
+      output += `- **Color**: ${color}\n`;
     }
 
     output += `- **URL**: ${cal.url}\n\n`;
@@ -696,8 +703,8 @@ export function formatCalendarList(calendars) {
     displayName: cal.displayName,
     url: cal.url,
     components: cal.components,
-    calendarColor: cal.calendarColor,
-    description: cal.description,
+    calendarColor: extractPropertyValue(cal.calendarColor) || undefined,
+    description: extractPropertyValue(cal.description) || undefined,
   })), null, 2);
   output += '\n```\n</details>';
 

@@ -5,6 +5,7 @@ import {
   deleteCalendarSchema,
 } from '../src/validation.js';
 import {
+  formatCalendarList,
   formatCalendarUpdateSuccess,
   formatCalendarDeleteSuccess,
 } from '../src/formatters.js';
@@ -154,6 +155,36 @@ describe('Calendar Management', () => {
       const result = formatCalendarUpdateSuccess(calendar, updatedFields);
 
       expect(result.content[0].text).toContain('Unnamed Calendar');
+    });
+  });
+
+  describe('formatCalendarList', () => {
+    // What tsdav 2.3.5 returns for Baikal's default calendar: the colour
+    // element is there but empty, so it parses to its namespace attributes.
+    const baikalDefault = {
+      url: 'http://127.0.0.1/dav.php/calendars/user/default/',
+      displayName: 'Default calendar',
+      description: 'Default calendar',
+      components: ['VEVENT', 'VTODO'],
+      calendarColor: { _attributes: { 'xmlns:x1': 'http://apple.com/ns/ical/' } },
+    };
+
+    test('an empty colour element is left out, not printed as [object Object]', () => {
+      const text = formatCalendarList([baikalDefault]).content[0].text;
+      expect(text).not.toContain('[object Object]');
+      expect(text).not.toContain('**Color**');
+      expect(text).not.toContain('xmlns');
+      expect(text).toContain('- **Description**: Default calendar');
+    });
+
+    test.each([
+      ['a string', '#FF5733FF'],
+      ['a text node', { _text: '#FF5733FF', _attributes: { 'xmlns:x1': 'http://apple.com/ns/ical/' } }],
+      ['a CDATA node', { _cdata: '#FF5733FF' }],
+    ])('a colour that arrives as %s is printed as its value', (_, calendarColor) => {
+      const text = formatCalendarList([{ ...baikalDefault, calendarColor }]).content[0].text;
+      expect(text).toContain('- **Color**: #FF5733FF');
+      expect(text).toContain('"calendarColor": "#FF5733FF"');
     });
   });
 
