@@ -2,7 +2,7 @@
 
 **Give your AI agents the power of organization** — Transform them into orchestrating assistants managing calendars, contacts, and tasks.
 
-Built on 26 production-ready tools spanning CalDAV, CardDAV, and VTODO protocols.
+Built on 27 production-ready tools spanning CalDAV, CardDAV, and VTODO protocols.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![npm version](https://badge.fury.io/js/dav-mcp.svg)](https://www.npmjs.com/package/dav-mcp)
@@ -10,6 +10,14 @@ Built on 26 production-ready tools spanning CalDAV, CardDAV, and VTODO protocols
 ---
 
 ## Quick Start
+
+### One-click install (Claude Desktop)
+
+1. Download `dav-mcp-<version>.mcpb` from the [latest release](https://github.com/PhilflowIO/dav-mcp/releases/latest). Releases after 4.1.1 carry this file.
+2. Open it with Claude Desktop (macOS or Windows). Claude shows an install dialog.
+3. Enter your server URL, username and password. The password is stored as a secret. Leave the authentication method at `Basic` unless your server needs `Digest`.
+
+The `.mcpb` file is an [MCP Bundle](https://github.com/modelcontextprotocol/mcpb): the server with its dependencies, so neither Node.js nor npx needs to be installed.
 
 ### Claude Desktop / Cursor (Local)
 
@@ -127,24 +135,24 @@ When partial tools force your AI to improvise, complete tools let it **execute p
 
 ### CardDAV Tools (8 tools)
 
-12. **list_addressbooks** - List all available address books
-13. **list_contacts** - List ALL contacts (use addressbook_query for filtered searches)
-14. **create_contact** - Create a new contact (vCard)
-15. **update_contact** - PREFERRED: Update any contact field (FN, EMAIL, TEL, ORG, ADR, custom X-* properties)
-16. **update_contact_raw** - Update contact with raw vCard data (advanced)
-17. **delete_contact** - Delete a contact permanently
-18. **addressbook_query** - PREFERRED: Search and filter contacts efficiently by name, email, or organization
-19. **addressbook_multi_get** - Batch fetch multiple specific contacts by URLs
+13. **list_addressbooks** - List all available address books
+14. **list_contacts** - List ALL contacts (use addressbook_query for filtered searches)
+15. **create_contact** - Create a new contact (vCard)
+16. **update_contact** - PREFERRED: Update any contact field (FN, EMAIL, TEL, ORG, ADR, custom X-* properties)
+17. **update_contact_raw** - Update contact with raw vCard data (advanced)
+18. **delete_contact** - Delete a contact permanently
+19. **addressbook_query** - PREFERRED: Search and filter contacts efficiently by name, email, or organization
+20. **addressbook_multi_get** - Batch fetch multiple specific contacts by URLs
 
 ### VTODO Tools (7 tools)
 
-20. **list_todos** - List ALL todos/tasks (use todo_query for filtered searches)
-21. **create_todo** - Create a new todo/task with optional due date, priority, status
-22. **update_todo** - PREFERRED: Update any todo field (SUMMARY, STATUS, PRIORITY, DUE, PERCENT-COMPLETE, custom X-* properties)
-23. **update_todo_raw** - Update todo with raw VTODO iCal data (advanced)
-24. **delete_todo** - Delete a todo/task permanently
-25. **todo_query** - PREFERRED: Search and filter todos efficiently by status/due date
-26. **todo_multi_get** - Batch fetch multiple specific todos by URLs
+21. **list_todos** - List ALL todos/tasks (use todo_query for filtered searches)
+22. **create_todo** - Create a new todo/task with optional due date, priority, status
+23. **update_todo** - PREFERRED: Update any todo field (SUMMARY, STATUS, PRIORITY, DUE, PERCENT-COMPLETE, custom X-* properties)
+24. **update_todo_raw** - Update todo with raw VTODO iCal data (advanced)
+25. **delete_todo** - Delete a todo/task permanently
+26. **todo_query** - PREFERRED: Search and filter todos efficiently by status/due date
+27. **todo_multi_get** - Batch fetch multiple specific todos by URLs
 
 ---
 

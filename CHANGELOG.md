@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **One-click install for Claude Desktop** (#87). Releases now carry
+  `dav-mcp-<version>.mcpb`, an [MCP Bundle](https://github.com/modelcontextprotocol/mcpb)
+  of the stdio server with its production dependencies. Opening it in Claude
+  Desktop installs dav-mcp and asks for server URL, username, password (stored
+  as a secret) and authentication method — no JSON editing, no Node.js or npx.
+  The bundle offers Basic and Digest; OAuth for Google is not part of it.
+  `npm test` fails when `manifest.json` disagrees with `package.json`,
+  `server.json` or the registered tools; `npm run mcpb:sync` rewrites its
+  version and tool list.
+
 ## [4.1.1] - 2026-10-02
 
 Security and dependency release. The Docker image of 4.1.0 was built from a

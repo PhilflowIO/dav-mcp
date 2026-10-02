@@ -70,6 +70,43 @@ jobs:
             node --check "$file"
           done
 
+  # Packs the MCP Bundle the way publish-mcpb.yml does on a release, then
+  # boots the server from the unpacked bundle. A pull request that breaks the
+  # bundle fails here, not after the release is out.
+  bundle:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      # Claude Desktop runs the bundle on its own Node.js; 22 is the newest
+      # line the test job covers.
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.x'
+
+      # Production dependencies only: the bundle ships node_modules as is.
+      # No lifecycle scripts, as in publish-mcpb.yml.
+      - name: Install production dependencies
+        run: npm ci --omit=dev --ignore-scripts
+
+      # The mcpb CLI and its dependencies are pinned in .github/mcpb.
+      - name: Install the mcpb CLI
+        run: npm ci --prefix .github/mcpb --ignore-scripts
+
+      - name: Pack and unpack the bundle
+        run: |
+          .github/mcpb/node_modules/.bin/mcpb pack . "${RUNNER_TEMP}/dav-mcp.mcpb"
+          .github/mcpb/node_modules/.bin/mcpb unpack "${RUNNER_TEMP}/dav-mcp.mcpb" "${RUNNER_TEMP}/bundle"
+
+      - name: Verify bundle contents and boot
+        run: node scripts/verify-mcpb.js "${RUNNER_TEMP}/bundle"
+
   audit:
     runs-on: ubuntu-latest
 

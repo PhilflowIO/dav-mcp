@@ -1,0 +1,17 @@
+# What `mcpb pack` leaves out of the MCP Bundle (gitignore syntax).
+#
+# An allowlist, not a denylist: everything at the top level is excluded and
+# only what the server needs at runtime is let back in. A denylist would ship
+# any file nobody thought to list — a local .env, the registry tokens
+# (.mcpregistry_*), test fixtures — into a file that gets published.
+#
+# node_modules must hold production dependencies only (npm ci --omit=dev);
+# scripts/verify-mcpb.js fails a bundle that contains a dev dependency.
+
+/*
+!/manifest.json
+!/package.json
+!/LICENSE
+!/README.md
+!/src
+!/node_modules

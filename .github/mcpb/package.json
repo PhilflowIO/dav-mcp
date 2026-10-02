@@ -1,0 +1,9 @@
+{
+  "name": "dav-mcp-mcpb-tooling",
+  "private": true,
+  "description": "Pins the mcpb CLI that CI uses to pack the MCP Bundle. Not part of the published package.",
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/mcpb": "2.1.2"
+  }
+}

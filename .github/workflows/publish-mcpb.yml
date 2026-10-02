@@ -1,0 +1,74 @@
+name: Publish MCP Bundle
+
+on:
+  release:
+    types: [published]
+  # Rebuilds the bundle for an existing release, e.g. after this workflow
+  # failed. The release must already exist; its asset is replaced.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to build and attach the bundle to, e.g. v4.1.1'
+        required: true
+
+env:
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ env.TAG }}
+          # The release upload below authenticates with GH_TOKEN. No later step
+          # needs the token in .git/config, where install scripts could read it.
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.x'
+
+      # The asset name carries the manifest version. A tag that does not match
+      # it would attach a bundle of another version to this release.
+      - name: Tag matches manifest version
+        id: version
+        run: |
+          version=$(node -p 'require("./manifest.json").version')
+          [ "$TAG" = "v${version}" ] || { echo "::error::tag ${TAG} does not match manifest.json version ${version}"; exit 1; }
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      # Production dependencies only: the bundle ships node_modules as is.
+      # No lifecycle scripts: this job holds a contents:write token, and no
+      # production dependency needs an install script.
+      - name: Install production dependencies
+        run: npm ci --omit=dev --ignore-scripts
+
+      # The mcpb CLI and its dependencies are pinned in .github/mcpb.
+      - name: Install the mcpb CLI
+        run: npm ci --prefix .github/mcpb --ignore-scripts
+
+      - name: Pack the bundle
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: .github/mcpb/node_modules/.bin/mcpb pack . "dav-mcp-${VERSION}.mcpb"
+
+      # Checks the file that gets uploaded, not the working tree it came from.
+      - name: Verify bundle contents and boot
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          .github/mcpb/node_modules/.bin/mcpb unpack "dav-mcp-${VERSION}.mcpb" "${RUNNER_TEMP}/bundle"
+          node scripts/verify-mcpb.js "${RUNNER_TEMP}/bundle"
+
+      - name: Attach bundle to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: gh release upload "$TAG" "dav-mcp-${VERSION}.mcpb" --clobber
