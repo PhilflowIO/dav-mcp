@@ -77,5 +77,10 @@
     "@types/jest": "^30.0.0",
     "jest": "^30.2.0",
     "pnpm": "^10.19.0"
+  },
+  "overrides": {
+    "@modelcontextprotocol/sdk": {
+      "@hono/node-server": "2.0.10"
+    }
   }
 }
