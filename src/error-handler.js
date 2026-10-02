@@ -47,13 +47,18 @@ function codeForHttpStatus(status) {
     case 410:
       return MCP_ERROR_CODES.NOT_FOUND_ERROR;
     // The request is fine but the state of the resource is in the way:
-    // 405 is what SabreDAV answers when the URL of a MKCALENDAR/MKCOL is
-    // taken, 409 a missing parent or UID clash, 412 a stale ETag, 423 a lock.
-    case 405:
+    // 409 a missing parent or UID clash, 412 a stale ETag, 423 a lock.
     case 409:
     case 412:
     case 423:
       return MCP_ERROR_CODES.CONFLICT_ERROR;
+    // The server does not take this kind of request at this URL — for
+    // instance a server without MKCALENDAR. SabreDAV also says 405 when the
+    // URL of a new calendar is taken, but only make_calendar can tell the two
+    // apart, and it sets the conflict code itself once it has confirmed one.
+    // Not METHOD_NOT_FOUND: to an MCP client that means the tool is missing.
+    case 405:
+      return MCP_ERROR_CODES.INVALID_REQUEST;
     case 408:
     case 504:
       return MCP_ERROR_CODES.TIMEOUT_ERROR;

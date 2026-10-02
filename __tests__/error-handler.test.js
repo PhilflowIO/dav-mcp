@@ -161,7 +161,8 @@ describe('Error Handler Module', () => {
     });
 
     test.each([
-      [405, 'Method Not Allowed', 'CONFLICT_ERROR'],
+      // a bare 405 is "not supported here"; a confirmed collision is make_calendar's call
+      [405, 'Method Not Allowed', 'INVALID_REQUEST'],
       [409, 'Conflict', 'CONFLICT_ERROR'],
       [412, 'Precondition Failed', 'CONFLICT_ERROR'],
       [423, 'Locked', 'CONFLICT_ERROR'],

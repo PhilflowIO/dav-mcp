@@ -127,8 +127,10 @@ describe('make_calendar', () => {
   test('nothing at the slug: the original error, one MKCALENDAR, even for a 405', async () => {
     mkcalendar = [exists];
     propfind = [nothingThere];
-    await expect(makeCalendar.handler({ display_name: 'Team Plan' }))
-      .rejects.toThrow(`Failed to create calendar ${HOME}team-plan/: server responded 405 Method Not Allowed: The resource you tried to create already exists`);
+    const error = await makeCalendar.handler({ display_name: 'Team Plan' }).catch(e => e);
+    expect(error.message).toBe(`Failed to create calendar ${HOME}team-plan/: server responded 405 Method Not Allowed: The resource you tried to create already exists`);
+    // no collision confirmed (e.g. a server without MKCALENDAR): not a conflict
+    expect(formatMCPError(error).code).toBe(-32600); // INVALID_REQUEST
     expect(sent('MKCALENDAR')).toHaveLength(1);
   });
 
