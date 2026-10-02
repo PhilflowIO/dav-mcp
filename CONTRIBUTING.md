@@ -28,11 +28,14 @@ cp .env.example .env   # fill in your CalDAV/CardDAV server
 
 Run the server locally with `npm run dev` (stdio) or `npm run dev:http` (HTTP).
 
-dav-mcp uses a fork of tsdav (`PhilflowIO/tsdav`), pinned to a release tag in
-`package.json`. To move to a newer fork release, name the tag explicitly:
+dav-mcp uses a fork of tsdav (`PhilflowIO/tsdav`), pinned in `package.json` to
+the packed tarball of a fork release. A tarball installs without git and without
+building the fork, which a git reference does not on Node 18 and 20. To move to
+a newer fork release, pass the URL of its `.tgz` release asset:
 
 ```bash
-TSDAV_TAG=v2.3.5+philflow.3 npm run update:tsdav
+TSDAV_TARBALL='https://github.com/PhilflowIO/tsdav/releases/download/v2.3.5%2Bphilflow.4/tsdav-2.3.5-philflow.4.tgz' \
+  npm run update:tsdav
 ```
 
 ## Tests
