@@ -13,7 +13,7 @@ Built on 27 production-ready tools spanning CalDAV, CardDAV, and VTODO protocols
 
 ### One-click install (Claude Desktop)
 
-1. Download `dav-mcp-<version>.mcpb` from the [latest release](https://github.com/PhilflowIO/dav-mcp/releases/latest). Releases after 4.1.1 carry this file.
+1. Download `dav-mcp-<version>.mcpb` from the [latest release](https://github.com/PhilflowIO/dav-mcp/releases/latest). Releases from 4.1.2 on carry this file.
 2. Open it with Claude Desktop (macOS or Windows). Claude shows an install dialog.
 3. Enter your server URL, username and password. The password is stored as a secret. Leave the authentication method at `Basic` unless your server needs `Digest`.
 
@@ -84,7 +84,7 @@ docker run -d --name dav-mcp -p 3000:3000 --env-file .env \
   ghcr.io/philflowio/dav-mcp:latest
 ```
 
-Tags: `latest`, the exact release (`4.1.1`) and the minor line (`4.1`).
+Tags: `latest`, the exact release (`4.1.2`) and the minor line (`4.1`).
 Set `PORT` to serve on a different port; the healthcheck follows it.
 
 Or build from source:
