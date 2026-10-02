@@ -41,6 +41,7 @@ jest.unstable_mockModule('../src/tsdav-client.js', () => ({
 }));
 
 const { makeCalendar } = await import('../src/tools/calendar/make-calendar.js');
+const { formatMCPError } = await import('../src/error-handler.js');
 
 const xml = (status, statusText, body) => () => new Response(body, {
   status, statusText, headers: { 'content-type': 'application/xml; charset=utf-8' },
@@ -184,9 +185,18 @@ describe('make_calendar', () => {
   test('gives up after a bounded number of taken URLs', async () => {
     mkcalendar = [exists];
     propfind = [trashedCalendar('Team Plan')];
-    await expect(makeCalendar.handler({ display_name: 'Team Plan' }))
-      .rejects.toThrow(/all taken.*405.*already exists/);
+    const error = await makeCalendar.handler({ display_name: 'Team Plan' }).catch(e => e);
+    expect(error.message).toMatch(/all taken.*405.*already exists/);
+    expect(error.code).toBe(-32007); // CONFLICT_ERROR
     expect(sent('MKCALENDAR')).toHaveLength(10);
+  });
+
+  test('all URLs taken is a conflict even when the server says so with 403', async () => {
+    mkcalendar = [xml(403, 'Forbidden', sabreError('Sabre\\DAV\\Exception', 'Taken', '<d:resource-must-be-null/>'))];
+    propfind = [trashedCalendar('Team Plan')];
+    const error = await makeCalendar.handler({ display_name: 'Team Plan' }).catch(e => e);
+    expect(error.message).toMatch(/all taken/);
+    expect(formatMCPError(error).code).toBe(-32007); // CONFLICT_ERROR, not AUTH_ERROR
   });
 
   test('properties are sent under their DAV names, so the server applies them', async () => {

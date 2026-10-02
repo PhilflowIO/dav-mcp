@@ -193,6 +193,9 @@ export const makeCalendar = {
       `${calendarHome}${slug}/ and the next ${MAX_SLUG_ATTEMPTS - 1} numbered URLs are all taken ` +
       `(last response: ${failure.status} ${failure.statusText}${failure.message ? `: ${failure.message}` : ''}).`
     );
+    // Every URL tried is taken: a conflict, whatever status the server used
+    // to say so (403 with a precondition would otherwise read as auth).
+    error.code = MCP_ERROR_CODES.CONFLICT_ERROR;
     error.httpStatus = failure.status;
     error.details = { status: failure.status, statusText: failure.statusText, serverMessage: failure.message };
     throw error;

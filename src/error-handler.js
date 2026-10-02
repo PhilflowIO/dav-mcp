@@ -46,12 +46,25 @@ function codeForHttpStatus(status) {
     case 404:
     case 410:
       return MCP_ERROR_CODES.NOT_FOUND_ERROR;
+    // The request is fine but the state of the resource is in the way:
+    // 405 is what SabreDAV answers when the URL of a MKCALENDAR/MKCOL is
+    // taken, 409 a missing parent or UID clash, 412 a stale ETag, 423 a lock.
+    case 405:
     case 409:
     case 412:
+    case 423:
       return MCP_ERROR_CODES.CONFLICT_ERROR;
     case 408:
     case 504:
       return MCP_ERROR_CODES.TIMEOUT_ERROR;
+    // The server, or a proxy in front of it, cannot take the request right
+    // now; the same request can succeed later.
+    case 429:
+    case 502:
+    case 503:
+      return MCP_ERROR_CODES.NETWORK_ERROR;
+    // 507 (quota exceeded) and everything else: the server failed and a
+    // retry will not change that.
     default:
       return MCP_ERROR_CODES.INTERNAL_ERROR;
   }

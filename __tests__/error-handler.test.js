@@ -156,8 +156,23 @@ describe('Error Handler Module', () => {
         .catch(e => e);
 
     test('a URL containing "author" is not an auth error', async () => {
-      const error = await rejected(405, 'Method Not Allowed', 'https://dav.example.com/calendars/u/author-notes/');
+      const error = await rejected(500, 'Internal Server Error', 'https://dav.example.com/calendars/u/author-notes/');
       expect(formatMCPError(error).code).toBe(MCP_ERROR_CODES.INTERNAL_ERROR);
+    });
+
+    test.each([
+      [405, 'Method Not Allowed', 'CONFLICT_ERROR'],
+      [409, 'Conflict', 'CONFLICT_ERROR'],
+      [412, 'Precondition Failed', 'CONFLICT_ERROR'],
+      [423, 'Locked', 'CONFLICT_ERROR'],
+      [429, 'Too Many Requests', 'NETWORK_ERROR'],
+      [502, 'Bad Gateway', 'NETWORK_ERROR'],
+      [503, 'Service Unavailable', 'NETWORK_ERROR'],
+      [504, 'Gateway Timeout', 'TIMEOUT_ERROR'],
+      [507, 'Insufficient Storage', 'INTERNAL_ERROR'],
+    ])('%i %s maps to %s', async (status, statusText, code) => {
+      const error = await rejected(status, statusText, 'https://dav.example.com/calendars/u/work/');
+      expect(formatMCPError(error).code).toBe(MCP_ERROR_CODES[code]);
     });
 
     test('a URL containing "404" is not a not-found error', async () => {
