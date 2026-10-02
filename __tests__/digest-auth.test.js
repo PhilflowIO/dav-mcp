@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, jest } from '@jest/globals';
+import { describe, test, expect, beforeEach, afterEach, jest } from '@jest/globals';
 import { createHash } from 'node:crypto';
 
 // The whole path a Digest-only server takes through dav-mcp (#74): the client
@@ -66,12 +66,29 @@ beforeEach(() => {
 // Digest needs WebCrypto, which Node.js 18 does not expose as a global.
 const hasWebCrypto = Boolean(globalThis.crypto?.subtle);
 const withWebCrypto = hasWebCrypto ? test : test.skip;
-const withoutWebCrypto = hasWebCrypto ? test.skip : test;
 
 describe('a Digest-only server', () => {
-  withoutWebCrypto('without WebCrypto (Node.js 18) startup fails with an error that says why', async () => {
-    await expect(tsdavManager.initialize(buildTsdavConfig(env('Digest'))))
-      .rejects.toThrow(/Digest authentication requires the WebCrypto API/);
+  describe('on a runtime without WebCrypto (Node.js 18)', () => {
+    const webCrypto = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
+    beforeEach(() => {
+      Object.defineProperty(globalThis, 'crypto', { value: undefined, configurable: true, writable: true });
+    });
+    afterEach(() => {
+      if (webCrypto) Object.defineProperty(globalThis, 'crypto', webCrypto);
+      else delete globalThis.crypto;
+    });
+
+    test.each([['Digest'], [undefined]])(
+      'AUTH_METHOD=%s: login fails as a configuration error that says what to do', async (authMethod) => {
+        const error = await tsdavManager.initialize(buildTsdavConfig(env(authMethod))).catch(e => e);
+
+        expect(error.name).toBe('ConfigurationError');
+        expect(error.message).toContain(`${SERVER}/ only accepts Digest authentication`);
+        expect(error.message).toContain('Node.js 20 or newer');
+        expect(error.message).toContain(`this is Node.js ${process.versions.node}`);
+        expect(error.message).toContain('Digest authentication requires the WebCrypto API');
+        expect(error.message).not.toContain('cannot find principalUrl');
+      });
   });
 
   withWebCrypto('AUTH_METHOD=Digest: 401 challenge, one retry with a Digest response, login completes', async () => {

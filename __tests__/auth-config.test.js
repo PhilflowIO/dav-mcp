@@ -13,6 +13,7 @@ jest.unstable_mockModule('tsdav', () => ({
     }
     async login() {}
   },
+  isDigestUnsupportedError: () => false,
 }));
 
 const { parseAuthMethod, buildTsdavConfig, ConfigurationError } = await import('../src/auth-config.js');

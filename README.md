@@ -187,9 +187,11 @@ Works with any CalDAV/CardDAV server that follows RFC 4791 and RFC 6352:
 | `OAuth` (or `OAuth2`) | `GOOGLE_*`, see below | Google Calendar |
 
 Digest servers need Node.js 20 or newer (Digest needs WebCrypto, which
-Node.js 18 lacks); on Node.js 18 a Digest server fails at startup with an error
-saying so. Basic and OAuth work on Node.js 18. An unknown `AUTH_METHOD` value
-stops the server at startup instead of falling back to Basic.
+Node.js 18 lacks). On Node.js 18 the stdio server stops at startup against a
+Digest-only server, with an error that says so and names the Node.js version.
+Basic and OAuth work on Node.js 18. A wrong configuration — an unknown
+`AUTH_METHOD` value, or missing credentials for the chosen method — stops the
+server at startup instead of falling back to Basic.
 
 ---
 

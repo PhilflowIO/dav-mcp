@@ -1,6 +1,7 @@
-import { DAVClient } from 'tsdav';
+import { DAVClient, isDigestUnsupportedError } from 'tsdav';
 import { logger } from './logger.js';
 import { CalDAVError, CardDAVError } from './error-handler.js';
+import { ConfigurationError } from './auth-config.js';
 
 /**
  * Singleton CalDAV/CardDAV Client Manager
@@ -60,7 +61,16 @@ class TsdavClientManager {
         serverUrl: config.serverUrl,
         authMethod: this.authMethod
       }, 'tsdav clients initialized and logged in');
-    } catch (error) {
+    } catch (cause) {
+      // The server wants Digest and this runtime cannot compute it (no
+      // WebCrypto, i.e. Node.js 18). Waiting does not help, so this is a
+      // configuration error — and it says what to do, not just what is missing.
+      const error = isDigestUnsupportedError(cause)
+        ? new ConfigurationError(
+          `${config.serverUrl} only accepts Digest authentication, which dav-mcp supports on Node.js 20 or newer ` +
+          `(this is Node.js ${process.versions.node}). Upgrade Node.js, or enable Basic authentication on the server. ` +
+          `Cause: ${cause.message}`)
+        : cause;
       logger.error({
         error: error.message,
         serverUrl: config.serverUrl,

@@ -38,7 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   work without any setting: under the default `AUTH_METHOD=Basic`, dav-mcp
   switches to Digest when the server offers nothing else. `AUTH_METHOD=Digest`
   never sends the password itself and is the better choice when the server is
-  not reached over HTTPS. Digest needs Node.js 20 or newer.
+  not reached over HTTPS. Digest needs Node.js 20 or newer; on Node.js 18
+  dav-mcp stops at startup with an error that says so.
 - **Container images for `linux/arm64`** (#73), next to `linux/amd64`. The
   image now runs on Apple Silicon, Raspberry Pi and ARM cloud instances without
   emulation.
@@ -52,7 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   server now stops at startup asking for the `GOOGLE_*` variables:** set
   `AUTH_METHOD=Basic` or remove it. A value dav-mcp does not know also stops
   the server at startup, listing the valid values, instead of falling back to
-  Basic. See MIGRATION.md.
+  Basic — over stdio as well as over HTTP. See MIGRATION.md.
 - **The tsdav dependency is pinned to a release tarball of the fork**
   (`2.3.5+philflow.5`) instead of following the fork's `master`. Fresh
   installs of a dav-mcp release now always get the tsdav version that release
