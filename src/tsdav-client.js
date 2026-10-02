@@ -51,15 +51,19 @@ class TsdavClientManager {
         logger.info({ serverUrl: config.serverUrl }, 'Initializing tsdav clients with OAuth2');
         await this._initializeOAuth(config);
       } else if (this.authMethod === 'Basic' || this.authMethod === 'Digest') {
-        logger.info({ serverUrl: config.serverUrl }, `Initializing tsdav clients with ${this.authMethod} Auth`);
+        logger.info({ serverUrl: config.serverUrl }, `Initializing tsdav clients, ${this.authMethod} Auth configured`);
         await this._initializePasswordAuth(config, this.authMethod);
       } else {
         throw new Error(`Unsupported authMethod '${this.authMethod}'. Use Basic, Digest or OAuth.`);
       }
 
+      // "configured", not "used": under Basic tsdav switches to Digest when
+      // the server offers nothing else, and does not expose which scheme it
+      // ended up with. Logging authMethod: Basic there read as a wrong fact.
       logger.info({
         serverUrl: config.serverUrl,
-        authMethod: this.authMethod
+        configuredAuthMethod: this.authMethod,
+        ...(this.authMethod === 'Basic' && { note: 'Digest is used instead if the server only offers Digest' }),
       }, 'tsdav clients initialized and logged in');
     } catch (cause) {
       // The server wants Digest and this runtime cannot compute it (no
@@ -74,7 +78,7 @@ class TsdavClientManager {
       logger.error({
         error: error.message,
         serverUrl: config.serverUrl,
-        authMethod: this.authMethod
+        configuredAuthMethod: this.authMethod
       }, 'Failed to initialize tsdav clients');
       throw error;
     }
@@ -116,10 +120,10 @@ class TsdavClientManager {
 
     // Login to both clients
     await this.calDavClient.login();
-    logger.debug({ accountType: 'caldav' }, `CalDAV client logged in (${authMethod} Auth)`);
+    logger.debug({ accountType: 'caldav' }, `CalDAV client logged in (${authMethod} Auth configured)`);
 
     await this.cardDavClient.login();
-    logger.debug({ accountType: 'carddav' }, `CardDAV client logged in (${authMethod} Auth)`);
+    logger.debug({ accountType: 'carddav' }, `CardDAV client logged in (${authMethod} Auth configured)`);
   }
 
   /**

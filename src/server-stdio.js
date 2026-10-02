@@ -69,7 +69,7 @@ async function startStdioServer() {
    * Initialize tsdav clients based on auth method
    */
   async function initializeTsdav() {
-    logger.info({ authMethod: tsdavConfig.authMethod }, 'Initializing tsdav clients');
+    logger.info({ configuredAuthMethod: tsdavConfig.authMethod }, 'Initializing tsdav clients');
     await tsdavManager.initialize(tsdavConfig);
   }
 

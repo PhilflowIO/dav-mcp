@@ -128,7 +128,7 @@ function authenticateBearer(req, res, next) {
 async function initializeTsdav() {
   try {
     const config = buildTsdavConfig(process.env);
-    logger.info({ authMethod: config.authMethod }, 'Initializing tsdav clients');
+    logger.info({ configuredAuthMethod: config.authMethod }, 'Initializing tsdav clients');
     await tsdavManager.initialize(config);
   } catch (error) {
     logger.error({ error: error.message }, error.name === 'ConfigurationError'

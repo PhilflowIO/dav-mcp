@@ -16,6 +16,12 @@ jest.unstable_mockModule('tsdav', () => ({
   isDigestUnsupportedError: () => false,
 }));
 
+const logged = [];
+const record = (level) => (fields, message) => logged.push({ level, fields, message });
+jest.unstable_mockModule('../src/logger.js', () => ({
+  logger: { info: record('info'), debug: record('debug'), warn: record('warn'), error: record('error') },
+}));
+
 const { parseAuthMethod, buildTsdavConfig, ConfigurationError } = await import('../src/auth-config.js');
 const { tsdavManager } = await import('../src/tsdav-client.js');
 
@@ -123,6 +129,16 @@ describe('tsdavManager.initialize', () => {
       expect(options.credentials).toEqual({ username: 'user', password: 'pass' });
     }
     expect(constructed.map((o) => o.defaultAccountType)).toEqual(['caldav', 'carddav']);
+  });
+
+  test('logs the method as configured, since Basic may end up as Digest on the wire', async () => {
+    logged.length = 0;
+    await tsdavManager.initialize(buildTsdavConfig(PASSWORD_ENV));
+
+    const done = logged.find(entry => entry.message === 'tsdav clients initialized and logged in');
+    expect(done.fields).toMatchObject({ configuredAuthMethod: 'Basic' });
+    expect(done.fields.note).toMatch(/Digest is used instead if the server only offers Digest/);
+    expect(done.fields).not.toHaveProperty('authMethod');
   });
 
   test('passes OAuth to tsdav as Oauth', async () => {
