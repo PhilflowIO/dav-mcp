@@ -374,7 +374,13 @@ export async function assertDeleted(response, kind, url, { existedBefore = false
     error.details = { status: 404, statusText: failure.statusText, url };
     throw error;
   }
-  throw davFailureError(failure, `Failed to delete ${kind} ${url}`, '. The object still exists on the server.');
+  // Deletes go out with If-Match, and servers answer 412 both for a changed
+  // object and for one that is not there at all. Saying "still exists" for
+  // the latter would be as wrong as "deleted" was for a 404.
+  const suffix = failure.status === 412
+    ? '. Nothing was deleted: the ETag does not match — the object was changed since it was read, or it does not exist (any more).'
+    : '. The object still exists on the server.';
+  throw davFailureError(failure, `Failed to delete ${kind} ${url}`, suffix);
 }
 
 // Query tools return everything the server has in range, which for a wide

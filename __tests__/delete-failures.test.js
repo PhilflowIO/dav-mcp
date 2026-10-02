@@ -108,6 +108,26 @@ describe('a 404 is not a deletion', () => {
   });
 });
 
+describe('a 412 does not claim the object exists', () => {
+  // Servers answer a DELETE with If-Match on a missing object with 412, too.
+  test('delete_event says the ETag did not match and nothing was deleted', async () => {
+    deleteCalendarObject.mockResolvedValue(davResponse(412, 'Precondition Failed'));
+    const error = await deleteEvent.handler({ event_url: EVENT_URL, event_etag: '"1"' }).catch(e => e);
+
+    expect(error.message).toContain('412 Precondition Failed');
+    expect(error.message).toContain('Nothing was deleted: the ETag does not match');
+    expect(error.message).toContain('or it does not exist');
+    expect(error.message).not.toContain('still exists');
+    expect(error.httpStatus).toBe(412);
+  });
+
+  test('other failures still say the object is there', async () => {
+    deleteCalendarObject.mockResolvedValue(davResponse(403, 'Forbidden'));
+    await expect(deleteEvent.handler({ event_url: EVENT_URL, event_etag: '"1"' }))
+      .rejects.toThrow(/403 Forbidden.*still exists/);
+  });
+});
+
 describe('what the delete tools hand to tsdav', () => {
   // tsdav's client shallow-merges its auth headers with the caller's; before
   // the v2.3.5 sync a caller `headers` object replaced them outright. Passing
