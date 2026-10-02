@@ -1,6 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, updateContactSchema } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
+import { assertDavSuccess } from '../shared/helpers.js';
 
 /**
  * Update an existing contact with raw vCard data
@@ -37,6 +38,7 @@ export const updateContactRaw = {
         etag: validated.vcard_etag,
       },
     });
+    await assertDavSuccess(response, `update contact ${validated.vcard_url}`);
 
     return formatSuccess('Contact updated successfully', {
       etag: response.etag,

@@ -33,7 +33,7 @@ export const deleteTodo = {
         etag: validated.todo_etag,
       },
     });
-    await assertDeleted(response, `todo ${validated.todo_url}`);
+    await assertDeleted(response, 'todo', validated.todo_url);
 
     return formatSuccess('Todo deleted successfully');
   },

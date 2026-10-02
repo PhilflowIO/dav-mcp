@@ -1,6 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, updateCalendarSchema } from '../../validation.js';
 import { formatCalendarUpdateSuccess } from '../../formatters.js';
+import { assertDavSuccess } from '../shared/helpers.js';
 
 /**
  * Update an existing calendar's properties
@@ -29,7 +30,7 @@ export const updateCalendar = {
       },
       timezone: {
         type: 'string',
-        description: 'Optional: New timezone ID (e.g., Europe/Berlin)',
+        description: 'Optional: New timezone ID (e.g., Europe/Berlin). Sent to the server as a bare timezone ID, not as the VTIMEZONE the CalDAV standard asks for, so a server may reject or ignore it (issue #78).',
       },
     },
     required: ['calendar_url'],
@@ -38,54 +39,48 @@ export const updateCalendar = {
     const validated = validateInput(updateCalendarSchema, args);
     const client = tsdavManager.getCalDavClient();
 
-    // Build WebDAV PROPPATCH XML
-    let proppatchXml = '<?xml version="1.0" encoding="UTF-8"?>\n';
-    proppatchXml += '<d:propertyupdate xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:x="http://apple.com/ns/ical/">\n';
-    proppatchXml += '  <d:set>\n';
-    proppatchXml += '    <d:prop>\n';
-
+    // Only the properties the caller asked to change. Prefixed keys keep their
+    // namespace; tsdav prefixes the rest with d: and escapes text content, so a
+    // display name like "Work & Life" is sent as valid XML.
+    const prop = {};
     if (validated.display_name) {
-      proppatchXml += `      <d:displayname>${validated.display_name}</d:displayname>\n`;
+      prop.displayname = validated.display_name;
     }
     if (validated.description) {
-      proppatchXml += `      <c:calendar-description>${validated.description}</c:calendar-description>\n`;
+      prop['c:calendar-description'] = validated.description;
     }
     if (validated.color) {
-      proppatchXml += `      <x:calendar-color>${validated.color}</x:calendar-color>\n`;
+      prop['x:calendar-color'] = validated.color;
     }
     if (validated.timezone) {
       // Validate timezone format (basic check)
       if (!validated.timezone.includes('/')) {
         throw new Error(`Invalid timezone format: ${validated.timezone}. Expected format: "Europe/Berlin", "America/New_York", etc.`);
       }
-      proppatchXml += `      <c:calendar-timezone>${validated.timezone}</c:calendar-timezone>\n`;
+      prop['c:calendar-timezone'] = validated.timezone;
     }
 
-    proppatchXml += '    </d:prop>\n';
-    proppatchXml += '  </d:set>\n';
-    proppatchXml += '</d:propertyupdate>';
-
-    // Use raw fetch with HTTP PROPPATCH method
-    const response = await fetch(validated.calendar_url, {
-      method: 'PROPPATCH',
-      headers: {
-        'Content-Type': 'text/xml; charset=utf-8',
-        ...client.authHeaders,
+    // Through tsdav, not a bare fetch: the client adds its own auth headers and
+    // fetch override, so PROPPATCH authenticates the same way every other
+    // request does instead of copying client.authHeaders by hand.
+    const response = await client.davRequest({
+      url: validated.calendar_url,
+      init: {
+        method: 'PROPPATCH',
+        namespace: 'd',
+        body: {
+          propertyupdate: {
+            _attributes: {
+              'xmlns:d': 'DAV:',
+              'xmlns:c': 'urn:ietf:params:xml:ns:caldav',
+              'xmlns:x': 'http://apple.com/ns/ical/',
+            },
+            set: { prop },
+          },
+        },
       },
-      body: proppatchXml,
     });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(
-        `PROPPATCH failed with status ${response.status} ${response.statusText}\n` +
-        `Response: ${errorText}\n\n` +
-        `This may indicate:\n` +
-        `- Invalid property value (check timezone format if specified)\n` +
-        `- Server does not support calendar property updates\n` +
-        `- Permission denied for this calendar`
-      );
-    }
+    await assertDavSuccess(response, `update calendar ${validated.calendar_url}`);
 
     // Fetch updated calendar to confirm
     const calendars = await client.fetchCalendars();

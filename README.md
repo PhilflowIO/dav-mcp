@@ -119,9 +119,9 @@ When partial tools force your AI to improvise, complete tools let it **execute p
 5. **update_event_raw** - Update event with raw iCal data (advanced)
 6. **delete_event** - Delete an event permanently
 7. **calendar_query** - PREFERRED: Search and filter events efficiently by text, date range, or location
-8. **make_calendar** - Create a new calendar collection
-9. **update_calendar** - Update calendar properties (display name, description, color, timezone)
-10. **delete_calendar** - Permanently delete a calendar and all its events
+8. **make_calendar** - Create a new calendar collection. A timezone is accepted but not applied yet ([#78](https://github.com/PhilflowIO/dav-mcp/issues/78))
+9. **update_calendar** - Update calendar properties (display name, description, color, timezone). The timezone is sent as a bare timezone ID today, which not every server accepts ([#78](https://github.com/PhilflowIO/dav-mcp/issues/78))
+10. **delete_calendar** - Delete a calendar and all its events
 11. **calendar_multi_get** - Batch fetch multiple specific events by URLs
 12. **freebusy_query** - Find free and busy time in a range ("when am I free?"), calculated client-side
 
@@ -173,6 +173,26 @@ Works with any CalDAV/CardDAV server that follows RFC 4791 and RFC 6352:
 - **Radicale** - Full support
 - **iCloud** - Works with app-specific password
 - **Any RFC-compliant server** - Standard protocol support
+
+---
+
+## Authentication
+
+`AUTH_METHOD` selects how dav-mcp logs in (case-insensitive):
+
+| `AUTH_METHOD` | Credentials | Use for |
+|---|---|---|
+| `Basic` (default) | `CALDAV_USERNAME`, `CALDAV_PASSWORD` | Almost every server. If the server only offers Digest (for example Baikal set to Digest), dav-mcp switches to Digest by itself — no setting needed. |
+| `Digest` | `CALDAV_USERNAME`, `CALDAV_PASSWORD` | Servers that only accept Digest (RFC 7616). Unlike the automatic switch under `Basic`, which first sends the password once Basic-encoded and is then rejected, `Digest` never sends the password — use it when the connection is not HTTPS. |
+| `OAuth` (or `OAuth2`) | `GOOGLE_*`, see below | Google Calendar |
+
+Digest servers need Node.js 20 or newer (Digest needs WebCrypto, which
+Node.js 18 lacks). On Node.js 18 the server stops at startup against a
+Digest-only server when it cannot compute Digest, with an error that says so
+and names the Node.js version.
+Basic and OAuth work on Node.js 18. A wrong configuration — an unknown
+`AUTH_METHOD` value, or missing credentials for the chosen method — stops the
+server at startup instead of falling back to Basic.
 
 ---
 

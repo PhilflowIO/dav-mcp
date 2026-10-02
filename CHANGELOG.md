@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Tools reported success when the server had refused the write** (#72).
+  A create or update the server rejected (403, 412, 405) was reported as done.
+  Every write now fails with the server's status and message.
+- **`delete_calendar` could not delete a calendar** (#72). The request went
+  out without credentials, so the server refused it. `update_calendar` sent
+  names containing `&` as invalid XML.
+- **`make_calendar` dropped its properties** (#72). Name, description, color,
+  timezone and component types were sent under names no server knows, so a
+  calendar created as "Team Plan" was named "team-plan". If a live calendar
+  already holds the URL, nothing is created and the error names it; if the URL
+  is only held by a deleted calendar in the trash, a numbered URL is used.
+  A `timezone` is accepted but **not applied yet**: the calendar gets the
+  server's default timezone and the result says so (#78).
+- **`calendar_multi_get`, `todo_multi_get` and `addressbook_multi_get` returned
+  objects without data** (#77). They now return URL, ETag and data for every
+  object, and list a URL that no longer exists as not found instead of failing
+  the whole call. `todo_multi_get` also finds todos from more than one task
+  list in a single call, and a task list that no longer exists only costs its
+  own todos. Long URL lists are fetched 100 at a time.
+- **Deleting something that is not there no longer reports success.**
+  `delete_calendar`, `delete_event`, `delete_todo` and `delete_contact`
+  answered "deleted successfully" for a URL that does not exist. They now
+  answer "nothing was deleted" with the not-found code.
+- **Error codes for conflicts and busy servers.** A calendar URL that is
+  confirmed taken, a 409, a locked resource (423) and "all calendar URLs
+  taken" are reported as conflicts; 429, 502 and 503 as network errors
+  instead of internal errors.
+
+### Added
+- **Digest authentication** (#74). Servers that only accept Digest — Baikal in
+  its default setting, for example — answered every request with 401. They now
+  work without any setting: under the default `AUTH_METHOD=Basic`, dav-mcp
+  switches to Digest when the server offers nothing else. `AUTH_METHOD=Digest`
+  never sends the password itself and is the better choice when the server is
+  not reached over HTTPS. Digest needs Node.js 20 or newer; on Node.js 18
+  dav-mcp stops at startup with an error that says so.
+- **Container images for `linux/arm64`** (#73), next to `linux/amd64`. The
+  image now runs on Apple Silicon, Raspberry Pi and ARM cloud instances without
+  emulation.
+- **A contributing guide and pull request template** (#75).
+
+### Changed
+- **`AUTH_METHOD` is case-insensitive and accepts `OAuth2`** as another name
+  for `OAuth`; surrounding quotes and spaces are ignored. `oauth2` — the value
+  the registry entry documented — used to run Basic silently. **If you have
+  `AUTH_METHOD=oauth` or `oauth2` set but use `CALDAV_*` credentials, the
+  server now stops at startup asking for the `GOOGLE_*` variables:** set
+  `AUTH_METHOD=Basic` or remove it. A value dav-mcp does not know also stops
+  the server at startup, listing the valid values, instead of falling back to
+  Basic — over stdio as well as over HTTP. See MIGRATION.md.
+- **The tsdav dependency is pinned to a release tarball of the fork**
+  (`2.3.5+philflow.5`) instead of following the fork's `master`. Fresh
+  installs of a dav-mcp release now always get the tsdav version that release
+  was tested with, and tsdav no longer has to be cloned and built at install
+  time. (`tsdav-utils` is still a git dependency, so git is still needed.)
+
 ## [4.0.1] - 2026-09-10
 
 No functional change to the server. This release exists to correct the

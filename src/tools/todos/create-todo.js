@@ -1,7 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, createTodoSchema, sanitizeICalString } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
-import { formatICalDate } from '../shared/helpers.js';
+import { formatICalDate, assertDavSuccess } from '../shared/helpers.js';
 
 /**
  * Create a new todo/task in a calendar
@@ -91,6 +91,7 @@ export const createTodo = {
       filename: `${Date.now()}.ics`,
       iCalString: vtodo,
     });
+    await assertDavSuccess(result, 'create todo');
 
     return formatSuccess('Todo created successfully', {
       url: result.url,

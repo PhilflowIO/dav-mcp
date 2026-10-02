@@ -1,7 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, createContactSchema, sanitizeVCardString } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
-import { findAddressbookOrThrow } from '../shared/helpers.js';
+import { findAddressbookOrThrow, assertDavSuccess } from '../shared/helpers.js';
 
 /**
  * Create a new contact (vCard)
@@ -82,6 +82,7 @@ export const createContact = {
       filename: `${uid}.vcf`,
       vCardString,
     });
+    await assertDavSuccess(response, 'create contact');
 
     return formatSuccess('Contact created successfully', {
       url: response.url,

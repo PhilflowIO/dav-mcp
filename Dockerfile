@@ -3,7 +3,12 @@
 # Stage 1: install production dependencies. Alpine provides npm.
 # Base images are pinned by digest: tags are mutable and can be repointed at a
 # different image without any change in this repo (CVE-2025-30066 precedent).
-FROM node:22-alpine@sha256:76789712cd1ae89a1225eac9077010d68987a423588042dac30446f502f1858c AS deps
+# The digest must be the multi-arch index, not a per-platform manifest: a
+# manifest digest resolves to that one architecture on every platform.
+# The stage runs on the build host ($BUILDPLATFORM) for every target: the
+# production dependencies are pure JavaScript (no native .node addons), so
+# node_modules is platform-independent and npm ci never runs under emulation.
+FROM --platform=$BUILDPLATFORM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS deps
 WORKDIR /app
 # Copy package files
 COPY package*.json ./
@@ -12,7 +17,8 @@ RUN --mount=type=cache,target=/root/.npm \
 
 # Stage 2: minimal runtime image (distroless: non-root user, no shell, no package manager).
 # Non-root is provided by the distroless :nonroot variant (uid 65532).
-# Base image pinned by digest (non-semver tag, but digest pinning keeps it reproducible).
+# Base image pinned by its multi-arch index digest (non-semver tag, but digest
+# pinning keeps it reproducible).
 FROM gcr.io/distroless/nodejs22-debian12:nonroot@sha256:13593b7570658e8477de39e2f4a1dd25db2f836d68a0ba771251572d23bb4f8e AS runtime
 # Runtime config via env vars; NODE_ENV selects Express production mode.
 # Overridable at runtime: PORT (default 3000), BEARER_TOKEN, CALDAV_SERVER_URL,

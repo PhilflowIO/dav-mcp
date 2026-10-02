@@ -9,6 +9,7 @@ import {
   CalDAVError,
   CardDAVError
 } from '../src/error-handler.js';
+import { assertDavSuccess } from '../src/tools/shared/helpers.js';
 
 describe('Error Handler Module', () => {
   describe('MCP_ERROR_CODES', () => {
@@ -144,6 +145,47 @@ describe('Error Handler Module', () => {
       const response = createHTTPErrorResponse(error, 418);
 
       expect(response.statusCode).toBe(418);
+    });
+  });
+
+  describe('DAV failures', () => {
+    // The message of a rejected DAV request contains the URL, so a slug can
+    // contain any of the words the message heuristics look for.
+    const rejected = (status, statusText, url) =>
+      assertDavSuccess([{ ok: false, status, statusText, raw: '', href: url }], `create calendar ${url}`)
+        .catch(e => e);
+
+    test('a URL containing "author" is not an auth error', async () => {
+      const error = await rejected(500, 'Internal Server Error', 'https://dav.example.com/calendars/u/author-notes/');
+      expect(formatMCPError(error).code).toBe(MCP_ERROR_CODES.INTERNAL_ERROR);
+    });
+
+    test.each([
+      // a bare 405 is "not supported here"; a confirmed collision is make_calendar's call
+      [405, 'Method Not Allowed', 'INVALID_REQUEST'],
+      [409, 'Conflict', 'CONFLICT_ERROR'],
+      [412, 'Precondition Failed', 'CONFLICT_ERROR'],
+      [423, 'Locked', 'CONFLICT_ERROR'],
+      [429, 'Too Many Requests', 'NETWORK_ERROR'],
+      [502, 'Bad Gateway', 'NETWORK_ERROR'],
+      [503, 'Service Unavailable', 'NETWORK_ERROR'],
+      [504, 'Gateway Timeout', 'TIMEOUT_ERROR'],
+      [507, 'Insufficient Storage', 'INTERNAL_ERROR'],
+    ])('%i %s maps to %s', async (status, statusText, code) => {
+      const error = await rejected(status, statusText, 'https://dav.example.com/calendars/u/work/');
+      expect(formatMCPError(error).code).toBe(MCP_ERROR_CODES[code]);
+    });
+
+    test('a URL containing "404" is not a not-found error', async () => {
+      const error = await rejected(412, 'Precondition Failed', 'https://dav.example.com/calendars/u/room-404/');
+      expect(formatMCPError(error).code).toBe(MCP_ERROR_CODES.CONFLICT_ERROR);
+    });
+
+    test('the status decides, whatever the URL says', async () => {
+      const forbidden = await rejected(403, 'Forbidden', 'https://dav.example.com/calendars/u/404-timeout/');
+      expect(formatMCPError(forbidden).code).toBe(MCP_ERROR_CODES.AUTH_ERROR);
+      const missing = await rejected(404, 'Not Found', 'https://dav.example.com/calendars/u/author/');
+      expect(formatMCPError(missing).code).toBe(MCP_ERROR_CODES.NOT_FOUND_ERROR);
     });
   });
 });

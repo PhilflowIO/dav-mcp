@@ -649,10 +649,15 @@ export function formatContactList(contacts, addressBook = 'Unknown Address Book'
  * tsdav sometimes returns { _text: "value" } instead of "value"
  */
 function extractPropertyValue(prop) {
-  if (!prop) return '';
+  if (prop === undefined || prop === null) return '';
   if (typeof prop === 'string') return prop;
   if (typeof prop === 'object') {
-    return prop._text || prop.value || String(prop);
+    // tsdav hands over a text or CDATA node — or, for an empty element such
+    // as Baikal's unset <x1:calendar-color/>, an object holding only the
+    // namespace attributes. That one has no value; String() made it
+    // "[object Object]".
+    const text = prop._text ?? prop._cdata ?? prop.value;
+    return text === undefined || text === null ? '' : String(text);
   }
   return String(prop);
 }
@@ -676,16 +681,18 @@ export function formatCalendarList(calendars) {
     const displayName = extractPropertyValue(cal.displayName) || 'Unnamed Calendar';
     output += `### ${index + 1}. ${displayName}\n\n`;
 
-    if (cal.description) {
-      output += `- **Description**: ${cal.description}\n`;
+    const description = extractPropertyValue(cal.description);
+    if (description) {
+      output += `- **Description**: ${description}\n`;
     }
 
     if (cal.components) {
       output += `- **Components**: ${cal.components.join(', ')}\n`;
     }
 
-    if (cal.calendarColor) {
-      output += `- **Color**: ${cal.calendarColor}\n`;
+    const color = extractPropertyValue(cal.calendarColor);
+    if (color) {
+      output += `- **Color**: ${color}\n`;
     }
 
     output += `- **URL**: ${cal.url}\n\n`;
@@ -696,8 +703,8 @@ export function formatCalendarList(calendars) {
     displayName: cal.displayName,
     url: cal.url,
     components: cal.components,
-    calendarColor: cal.calendarColor,
-    description: cal.description,
+    calendarColor: extractPropertyValue(cal.calendarColor) || undefined,
+    description: extractPropertyValue(cal.description) || undefined,
   })), null, 2);
   output += '\n```\n</details>';
 
@@ -821,11 +828,35 @@ export function formatCalendarUpdateSuccess(calendar, updatedFields) {
 export function formatCalendarDeleteSuccess(calendarUrl) {
   let output = `✅ **Calendar deleted successfully**\n\n`;
 
-  output += `⚠️ **Warning**: The calendar and all its events have been permanently deleted.\n\n`;
+  // Not "permanently": a server with a trash bin (Nextcloud) keeps the
+  // calendar there, and we cannot tell which kind of server this is.
+  output += `⚠️ **Warning**: The calendar and all its events have been deleted. ` +
+    `Servers with a trash bin keep them there for a while; on other servers they are gone for good.\n\n`;
   output += `- **Deleted URL**: ${calendarUrl}\n`;
 
   output += `\n---\n<details>\n<summary>Raw Data (JSON)</summary>\n\n\`\`\`json\n`;
   output += JSON.stringify({ success: true, deleted: true, url: calendarUrl }, null, 2);
+  output += '\n```\n</details>';
+
+  return {
+    content: [{
+      type: 'text',
+      text: output
+    }]
+  };
+}
+
+/**
+ * Result for a delete_calendar whose target is already in the trash bin
+ */
+export function formatCalendarAlreadyDeleted(calendarUrl) {
+  let output = `ℹ️ **Calendar was already deleted**\n\n`;
+
+  output += `The calendar at this URL is in the server's trash bin. Nothing was changed.\n\n`;
+  output += `- **URL**: ${calendarUrl}\n`;
+
+  output += `\n---\n<details>\n<summary>Raw Data (JSON)</summary>\n\n\`\`\`json\n`;
+  output += JSON.stringify({ success: true, deleted: false, alreadyDeleted: true, url: calendarUrl }, null, 2);
   output += '\n```\n</details>';
 
   return {
@@ -963,6 +994,32 @@ export function formatTodoList(todos, calendar = 'Unknown Calendar', total = nul
       text: output
     }]
   };
+}
+
+/**
+ * Add the URLs a multiget could not return to a formatted list result.
+ *
+ * A multiget answers per URL, so one deleted object must not read as "nothing
+ * found" or fail the call: the caller gets what exists, plus which URLs did
+ * not and why.
+ *
+ * @param {{content: Array<{type:string, text:string}>}} result - formatted list
+ * @param {Array<{url:string, status?:number, statusText:string}>} missing
+ */
+export function withMissingObjects(result, missing) {
+  if (!missing || missing.length === 0) return result;
+
+  let output = `\n\n---\nNot found: **${missing.length}**\n\n`;
+  for (const { url, status, statusText } of missing) {
+    let reason;
+    if (status === 404) reason = 'not found';
+    else if (status === undefined) reason = `not found (${statusText})`;
+    else reason = `${status} ${statusText}`.trim();
+    output += `- ${url} — ${reason}\n`;
+  }
+
+  const [first, ...rest] = result.content;
+  return { ...result, content: [{ ...first, text: first.text + output }, ...rest] };
 }
 
 /**

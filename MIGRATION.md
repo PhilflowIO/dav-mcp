@@ -97,9 +97,23 @@ npm run dev:http   # HTTP with watch
 | `CALDAV_SERVER_URL` | CalDAV server URL | Yes (Basic Auth) |
 | `CALDAV_USERNAME` | CalDAV username | Yes (Basic Auth) |
 | `CALDAV_PASSWORD` | CalDAV password | Yes (Basic Auth) |
-| `AUTH_METHOD` | `Basic` or `OAuth` | No (default: Basic) |
+| `AUTH_METHOD` | `Basic`, `Digest` or `OAuth` | No (default: Basic) |
 | `BEARER_TOKEN` | API authentication token | Yes (HTTP server) |
 | `PORT` | HTTP server port | No (default: 3000) |
+
+## Upgrading: `AUTH_METHOD` is now checked
+
+Up to 4.0.1 only the exact values `OAuth` and `Oauth` selected OAuth2; every
+other value, including a typo, silently ran Basic. Now:
+
+- The value is case-insensitive, and surrounding quotes or spaces are ignored
+  (`AUTH_METHOD="Basic"` from a Docker env file is fine).
+- `Digest` is a valid value (see the README).
+- `oauth`, `oauth2` and `OAuth2` now select OAuth2. If you had one of these set
+  while actually using `CALDAV_*` credentials, the server used to run Basic and
+  now stops at startup asking for `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
+  and `GOOGLE_REFRESH_TOKEN`. Set `AUTH_METHOD=Basic` or remove the variable.
+- Any other value stops the server at startup with the list of valid values.
 
 ## Need Help?
 

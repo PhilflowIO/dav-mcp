@@ -1,6 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, todoMultiGetSchema } from '../../validation.js';
-import { formatTodoList } from '../../formatters.js';
+import { formatTodoList, withMissingObjects } from '../../formatters.js';
+import { multiGetObjects } from '../shared/multiget.js';
 
 /**
  * Batch fetch multiple specific todos by their URLs
@@ -23,15 +24,37 @@ export const todoMultiGet = {
     const validated = validateInput(todoMultiGetSchema, args);
     const client = tsdavManager.getCalDavClient();
 
-    // Extract calendar URL from first todo URL
-    const calendarUrl = validated.todo_urls[0].split('/').slice(0, -1).join('/');
+    // No calendar_url parameter: a multiget goes to the collection holding the
+    // objects, so send one per parent collection. Todos from several task
+    // lists then all come back instead of only those next to the first URL.
+    const byCalendar = new Map();
+    for (const url of validated.todo_urls) {
+      const calendarUrl = new URL('.', url).href;
+      if (!byCalendar.has(calendarUrl)) byCalendar.set(calendarUrl, []);
+      byCalendar.get(calendarUrl).push(url);
+    }
 
-    const todos = await client.todoMultiGet({
-      url: calendarUrl,
-      props: [{ name: 'getetag', namespace: 'DAV:' }, { name: 'calendar-data', namespace: 'urn:ietf:params:xml:ns:caldav' }],
-      objectUrls: validated.todo_urls,
-    });
+    const todos = [];
+    const missing = [];
+    for (const [calendarUrl, objectUrls] of byCalendar) {
+      let result;
+      try {
+        result = await multiGetObjects(client, { kind: 'calendar', collectionUrl: calendarUrl, objectUrls });
+      } catch (error) {
+        // A task list that does not exist (any more) only means its todos are
+        // gone; the todos from the other lists are still wanted. Everything
+        // else (401, 500, ...) is a real failure and names its collection.
+        if (error.httpStatus !== 404 && error.httpStatus !== 410) throw error;
+        missing.push(...objectUrls.map(url => ({ url, statusText: `task list ${calendarUrl} does not exist` })));
+        continue;
+      }
+      todos.push(...result.found);
+      missing.push(...result.missing);
+    }
 
-    return formatTodoList(todos, calendarUrl);
+    const calendarName = byCalendar.size === 1
+      ? [...byCalendar.keys()][0]
+      : `${byCalendar.size} calendars`;
+    return withMissingObjects(formatTodoList(todos, calendarName), missing);
   },
 };

@@ -1,3 +1,4 @@
+import { MCP_ERROR_CODES } from '../../error-handler.js';
 /**
  * Shared helper functions for tool implementations
  */
@@ -62,6 +63,55 @@ export async function getCalendarHome(client) {
   }
 
   return calendarHome;
+}
+
+// tsdav strips the namespace and camelCases element names, and 2.3.5+ keeps a
+// "{namespace}" prefix where two namespaces use the same name.
+const localNames = (resourcetype) =>
+  Object.keys(resourcetype && typeof resourcetype === 'object' ? resourcetype : {})
+    .map(key => key.replace(/^\{[^}]*\}/, ''));
+
+function textValue(value) {
+  if (typeof value === 'string' || typeof value === 'number') return String(value);
+  return value?._cdata ?? value?._text ?? '';
+}
+
+/**
+ * What is at a collection URL: a live calendar, a calendar in the trash bin,
+ * or something else?
+ *
+ * Status codes cannot answer that. SabreDAV (Nextcloud, Baikal) says 405
+ * "already exists" to a MKCALENDAR both for a live calendar and for one in
+ * Nextcloud's trash bin, which list_calendars does not show, and a DELETE on a
+ * trashed calendar is answered like one on a live calendar. So we look. Goes
+ * through the client so the request is authenticated; no headers are passed,
+ * as that would replace the auth headers in tsdav before 2.3.5.
+ *
+ * @returns {Promise<{activeCalendar: boolean, trashedCalendar: boolean, displayName: string}|null>}
+ *   null if nothing is there or the server would not tell us
+ */
+export async function inspectCollection(client, url) {
+  let responses;
+  try {
+    responses = await client.propfind({
+      url,
+      depth: '0',
+      props: { 'd:resourcetype': {}, 'd:displayname': {} },
+    });
+  } catch {
+    return null;
+  }
+  const entry = Array.isArray(responses) ? responses[0] : undefined;
+  if (!entry || entry.ok === false || entry.status < 200 || entry.status >= 300) return null;
+
+  const types = localNames(entry.props?.resourcetype);
+  return {
+    // Nextcloud marks a trashed calendar {http://nextcloud.com/ns}deleted-calendar
+    // instead of calendar; it only holds the URL until the trash is emptied.
+    activeCalendar: types.includes('calendar') && !types.includes('deletedCalendar'),
+    trashedCalendar: types.includes('deletedCalendar'),
+    displayName: textValue(entry.props?.displayname),
+  };
 }
 
 /**
@@ -150,39 +200,187 @@ export function buildTimeRangeOptions(timeRangeStart, timeRangeEnd) {
 }
 
 /**
- * Assert that a DAV delete actually happened.
+ * Pull the human-readable reason out of a DAV error body.
  *
- * tsdav's deleteObject — and the deleteCalendarObject / deleteVCard /
- * deleteTodo wrappers around it — is a bare fetch, and fetch does not reject on
- * 4xx or 5xx. An unchecked call therefore reports success for a 403 or 405 as
- * happily as for a 204, which is how "the calendar is still there after I
- * deleted it" becomes invisible to the caller.
- *
- * A 404 counts as done: DELETE is idempotent and the object is gone either way.
- *
- * @param {Response|undefined} response - what tsdav handed back
- * @param {string} what - the object being deleted, for the error message
+ * SabreDAV (Nextcloud, Baikal) answers with an XML <d:error> whose
+ * <s:message> is the only part a person can act on ("The resource you tried
+ * to create already exists"). Anything else is passed through, capped, so a
+ * plain-text reason from another server is not lost either.
  */
-export async function assertDeleted(response, what) {
+function extractDavMessage(body) {
+  if (typeof body !== 'string' || !body) return '';
+  const sabre = /<(?:[\w-]+:)?message(?:\s[^>]*)?>([\s\S]*?)<\/(?:[\w-]+:)?message>/.exec(body);
+  if (sabre) return sabre[1].trim();
+  return body.trim().slice(0, 200);
+}
+
+/**
+ * In a parsed 207 multistatus, find the first propstat whose status is not
+ * 2xx. PROPPATCH reports per-property failures only there: the HTTP status is
+ * 207 and tsdav marks the entry ok, so without this a refused property change
+ * reads as success.
+ *
+ * tsdav 2.3.5+ hands the per-property results over as `propStats`; older
+ * versions only have the parsed body in `raw`.
+ */
+function failedPropstat(entry) {
+  if (Array.isArray(entry.propStats)) {
+    const failed = entry.propStats.find(stat =>
+      typeof stat?.status === 'number' && (stat.status < 200 || stat.status >= 300));
+    return failed ? { status: failed.status, statusText: failed.statusText || '' } : null;
+  }
+
+  const responses = entry.raw?.multistatus?.response;
+  if (!responses) return null;
+  for (const response of [].concat(responses)) {
+    for (const propstat of [].concat(response?.propstat ?? [])) {
+      const match = /^\S+\s(\d{3})\s?(.*)$/.exec(String(propstat?.status ?? ''));
+      if (match && !match[1].startsWith('2')) {
+        return { status: Number(match[1]), statusText: match[2] };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Describe why a DAV write failed, or return null if it did not.
+ *
+ * tsdav never rejects on an HTTP error. Its object writes (createObject,
+ * updateObject, deleteObject and every create/update/delete wrapper) hand back
+ * the bare fetch Response; its XML requests (makeCalendar, davRequest,
+ * propfind) hand back DAVResponse[] with `ok: false` on non-2xx. Both shapes
+ * are accepted here so every write path uses the same check.
+ *
+ * @param {Response|Array|undefined} result - what tsdav handed back
+ * @returns {Promise<{status:number, statusText:string, message:string, url?:string, parseError?:string}|null>}
+ */
+export async function davFailure(result) {
+  if (Array.isArray(result)) {
+    for (const entry of result) {
+      if (!entry) continue;
+      // tsdav 2.3.5+ marks a response whose XML it could not parse as failed,
+      // even on a 2xx. The status alone would read as a contradiction.
+      if (entry.parseError) {
+        return {
+          status: entry.status,
+          statusText: entry.statusText || '',
+          message: '',
+          url: entry.href,
+          parseError: entry.parseError,
+        };
+      }
+      const httpFailed = entry.ok === false ||
+        (typeof entry.status === 'number' && (entry.status < 200 || entry.status >= 300));
+      if (httpFailed) {
+        return {
+          status: entry.status,
+          statusText: entry.statusText || '',
+          message: extractDavMessage(entry.raw),
+          url: entry.href,
+        };
+      }
+      const propFailure = failedPropstat(entry);
+      if (propFailure) {
+        return { ...propFailure, message: '', url: entry.href };
+      }
+    }
+    return null;
+  }
+
   // Not every tsdav version returns the raw Response; if we cannot see a
   // status, we have nothing to check and must not invent a failure.
-  if (!response || typeof response.status !== 'number') return;
+  if (!result || typeof result.status !== 'number') return null;
+  if (result.ok ?? (result.status >= 200 && result.status < 300)) return null;
 
-  if (response.ok || response.status === 404) return;
-
-  let detail = '';
+  let body = '';
   try {
-    const body = await response.text();
-    if (body) detail = `: ${body.slice(0, 200)}`;
+    body = await result.text();
   } catch {
     // body already consumed or not readable — the status is enough
   }
+  return {
+    status: result.status,
+    statusText: result.statusText || '',
+    message: extractDavMessage(body),
+    url: result.url || undefined,
+  };
+}
 
-  throw new Error(
-    `Failed to delete ${what}: server responded ${response.status} ${response.statusText || ''}`.trim() +
-    detail +
-    '. The object still exists on the server.'
-  );
+/**
+ * Turn a davFailure() result into the error the tools throw, for callers that
+ * inspect the failure before deciding to give up (make_calendar's slug retry).
+ */
+export function davFailureError(failure, prefix, suffix = '') {
+  const reason = failure.parseError
+    ? `server returned an unreadable response (status ${failure.status})`
+    : `server responded ${failure.status} ${failure.statusText}`.trim() +
+      (failure.message ? `: ${failure.message}` : '');
+  const error = new Error(`${prefix}: ${reason}${suffix}`);
+  // The error handler derives the MCP error code from this, not from the
+  // message, which contains the URL.
+  error.httpStatus = failure.status;
+  error.details = {
+    status: failure.status,
+    statusText: failure.statusText,
+    ...(failure.message && { serverMessage: failure.message }),
+    ...(failure.url && { url: failure.url }),
+    ...(failure.parseError && { parseError: failure.parseError }),
+  };
+  return error;
+}
+
+/**
+ * Assert that a DAV write was accepted by the server.
+ *
+ * Without this a 403, 412 or 507 is reported to the model as "created" or
+ * "updated" — the server refused, nothing changed, and the caller cannot
+ * tell. Issue #72.
+ *
+ * @param {Response|Array|undefined} result - what tsdav handed back
+ * @param {string} action - what was attempted, e.g. "create event", for the error message
+ */
+export async function assertDavSuccess(result, action) {
+  const failure = await davFailure(result);
+  if (failure) throw davFailureError(failure, `Failed to ${action}`);
+}
+
+/**
+ * Assert that a DAV delete actually happened.
+ *
+ * Same check as assertDavSuccess, with two delete-specific rules. A 404 means
+ * there was nothing to delete: reporting "deleted successfully" for a URL
+ * that never existed (a typo, an object someone else removed) tells the caller
+ * something happened when nothing did, so it is a not-found error — unless
+ * the caller saw the target right before the DELETE (`existedBefore`), in
+ * which case it existed and is gone, which is what was asked for. And any
+ * other failure says the object is still there, which is what the caller
+ * needs to know.
+ *
+ * @param {Response|undefined} response - what tsdav handed back
+ * @param {string} kind - what is being deleted: "calendar", "event", ...
+ * @param {string} url - its URL
+ * @param {object} [options]
+ * @param {boolean} [options.existedBefore] - the target was seen right before the DELETE
+ */
+export async function assertDeleted(response, kind, url, { existedBefore = false } = {}) {
+  const failure = await davFailure(response);
+  if (!failure) return;
+  if (failure.status === 404) {
+    if (existedBefore) return;
+    const error = new Error(`No ${kind} at ${url} — nothing was deleted.`);
+    error.code = MCP_ERROR_CODES.NOT_FOUND_ERROR;
+    error.httpStatus = 404;
+    error.details = { status: 404, statusText: failure.statusText, url };
+    throw error;
+  }
+  // Deletes go out with If-Match, and servers answer 412 both for a changed
+  // object and for one that is not there at all. Saying "still exists" for
+  // the latter would be as wrong as "deleted" was for a 404.
+  const suffix = failure.status === 412
+    ? '. Nothing was deleted: the ETag does not match — the object was changed since it was read, or it does not exist (any more).'
+    : '. The object still exists on the server.';
+  throw davFailureError(failure, `Failed to delete ${kind} ${url}`, suffix);
 }
 
 // Query tools return everything the server has in range, which for a wide
