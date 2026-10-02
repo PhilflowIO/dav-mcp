@@ -61,11 +61,11 @@
     "CHANGELOG.md"
   ],
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.25.3",
+    "@modelcontextprotocol/sdk": "^1.31.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
-    "express-rate-limit": "^8.1.0",
+    "express-rate-limit": "^8.7.0",
     "ical.js": "^2.2.1",
     "tsdav": "https://github.com/PhilflowIO/tsdav/releases/download/v2.3.5%2Bphilflow.5/tsdav-2.3.5-philflow.5.tgz",
     "tsdav-utils": "github:PhilflowIO/tsdav-utils#main",
