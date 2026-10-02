@@ -73,22 +73,14 @@ const isMultistatus = (entries) => Array.isArray(entries) && entries.some(entry 
   entry?.raw?.multistatus ||
   (entry && entry.raw === undefined && !entry.href && entry.status === 207));
 
-/**
- * Fetch objects from one collection with a single multiget REPORT.
- *
- * @param {import('tsdav').DAVClient} client
- * @param {object} params
- * @param {'calendar'|'addressbook'} params.kind - which multiget report to send
- * @param {string} params.collectionUrl - calendar or address book holding the objects
- * @param {string[]} params.objectUrls - absolute URLs of the objects to fetch
- * @returns {Promise<{found: Array<{url:string, etag?:string, data:string}>, missing: Array<{url:string, status?:number, statusText:string}>}>}
- *   found in request order, in the shape the list/query tools return;
- *   missing with the reason the server gave for each URL
- */
-export async function multiGetObjects(client, { kind, collectionUrl, objectUrls }) {
-  const spec = REPORTS[kind];
-  const requested = [...new Set(objectUrls)];
+// How many hrefs go into one multiget REPORT.
+export const MAX_HREFS_PER_REPORT = 100;
 
+/**
+ * Send one multiget REPORT and return the multistatus members.
+ * Throws if the REPORT itself failed.
+ */
+async function multiGetReport(client, spec, collectionUrl, urls) {
   const entries = await client.davRequest({
     url: collectionUrl,
     init: {
@@ -103,7 +95,7 @@ export async function multiGetObjects(client, { kind, collectionUrl, objectUrls 
             [spec.dataProp]: {},
           },
           // path only, as tsdav sends it: not every server accepts an absolute URI here
-          [`${DAVNamespaceShort.DAV}:href`]: requested.map(url => new URL(url).pathname),
+          [`${DAVNamespaceShort.DAV}:href`]: urls.map(url => new URL(url).pathname),
         },
       },
     },
@@ -116,6 +108,33 @@ export async function multiGetObjects(client, { kind, collectionUrl, objectUrls 
     const failure = await davFailure(entries);
     if (failure) throw davFailureError(failure, `Failed to fetch objects from ${collectionUrl}`);
     throw new Error(`Failed to fetch objects from ${collectionUrl}: server did not answer with a multistatus`);
+  }
+  return entries;
+}
+
+/**
+ * Fetch objects from one collection by multiget REPORT, in chunks of
+ * MAX_HREFS_PER_REPORT URLs.
+ *
+ * @param {import('tsdav').DAVClient} client
+ * @param {object} params
+ * @param {'calendar'|'addressbook'} params.kind - which multiget report to send
+ * @param {string} params.collectionUrl - calendar or address book holding the objects
+ * @param {string[]} params.objectUrls - absolute URLs of the objects to fetch
+ * @returns {Promise<{found: Array<{url:string, etag?:string, data:string}>, missing: Array<{url:string, status?:number, statusText:string}>}>}
+ *   found in request order, in the shape the list/query tools return;
+ *   missing with the reason the server gave for each URL
+ */
+export async function multiGetObjects(client, { kind, collectionUrl, objectUrls }) {
+  const spec = REPORTS[kind];
+  const requested = [...new Set(objectUrls)];
+
+  // One REPORT per MAX_HREFS_PER_REPORT URLs: a single request with thousands
+  // of hrefs runs into the server's body or time limit and then fails as a whole.
+  const entries = [];
+  for (let start = 0; start < requested.length; start += MAX_HREFS_PER_REPORT) {
+    entries.push(...await multiGetReport(client, spec, collectionUrl,
+      requested.slice(start, start + MAX_HREFS_PER_REPORT)));
   }
 
   const byKey = new Map();

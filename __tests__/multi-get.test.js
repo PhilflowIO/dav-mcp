@@ -142,6 +142,30 @@ describe('calendar_multi_get', () => {
   });
 });
 
+describe('large URL lists', () => {
+  test('250 URLs go out as three REPORTs of at most 100 hrefs, results in request order', async () => {
+    const urls = Array.from({ length: 250 }, (_, i) => `${CALENDAR_URL}e${i}.ics`);
+    respond = (url, init) => multistatus(
+      ...[...init.body.matchAll(/<d:href>([^<]+)<\/d:href>/g)].map(([, href]) =>
+        found(href, `e-${href}`, 'cal:calendar-data', ics(href, `Event ${href}`))),
+    )();
+    const result = await calendarMultiGet.handler({ calendar_url: CALENDAR_URL, event_urls: urls });
+
+    expect(requests.map(r => (r.body.match(/<d:href>/g) || []).length)).toEqual([100, 100, 50]);
+    expect(rawData(result).map(e => e.url)).toEqual(urls);
+  });
+
+  test('a chunk that fails is an error for the whole call', async () => {
+    const urls = Array.from({ length: 150 }, (_, i) => `${CALENDAR_URL}e${i}.ics`);
+    let call = 0;
+    respond = () => (++call === 1
+      ? multistatus()()
+      : new Response('', { status: 500, statusText: 'Internal Server Error' }));
+    await expect(calendarMultiGet.handler({ calendar_url: CALENDAR_URL, event_urls: urls }))
+      .rejects.toThrow(/Failed to fetch objects from .*500 Internal Server Error/);
+  });
+});
+
 describe('todo_multi_get', () => {
   test('requests calendar-data and maps todos to url, etag and data', async () => {
     const urls = [`${TASKS_URL}t1.ics`, `${TASKS_URL}t2.ics`, `${TASKS_URL}nope.ics`];
