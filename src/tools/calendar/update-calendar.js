@@ -30,7 +30,7 @@ export const updateCalendar = {
       },
       timezone: {
         type: 'string',
-        description: 'Optional: New timezone ID (e.g., Europe/Berlin)',
+        description: 'Optional: New timezone ID (e.g., Europe/Berlin). Sent to the server as a bare timezone ID, not as the VTIMEZONE the CalDAV standard asks for, so a server may reject or ignore it (issue #78).',
       },
     },
     required: ['calendar_url'],

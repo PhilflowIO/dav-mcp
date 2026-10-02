@@ -27,10 +27,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the whole call. `todo_multi_get` also finds todos from more than one task
   list in a single call, and a task list that no longer exists only costs its
   own todos. Long URL lists are fetched 100 at a time.
-- **Error codes for conflicts and busy servers.** A URL that is already taken
-  (405, 409), a locked resource (423) and "all calendar URLs taken" are
-  reported as conflicts; 429, 502 and 503 as network errors instead of
-  internal errors.
+- **Deleting something that is not there no longer reports success.**
+  `delete_calendar`, `delete_event`, `delete_todo` and `delete_contact`
+  answered "deleted successfully" for a URL that does not exist. They now
+  answer "nothing was deleted" with the not-found code.
+- **Error codes for conflicts and busy servers.** A calendar URL that is
+  confirmed taken, a 409, a locked resource (423) and "all calendar URLs
+  taken" are reported as conflicts; 429, 502 and 503 as network errors
+  instead of internal errors.
 
 ### Added
 - **Digest authentication** (#74). Servers that only accept Digest — Baikal in
