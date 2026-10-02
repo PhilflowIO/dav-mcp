@@ -14,7 +14,7 @@ import * as todoTools from './todos/index.js';
 
 /**
  * All available MCP tools
- * Total: 26 tools organized in 3 categories
+ * Total: 27 tools organized in 3 categories
  */
 export const tools = [
   // ================================
