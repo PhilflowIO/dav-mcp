@@ -41,9 +41,12 @@ import { initializeToolCallLogger, getToolCallLogger } from './tool-call-logger.
 dotenv.config();
 
 // The MCP SDK's Streamable HTTP transport calls the global `crypto`, which
-// Node.js 18 does not have (it arrived in 20). @hono/node-server 1.x used to
-// set it as a side effect; 2.x, which the SDK now resolves to, no longer does,
-// and every MCP request on Node.js 18 failed with "crypto is not defined".
+// Node.js 18 does not have (it arrived in 20). @hono/node-server 1.x sets it as
+// a side effect; 2.x (Node.js 20+) does not. npm picks 1.x for a fresh install
+// on Node.js 18, but this repository's lockfile pins 2.x, and with it every
+// MCP request on Node.js 18 failed with "crypto is not defined". Setting it
+// here makes the server independent of which of the two is installed.
+// Goes away with Node.js 18 support: #85.
 if (typeof globalThis.crypto === 'undefined') {
   globalThis.crypto = crypto.webcrypto;
 }

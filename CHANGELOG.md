@@ -8,15 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
-- **Updated production dependencies with known vulnerabilities** (#82).
-  `npm audit --omit=dev` reported 10 advisories, 7 of them high; it now
-  reports none. One of them affected dav-mcp's HTTP transport: the rate
-  limiter counted all IPv4 clients as one, so a single client — even one
-  without a valid token — could use up the limit for everyone else. Each IPv4
-  client now has its own limit. The MCP SDK advisory about answers reaching
-  the wrong client did not apply: the HTTP server already uses a separate
-  server and transport for every request. The other advisories are in code
-  dav-mcp does not call.
+- **Updated the locked production dependencies with known vulnerabilities**
+  (#82). The repository lockfile carried 10 advisories, 7 of them high; fresh
+  npm installs already resolved fixed versions. This affected installs from
+  the repository lockfile: a git clone, and the Docker image, which is built
+  from it. `npm audit --omit=dev` on the lockfile now reports none. One
+  advisory affected dav-mcp's HTTP transport: the rate limiter counted all
+  IPv4 clients as one, so a single client — even one without a valid token —
+  could use up the limit for everyone else. Each IPv4 client now has its own
+  limit. The MCP SDK advisory about answers reaching the wrong client did not
+  apply: the HTTP server already uses a separate server and transport for
+  every request. The other advisories are in code dav-mcp does not call.
+- **The HTTP rate limiter gave public addresses the raised limit** (#84).
+  Every client address starting with `172.` got the limit meant for local
+  and Docker-internal clients, 100 times the normal one, before the bearer
+  token was checked — but only 172.16.0.0/12 is private. The raised limit now
+  applies to loopback and the private ranges 10.0.0.0/8, 172.16.0.0/12 and
+  192.168.0.0/16 exactly, and to no public address. Clients on a 10.x or
+  192.168.x network now get the raised limit too; they did not before.
 
 ### Fixed
 - **Write tools did not return an ETag** (#76). `create_event`,
@@ -26,11 +35,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   expect, so it can be passed straight to the next call. If the server sends
   none — it may when it changed what was stored — the result says
   "no ETag returned — fetch the object before the next update".
-- **The HTTP transport on Node.js 18 with current dependencies** (#82). A
-  fresh install resolves to an MCP SDK release whose HTTP transport needs a
-  global that Node.js 18 lacks; every MCP request failed with "crypto is not
-  defined". The server now provides it. stdio and Node.js 20+ were not
-  affected.
+- **The HTTP transport on installs from the repository lockfile on
+  Node.js 18** (#82). With the updated lockfile the MCP SDK's HTTP transport
+  needs a global that Node.js 18 lacks, and every MCP request would have
+  failed with "crypto is not defined". The server now provides it. No
+  released version was affected: fresh npm installs on Node.js 18 resolve a
+  compatible version, and the Docker image runs Node.js 22.
+
+### Changed
+- **The MCP SDK is now 1.31, which rejects oversized input.** Over stdio, a
+  message above 10 MB is refused; over HTTP, a JSON-RPC batch of more than
+  100 messages is refused. Neither limit existed before. Ordinary tool calls
+  are far below both.
 
 ### Internal
 - CI fails a pull request when a production dependency has a high-severity
