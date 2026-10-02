@@ -26,6 +26,9 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ env.TAG }}
+          # The release upload below authenticates with GH_TOKEN. No later step
+          # needs the token in .git/config, where install scripts could read it.
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -42,12 +45,14 @@ jobs:
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       # Production dependencies only: the bundle ships node_modules as is.
+      # No lifecycle scripts: this job holds a contents:write token, and no
+      # production dependency needs an install script.
       - name: Install production dependencies
-        run: npm ci --omit=dev
+        run: npm ci --omit=dev --ignore-scripts
 
       # The mcpb CLI and its dependencies are pinned in .github/mcpb.
       - name: Install the mcpb CLI
-        run: npm ci --prefix .github/mcpb
+        run: npm ci --prefix .github/mcpb --ignore-scripts
 
       - name: Pack the bundle
         run: .github/mcpb/node_modules/.bin/mcpb pack . "dav-mcp-${{ steps.version.outputs.version }}.mcpb"

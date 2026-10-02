@@ -80,6 +80,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       # Claude Desktop runs the bundle on its own Node.js; 22 is the newest
       # line the test job covers.
@@ -89,12 +91,13 @@ jobs:
           node-version: '22.x'
 
       # Production dependencies only: the bundle ships node_modules as is.
+      # No lifecycle scripts, as in publish-mcpb.yml.
       - name: Install production dependencies
-        run: npm ci --omit=dev
+        run: npm ci --omit=dev --ignore-scripts
 
       # The mcpb CLI and its dependencies are pinned in .github/mcpb.
       - name: Install the mcpb CLI
-        run: npm ci --prefix .github/mcpb
+        run: npm ci --prefix .github/mcpb --ignore-scripts
 
       - name: Pack and unpack the bundle
         run: |
