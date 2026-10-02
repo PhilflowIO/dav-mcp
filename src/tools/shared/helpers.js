@@ -203,12 +203,23 @@ function failedPropstat(entry) {
  * are accepted here so every write path uses the same check.
  *
  * @param {Response|Array|undefined} result - what tsdav handed back
- * @returns {Promise<{status:number, statusText:string, message:string, url?:string}|null>}
+ * @returns {Promise<{status:number, statusText:string, message:string, url?:string, parseError?:string}|null>}
  */
 export async function davFailure(result) {
   if (Array.isArray(result)) {
     for (const entry of result) {
       if (!entry) continue;
+      // tsdav 2.3.5+ marks a response whose XML it could not parse as failed,
+      // even on a 2xx. The status alone would read as a contradiction.
+      if (entry.parseError) {
+        return {
+          status: entry.status,
+          statusText: entry.statusText || '',
+          message: '',
+          url: entry.href,
+          parseError: entry.parseError,
+        };
+      }
       const httpFailed = entry.ok === false ||
         (typeof entry.status === 'number' && (entry.status < 200 || entry.status >= 300));
       if (httpFailed) {
@@ -251,11 +262,11 @@ export async function davFailure(result) {
  * inspect the failure before deciding to give up (make_calendar's slug retry).
  */
 export function davFailureError(failure, prefix, suffix = '') {
-  const error = new Error(
-    `${prefix}: server responded ${failure.status} ${failure.statusText}`.trim() +
-    (failure.message ? `: ${failure.message}` : '') +
-    suffix
-  );
+  const reason = failure.parseError
+    ? `server returned an unreadable response (status ${failure.status})`
+    : `server responded ${failure.status} ${failure.statusText}`.trim() +
+      (failure.message ? `: ${failure.message}` : '');
+  const error = new Error(`${prefix}: ${reason}${suffix}`);
   // The error handler derives the MCP error code from this, not from the
   // message, which contains the URL.
   error.httpStatus = failure.status;
@@ -264,6 +275,7 @@ export function davFailureError(failure, prefix, suffix = '') {
     statusText: failure.statusText,
     ...(failure.message && { serverMessage: failure.message }),
     ...(failure.url && { url: failure.url }),
+    ...(failure.parseError && { parseError: failure.parseError }),
   };
   return error;
 }

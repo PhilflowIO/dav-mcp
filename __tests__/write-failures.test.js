@@ -129,6 +129,15 @@ describe('assertDavSuccess', () => {
     await expect(assertDavSuccess([entry], 'update calendar')).resolves.toBeUndefined();
   });
 
+  test('a 2xx tsdav could not parse is reported as unreadable, not as a bare status', async () => {
+    const error = await assertDavSuccess(
+      [{ ok: false, status: 207, statusText: 'Multi-Status', raw: '<d:multistatus', href: '/calendars/user/work/', parseError: 'Unclosed root tag' }],
+      'update calendar',
+    ).catch(e => e);
+    expect(error.message).toBe('Failed to update calendar: server returned an unreadable response (status 207)');
+    expect(error.details).toMatchObject({ status: 207, parseError: 'Unclosed root tag' });
+  });
+
   test('a result without a status is not turned into a failure', async () => {
     await expect(davFailure(undefined)).resolves.toBeNull();
     await expect(davFailure({ url: 'x' })).resolves.toBeNull();
