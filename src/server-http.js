@@ -30,6 +30,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 import { tsdavManager } from './tsdav-client.js';
+import { isLocalOrPrivateAddress } from './client-address.js';
 import { buildTsdavConfig } from './auth-config.js';
 import { tools } from './tools/index.js';
 import { createToolErrorResponse, MCP_ERROR_CODES } from './error-handler.js';
@@ -38,6 +39,17 @@ import { initializeToolCallLogger, getToolCallLogger } from './tool-call-logger.
 
 // Load environment variables
 dotenv.config();
+
+// The MCP SDK's Streamable HTTP transport calls the global `crypto`, which
+// Node.js 18 does not have (it arrived in 20). @hono/node-server 1.x sets it as
+// a side effect; 2.x (Node.js 20+) does not. npm picks 1.x for a fresh install
+// on Node.js 18, but this repository's lockfile pins 2.x, and with it every
+// MCP request on Node.js 18 failed with "crypto is not defined". Setting it
+// here makes the server independent of which of the two is installed.
+// Goes away with Node.js 18 support: #85.
+if (typeof globalThis.crypto === 'undefined') {
+  globalThis.crypto = crypto.webcrypto;
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -66,11 +78,8 @@ app.use(express.json());
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: (req) => {
-    const ip = req.ip || req.connection.remoteAddress;
-    if (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1' || ip?.startsWith('::ffff:172.')) {
-      return 10000;
-    }
-    return 100;
+    const ip = req.ip || req.socket?.remoteAddress;
+    return isLocalOrPrivateAddress(ip) ? 10000 : 100;
   },
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,

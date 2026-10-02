@@ -1,7 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, createContactSchema, sanitizeVCardString } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
-import { findAddressbookOrThrow, assertDavSuccess } from '../shared/helpers.js';
+import { findAddressbookOrThrow, assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
 
 /**
  * Create a new contact (vCard)
@@ -86,7 +86,7 @@ export const createContact = {
 
     return formatSuccess('Contact created successfully', {
       url: response.url,
-      etag: response.etag,
+      ...etagAfterWrite(response),
       fullName: validated.full_name,
     });
   },

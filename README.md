@@ -186,11 +186,13 @@ Works with any CalDAV/CardDAV server that follows RFC 4791 and RFC 6352:
 | `Digest` | `CALDAV_USERNAME`, `CALDAV_PASSWORD` | Servers that only accept Digest (RFC 7616). Unlike the automatic switch under `Basic`, which first sends the password once Basic-encoded and is then rejected, `Digest` never sends the password — use it when the connection is not HTTPS. |
 | `OAuth` (or `OAuth2`) | `GOOGLE_*`, see below | Google Calendar |
 
-Digest servers need Node.js 20 or newer (Digest needs WebCrypto, which
-Node.js 18 lacks). On Node.js 18 the server stops at startup against a
-Digest-only server when it cannot compute Digest, with an error that says so
-and names the Node.js version.
-Basic and OAuth work on Node.js 18. A wrong configuration — an unknown
+Digest needs WebCrypto as a global, which Node.js 20 and newer have and
+Node.js 18 does not. On Node.js 18 it depends on the transport: over stdio the
+server stops at startup against a Digest-only server, with an error that says
+so and names the Node.js version; the HTTP server provides the global itself,
+so Digest works there. Basic and OAuth work on Node.js 18 over both. Node.js 18
+is end-of-life and support for it ends with the next major version
+([#85](https://github.com/PhilflowIO/dav-mcp/issues/85)). A wrong configuration — an unknown
 `AUTH_METHOD` value, or missing credentials for the chosen method — stops the
 server at startup instead of falling back to Basic.
 
@@ -223,7 +225,7 @@ For Google Calendar, use OAuth2 authentication:
 ## Security
 
 - **Input Validation**: All inputs validated with Zod schemas before execution
-- **Rate Limiting**: 100 requests/minute per session (HTTP mode)
+- **Rate Limiting** (HTTP mode): 100 requests per 15 minutes per client address, counted before the bearer token is checked. Clients on loopback or a private network (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) — another container on the same Docker network, for example — get 10,000. Limitation: dav-mcp sees the address of whatever connects to it. Behind a Docker port mapping or a reverse proxy that is the bridge gateway or the proxy, so all outside clients share that one address, its one counter and its raised limit. Rate-limit per client at the proxy if you expose the HTTP transport.
 - **Bearer Auth**: Token authentication for HTTP transport
 - **No Credential Storage**: Pass-through only, never logged or cached
 - **Structured Logging**: Audit trail with request IDs, no PII exposure

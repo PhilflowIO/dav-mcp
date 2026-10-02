@@ -5,9 +5,14 @@ on:
     branches: [main, develop, feature/**]
   pull_request:
     branches: [main, develop]
+  # Advisories are published on their own schedule, not when someone opens a
+  # pull request. The weekly run is for the audit job only.
+  schedule:
+    - cron: '23 5 * * 1'
 
 jobs:
   test:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
 
     strategy:
@@ -43,6 +48,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
 
   lint:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
 
     steps:
@@ -63,3 +69,21 @@ jobs:
           for file in src/*.js; do
             node --check "$file"
           done
+
+  audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+
+      # Production tree only, read from package-lock.json: dev dependencies
+      # never reach a user, and an advisory in jest should not block a fix.
+      # Moderate and low findings are printed but do not fail the job.
+      - name: Check production dependencies for known vulnerabilities
+        run: npm audit --omit=dev --audit-level=high
