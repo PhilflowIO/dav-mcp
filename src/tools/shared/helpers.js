@@ -346,6 +346,40 @@ export async function assertDavSuccess(result, action) {
 }
 
 /**
+ * The ETag a create or update left behind, as the fields a tool result
+ * carries: `{ etag }` if the caller can use it for the next update, otherwise
+ * `{ etag_note }` saying why there is none.
+ *
+ * tsdav hands back the fetch Response of the PUT, and the ETag is a response
+ * header — `response.etag` does not exist, so every write tool used to return
+ * `etag: undefined` and the caller had nothing to send as If-Match. Issue #76.
+ *
+ * The value is passed on exactly as the server sent it, quotes included: that
+ * is the form the list and query tools return (getetag), and the form the
+ * update and delete tools send back as If-Match without touching it.
+ *
+ * A server may leave the header out — RFC 4791 5.3.4 and RFC 6352 6.3.2.3
+ * tell it to when what it stored is not octet-for-octet what was sent. A weak
+ * ETag (W/"...") is no better: If-Match compares strongly (RFC 9110 13.1.1),
+ * so it can never match. Both cases are said out loud, because a missing
+ * field reads as "nothing to do" and the next update would fail with a 412.
+ *
+ * @param {Response|undefined} response - what tsdav handed back from a write
+ * @returns {{etag: string}|{etag_note: string}}
+ */
+export function etagAfterWrite(response) {
+  const header = response?.headers?.get?.('etag');
+  const etag = typeof header === 'string' ? header.trim() : '';
+  if (!etag) {
+    return { etag_note: 'no ETag returned — fetch the object before the next update' };
+  }
+  if (/^W\//i.test(etag)) {
+    return { etag_note: `only a weak ETag returned (${etag}), which cannot be used for an update — fetch the object before the next update` };
+  }
+  return { etag };
+}
+
+/**
  * Assert that a DAV delete actually happened.
  *
  * Same check as assertDavSuccess, with two delete-specific rules. A 404 means

@@ -770,8 +770,12 @@ export function formatSuccess(operation, details = {}) {
     output += `- **URL**: ${details.url}\n`;
   }
 
+  // A write the server answered without a usable ETag says so, instead of
+  // leaving the line out: the caller has to refetch before the next update.
   if (details.etag) {
     output += `- **ETag**: ${details.etag}\n`;
+  } else if (details.etag_note) {
+    output += `- **ETag**: ${details.etag_note}\n`;
   }
 
   if (details.message) {

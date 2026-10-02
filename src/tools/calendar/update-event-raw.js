@@ -1,7 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, updateEventSchema } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
-import { assertDavSuccess } from '../shared/helpers.js';
+import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
 
 /**
  * Update an existing calendar event with raw iCal data
@@ -41,7 +41,7 @@ export const updateEventRaw = {
     await assertDavSuccess(response, `update event ${validated.event_url}`);
 
     return formatSuccess('Event updated successfully', {
-      etag: response.etag,
+      ...etagAfterWrite(response),
     });
   },
 };
