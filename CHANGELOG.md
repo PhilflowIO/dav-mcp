@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **Updated production dependencies with known vulnerabilities** (#82).
+  `npm audit --omit=dev` reported 10 advisories, 7 of them high; it now
+  reports none. One of them affected dav-mcp's HTTP transport: the rate
+  limiter counted all IPv4 clients as one, so a single client — even one
+  without a valid token — could use up the limit for everyone else. Each IPv4
+  client now has its own limit. The MCP SDK advisory about answers reaching
+  the wrong client did not apply: the HTTP server already uses a separate
+  server and transport for every request. The other advisories are in code
+  dav-mcp does not call.
+
+### Fixed
+- **Write tools did not return an ETag** (#76). `create_event`,
+  `create_todo`, `create_contact` and all `update_*` tools left the ETag out
+  of their result, so a second update needed a fetch in between. They now
+  return the ETag the server sent, in the form the update and delete tools
+  expect, so it can be passed straight to the next call. If the server sends
+  none — it may when it changed what was stored — the result says
+  "no ETag returned — fetch the object before the next update".
+- **The HTTP transport on Node.js 18 with current dependencies** (#82). A
+  fresh install resolves to an MCP SDK release whose HTTP transport needs a
+  global that Node.js 18 lacks; every MCP request failed with "crypto is not
+  defined". The server now provides it. stdio and Node.js 20+ were not
+  affected.
+
+### Internal
+- CI fails a pull request when a production dependency has a high-severity
+  advisory, and now tests the HTTP server end to end on every supported
+  Node.js version.
+
 ## [4.1.0] - 2026-10-02
 
 Digest authentication, `linux/arm64` images, and a round of fixes to tools
