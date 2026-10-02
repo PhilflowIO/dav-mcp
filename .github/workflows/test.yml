@@ -5,9 +5,14 @@ on:
     branches: [main, develop, feature/**]
   pull_request:
     branches: [main, develop]
+  # Advisories are published on their own schedule, not when someone opens a
+  # pull request. The weekly run is for the audit job only.
+  schedule:
+    - cron: '23 5 * * 1'
 
 jobs:
   test:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
 
     strategy:
@@ -43,6 +48,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
 
   lint:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
 
     steps:
