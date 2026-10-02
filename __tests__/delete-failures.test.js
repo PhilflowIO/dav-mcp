@@ -78,15 +78,33 @@ describe('a successful delete still succeeds', () => {
     expect(result.content[0].text).toContain('deleted');
   });
 
-  test('404 counts as done — DELETE is idempotent', async () => {
-    deleteCalendarObject.mockResolvedValue(davResponse(404, 'Not Found'));
-    await expect(deleteEvent.handler({ event_url: EVENT_URL, event_etag: '"1"' }))
-      .resolves.toBeDefined();
-  });
-
   test('a tsdav version that returns no Response is not treated as a failure', async () => {
     deleteObject.mockResolvedValue(undefined);
     await expect(deleteCalendar.handler({ calendar_url: CALENDAR_URL })).resolves.toBeDefined();
+  });
+});
+
+// A 404 used to count as done ("DELETE is idempotent"), so deleting a URL
+// that never existed — a typo, an object someone else removed — was reported
+// as "deleted successfully". Nothing was deleted, and the result says so.
+describe('a 404 is not a deletion', () => {
+  const cases = [
+    ['delete_calendar', () => deleteCalendar.handler({ calendar_url: CALENDAR_URL }), deleteObject, 'calendar', CALENDAR_URL],
+    ['delete_event', () => deleteEvent.handler({ event_url: EVENT_URL, event_etag: '"1"' }), deleteCalendarObject, 'event', EVENT_URL],
+    ['delete_todo', () => deleteTodoTool.handler({ todo_url: `${CALENDAR_URL}t.ics`, todo_etag: '"1"' }), deleteTodo, 'todo', `${CALENDAR_URL}t.ics`],
+    ['delete_contact', () => deleteContact.handler({
+      vcard_url: 'https://dav.example.com/addressbooks/user/default/c.vcf', vcard_etag: '"1"',
+    }), deleteVCard, 'contact', 'https://dav.example.com/addressbooks/user/default/c.vcf'],
+  ];
+
+  test.each(cases)('%s reports not found, with the NOT_FOUND code', async (_, run, mock, kind, url) => {
+    mock.mockResolvedValue(davResponse(404, 'Not Found'));
+    const error = await run().catch(e => e);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toBe(`No ${kind} at ${url} — nothing was deleted.`);
+    expect(error.code).toBe(-32006); // NOT_FOUND_ERROR
+    expect(error.message).not.toMatch(/success|still exists/);
   });
 });
 

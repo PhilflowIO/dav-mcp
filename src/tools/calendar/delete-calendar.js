@@ -37,7 +37,10 @@ export const deleteCalendar = {
     const response = await client.deleteObject({
       url: validated.calendar_url,
     });
-    await assertDeleted(response, `calendar ${validated.calendar_url}`);
+    // A 404 after the lookup saw the calendar means it went away in between:
+    // it existed and is gone. Without a successful lookup a 404 means there
+    // was no calendar to delete.
+    await assertDeleted(response, 'calendar', validated.calendar_url, { existedBefore: Boolean(target) });
 
     return formatCalendarDeleteSuccess(validated.calendar_url);
   },

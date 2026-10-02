@@ -33,7 +33,7 @@ export const deleteEvent = {
         etag: validated.event_etag,
       },
     });
-    await assertDeleted(response, `event ${validated.event_url}`);
+    await assertDeleted(response, 'event', validated.event_url);
 
     return formatSuccess('Event deleted successfully');
   },

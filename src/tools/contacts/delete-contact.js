@@ -33,7 +33,7 @@ export const deleteContact = {
         etag: validated.vcard_etag,
       },
     });
-    await assertDeleted(response, `contact ${validated.vcard_url}`);
+    await assertDeleted(response, 'contact', validated.vcard_url);
 
     return formatSuccess('Contact deleted successfully');
   },

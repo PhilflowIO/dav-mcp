@@ -1,3 +1,4 @@
+import { MCP_ERROR_CODES } from '../../error-handler.js';
 /**
  * Shared helper functions for tool implementations
  */
@@ -347,17 +348,33 @@ export async function assertDavSuccess(result, action) {
 /**
  * Assert that a DAV delete actually happened.
  *
- * Same check as assertDavSuccess, with two delete-specific rules: a 404 counts
- * as done (DELETE is idempotent and the object is gone either way), and the
- * error says the object is still there, which is what the caller needs to know.
+ * Same check as assertDavSuccess, with two delete-specific rules. A 404 means
+ * there was nothing to delete: reporting "deleted successfully" for a URL
+ * that never existed (a typo, an object someone else removed) tells the caller
+ * something happened when nothing did, so it is a not-found error — unless
+ * the caller saw the target right before the DELETE (`existedBefore`), in
+ * which case it existed and is gone, which is what was asked for. And any
+ * other failure says the object is still there, which is what the caller
+ * needs to know.
  *
  * @param {Response|undefined} response - what tsdav handed back
- * @param {string} what - the object being deleted, for the error message
+ * @param {string} kind - what is being deleted: "calendar", "event", ...
+ * @param {string} url - its URL
+ * @param {object} [options]
+ * @param {boolean} [options.existedBefore] - the target was seen right before the DELETE
  */
-export async function assertDeleted(response, what) {
+export async function assertDeleted(response, kind, url, { existedBefore = false } = {}) {
   const failure = await davFailure(response);
-  if (!failure || failure.status === 404) return;
-  throw davFailureError(failure, `Failed to delete ${what}`, '. The object still exists on the server.');
+  if (!failure) return;
+  if (failure.status === 404) {
+    if (existedBefore) return;
+    const error = new Error(`No ${kind} at ${url} — nothing was deleted.`);
+    error.code = MCP_ERROR_CODES.NOT_FOUND_ERROR;
+    error.httpStatus = 404;
+    error.details = { status: 404, statusText: failure.statusText, url };
+    throw error;
+  }
+  throw davFailureError(failure, `Failed to delete ${kind} ${url}`, '. The object still exists on the server.');
 }
 
 // Query tools return everything the server has in range, which for a wide

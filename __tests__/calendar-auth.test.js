@@ -90,10 +90,18 @@ describe('delete_calendar', () => {
     expect(text).not.toContain('deleted successfully');
   });
 
-  test('a calendar that is gone answers 404 to both requests and counts as deleted', async () => {
+  test('no calendar at the URL (404 to lookup and DELETE): not found, never "deleted"', async () => {
     nextResponse = response(404, 'Not Found');
-    const result = await deleteCalendar.handler({ calendar_url: CALENDAR_URL });
+    const error = await deleteCalendar.handler({ calendar_url: CALENDAR_URL }).catch(e => e);
+
     expect(requests.map(r => r.method)).toEqual(['PROPFIND', 'DELETE']);
+    expect(error.message).toBe(`No calendar at ${CALENDAR_URL} — nothing was deleted.`);
+    expect(error.code).toBe(-32006); // NOT_FOUND_ERROR
+  });
+
+  test('a calendar seen by the lookup that answers 404 to the DELETE existed and is gone: deleted', async () => {
+    nextResponse = answer(liveCalendar, response(404, 'Not Found'));
+    const result = await deleteCalendar.handler({ calendar_url: CALENDAR_URL });
     expect(result.content[0].text).toContain('Calendar deleted successfully');
   });
 });
