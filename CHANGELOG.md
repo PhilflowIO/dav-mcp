@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.1] - 2026-10-02
+
+Security and dependency release. The Docker image of 4.1.0 was built from a
+lockfile with known advisories; this one is not. npm installs of 4.1.0 already
+resolved fixed versions.
+
 ### Security
 - **Updated the locked production dependencies with known vulnerabilities**
   (#82). The repository lockfile carried 10 advisories, 7 of them high; fresh
