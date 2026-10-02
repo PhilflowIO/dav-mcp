@@ -39,6 +39,14 @@ import { initializeToolCallLogger, getToolCallLogger } from './tool-call-logger.
 // Load environment variables
 dotenv.config();
 
+// The MCP SDK's Streamable HTTP transport calls the global `crypto`, which
+// Node.js 18 does not have (it arrived in 20). @hono/node-server 1.x used to
+// set it as a side effect; 2.x, which the SDK now resolves to, no longer does,
+// and every MCP request on Node.js 18 failed with "crypto is not defined".
+if (typeof globalThis.crypto === 'undefined') {
+  globalThis.crypto = crypto.webcrypto;
+}
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
