@@ -52,8 +52,22 @@ You do not need to run the integration suite for every change. Run it when you
 change tool names, tool descriptions or parameter schemas, because those are
 what the LLM sees.
 
-If you touch the `Dockerfile`, build the image and check that it boots:
-`docker build -t dav-mcp:dev .`
+If you touch the `Dockerfile`, build the image and check that it boots and
+reports healthy. The server exits at startup when it cannot reach a CalDAV
+server, so a bare `docker run` proves nothing. Either run
+`docker compose up --build`, which uses the server from your `.env`, or start a
+throwaway Radicale the way CI does (`.github/workflows/docker.yml`):
+
+```bash
+docker build -t dav-mcp:dev .
+docker network create davdev
+docker run -d --name radicale --network davdev tomsquest/docker-radicale:latest
+docker run -d --name dav-mcp --network davdev \
+  -e CALDAV_SERVER_URL=http://radicale:5232 \
+  -e CALDAV_USERNAME=dev -e CALDAV_PASSWORD=dev \
+  dav-mcp:dev
+docker inspect -f '{{.State.Health.Status}}' dav-mcp   # "healthy" within a minute
+```
 
 ## Commits
 
