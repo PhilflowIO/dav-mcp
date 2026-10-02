@@ -24,15 +24,27 @@ export const todoMultiGet = {
     const validated = validateInput(todoMultiGetSchema, args);
     const client = tsdavManager.getCalDavClient();
 
-    // Extract calendar URL from first todo URL
-    const calendarUrl = new URL('.', validated.todo_urls[0]).href;
+    // No calendar_url parameter: a multiget goes to the collection holding the
+    // objects, so send one per parent collection. Todos from several task
+    // lists then all come back instead of only those next to the first URL.
+    const byCalendar = new Map();
+    for (const url of validated.todo_urls) {
+      const calendarUrl = new URL('.', url).href;
+      if (!byCalendar.has(calendarUrl)) byCalendar.set(calendarUrl, []);
+      byCalendar.get(calendarUrl).push(url);
+    }
 
-    const { found, missing } = await multiGetObjects(client, {
-      kind: 'calendar',
-      collectionUrl: calendarUrl,
-      objectUrls: validated.todo_urls,
-    });
+    const todos = [];
+    const missing = [];
+    for (const [calendarUrl, objectUrls] of byCalendar) {
+      const result = await multiGetObjects(client, { kind: 'calendar', collectionUrl: calendarUrl, objectUrls });
+      todos.push(...result.found);
+      missing.push(...result.missing);
+    }
 
-    return withMissingObjects(formatTodoList(found, calendarUrl), missing);
+    const calendarName = byCalendar.size === 1
+      ? [...byCalendar.keys()][0]
+      : `${byCalendar.size} calendars`;
+    return withMissingObjects(formatTodoList(todos, calendarName), missing);
   },
 };

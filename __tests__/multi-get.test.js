@@ -161,6 +161,17 @@ describe('todo_multi_get', () => {
     ]);
     expect(text(result)).toContain(`- ${urls[2]} — not found`);
   });
+
+  test('todos from two task lists each go to their own collection', async () => {
+    const other = `${SERVER}/calendars/user/errands/`;
+    respond = (url) => url === TASKS_URL
+      ? multistatus(found('/calendars/user/tasks/t1.ics', 'e-1', 'cal:calendar-data', ics('t1', 'Task one', 'VTODO')))()
+      : multistatus(found('/calendars/user/errands/t9.ics', 'e-9', 'cal:calendar-data', ics('t9', 'Errand', 'VTODO')))();
+    const result = await todoMultiGet.handler({ todo_urls: [`${TASKS_URL}t1.ics`, `${other}t9.ics`] });
+
+    expect(requests.map(r => r.url)).toEqual([TASKS_URL, other]);
+    expect(rawData(result).map(t => t.url)).toEqual([`${TASKS_URL}t1.ics`, `${other}t9.ics`]);
+  });
 });
 
 describe('addressbook_multi_get', () => {
