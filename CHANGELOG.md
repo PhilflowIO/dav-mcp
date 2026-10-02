@@ -54,9 +54,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the server at startup, listing the valid values, instead of falling back to
   Basic. See MIGRATION.md.
 - **The tsdav dependency is pinned to a release tarball of the fork**
-  (`2.3.5+philflow.4`) instead of following the fork's `master`. Fresh
+  (`2.3.5+philflow.5`) instead of following the fork's `master`. Fresh
   installs of a dav-mcp release now always get the tsdav version that release
-  was tested with, and installing no longer needs git for tsdav.
+  was tested with, and tsdav no longer has to be cloned and built at install
+  time. (`tsdav-utils` is still a git dependency, so git is still needed.)
 
 ## [4.0.1] - 2026-09-10
 
