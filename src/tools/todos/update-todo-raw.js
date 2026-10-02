@@ -1,6 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, updateTodoSchema } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
+import { assertDavSuccess } from '../shared/helpers.js';
 
 /**
  * Update an existing todo/task with raw VTODO iCal data
@@ -37,6 +38,7 @@ export const updateTodoRaw = {
         etag: validated.todo_etag,
       },
     });
+    await assertDavSuccess(result, `update todo ${validated.todo_url}`);
 
     return formatSuccess('Todo updated successfully', {
       url: result.url,

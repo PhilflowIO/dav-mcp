@@ -150,39 +150,141 @@ export function buildTimeRangeOptions(timeRangeStart, timeRangeEnd) {
 }
 
 /**
+ * Pull the human-readable reason out of a DAV error body.
+ *
+ * SabreDAV (Nextcloud, Baikal) answers with an XML <d:error> whose
+ * <s:message> is the only part a person can act on ("The resource you tried
+ * to create already exists"). Anything else is passed through, capped, so a
+ * plain-text reason from another server is not lost either.
+ */
+function extractDavMessage(body) {
+  if (typeof body !== 'string' || !body) return '';
+  const sabre = /<(?:[\w-]+:)?message(?:\s[^>]*)?>([\s\S]*?)<\/(?:[\w-]+:)?message>/.exec(body);
+  if (sabre) return sabre[1].trim();
+  return body.trim().slice(0, 200);
+}
+
+/**
+ * In a parsed 207 multistatus, find the first propstat whose status is not
+ * 2xx. PROPPATCH reports per-property failures only there: the HTTP status is
+ * 207 and tsdav marks the entry ok, so without this a refused property change
+ * reads as success.
+ */
+function failedPropstat(raw) {
+  const responses = raw?.multistatus?.response;
+  if (!responses) return null;
+  for (const response of [].concat(responses)) {
+    for (const propstat of [].concat(response?.propstat ?? [])) {
+      const match = /^\S+\s(\d{3})\s?(.*)$/.exec(String(propstat?.status ?? ''));
+      if (match && !match[1].startsWith('2')) {
+        return { status: Number(match[1]), statusText: match[2] };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Describe why a DAV write failed, or return null if it did not.
+ *
+ * tsdav never rejects on an HTTP error. Its object writes (createObject,
+ * updateObject, deleteObject and every create/update/delete wrapper) hand back
+ * the bare fetch Response; its XML requests (makeCalendar, davRequest,
+ * propfind) hand back DAVResponse[] with `ok: false` on non-2xx. Both shapes
+ * are accepted here so every write path uses the same check.
+ *
+ * @param {Response|Array|undefined} result - what tsdav handed back
+ * @returns {Promise<{status:number, statusText:string, message:string, url?:string}|null>}
+ */
+export async function davFailure(result) {
+  if (Array.isArray(result)) {
+    for (const entry of result) {
+      if (!entry) continue;
+      const httpFailed = entry.ok === false ||
+        (typeof entry.status === 'number' && (entry.status < 200 || entry.status >= 300));
+      if (httpFailed) {
+        return {
+          status: entry.status,
+          statusText: entry.statusText || '',
+          message: extractDavMessage(entry.raw),
+          url: entry.href,
+        };
+      }
+      const propFailure = failedPropstat(entry.raw);
+      if (propFailure) {
+        return { ...propFailure, message: '', url: entry.href };
+      }
+    }
+    return null;
+  }
+
+  // Not every tsdav version returns the raw Response; if we cannot see a
+  // status, we have nothing to check and must not invent a failure.
+  if (!result || typeof result.status !== 'number') return null;
+  if (result.ok ?? (result.status >= 200 && result.status < 300)) return null;
+
+  let body = '';
+  try {
+    body = await result.text();
+  } catch {
+    // body already consumed or not readable — the status is enough
+  }
+  return {
+    status: result.status,
+    statusText: result.statusText || '',
+    message: extractDavMessage(body),
+    url: result.url || undefined,
+  };
+}
+
+/**
+ * Turn a davFailure() result into the error the tools throw, for callers that
+ * inspect the failure before deciding to give up (make_calendar's slug retry).
+ */
+export function davFailureError(failure, prefix, suffix = '') {
+  const error = new Error(
+    `${prefix}: server responded ${failure.status} ${failure.statusText}`.trim() +
+    (failure.message ? `: ${failure.message}` : '') +
+    suffix
+  );
+  error.details = {
+    status: failure.status,
+    statusText: failure.statusText,
+    ...(failure.message && { serverMessage: failure.message }),
+    ...(failure.url && { url: failure.url }),
+  };
+  return error;
+}
+
+/**
+ * Assert that a DAV write was accepted by the server.
+ *
+ * Without this a 403, 412 or 507 is reported to the model as "created" or
+ * "updated" — the server refused, nothing changed, and the caller cannot
+ * tell. Issue #72.
+ *
+ * @param {Response|Array|undefined} result - what tsdav handed back
+ * @param {string} action - what was attempted, e.g. "create event", for the error message
+ */
+export async function assertDavSuccess(result, action) {
+  const failure = await davFailure(result);
+  if (failure) throw davFailureError(failure, `Failed to ${action}`);
+}
+
+/**
  * Assert that a DAV delete actually happened.
  *
- * tsdav's deleteObject — and the deleteCalendarObject / deleteVCard /
- * deleteTodo wrappers around it — is a bare fetch, and fetch does not reject on
- * 4xx or 5xx. An unchecked call therefore reports success for a 403 or 405 as
- * happily as for a 204, which is how "the calendar is still there after I
- * deleted it" becomes invisible to the caller.
- *
- * A 404 counts as done: DELETE is idempotent and the object is gone either way.
+ * Same check as assertDavSuccess, with two delete-specific rules: a 404 counts
+ * as done (DELETE is idempotent and the object is gone either way), and the
+ * error says the object is still there, which is what the caller needs to know.
  *
  * @param {Response|undefined} response - what tsdav handed back
  * @param {string} what - the object being deleted, for the error message
  */
 export async function assertDeleted(response, what) {
-  // Not every tsdav version returns the raw Response; if we cannot see a
-  // status, we have nothing to check and must not invent a failure.
-  if (!response || typeof response.status !== 'number') return;
-
-  if (response.ok || response.status === 404) return;
-
-  let detail = '';
-  try {
-    const body = await response.text();
-    if (body) detail = `: ${body.slice(0, 200)}`;
-  } catch {
-    // body already consumed or not readable — the status is enough
-  }
-
-  throw new Error(
-    `Failed to delete ${what}: server responded ${response.status} ${response.statusText || ''}`.trim() +
-    detail +
-    '. The object still exists on the server.'
-  );
+  const failure = await davFailure(response);
+  if (!failure || failure.status === 404) return;
+  throw davFailureError(failure, `Failed to delete ${what}`, '. The object still exists on the server.');
 }
 
 // Query tools return everything the server has in range, which for a wide

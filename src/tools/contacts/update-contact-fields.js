@@ -1,6 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, davFieldMapSchema } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
+import { assertDavSuccess } from '../shared/helpers.js';
 import { z } from 'zod';
 import { updateFields } from 'tsdav-utils';
 
@@ -120,6 +121,7 @@ export const updateContactFields = {
         etag: validated.vcard_etag
       }
     });
+    await assertDavSuccess(updateResponse, `update contact ${validated.vcard_url}`);
 
     return formatSuccess('Contact updated successfully', {
       etag: updateResponse.etag,

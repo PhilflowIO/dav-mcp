@@ -1,7 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, createEventSchema, sanitizeICalString, isDateOnly } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
-import { formatICalDate, formatICalDateOnly, generateUID, findCalendarOrThrow } from '../shared/helpers.js';
+import { formatICalDate, formatICalDateOnly, generateUID, findCalendarOrThrow, assertDavSuccess } from '../shared/helpers.js';
 
 /**
  * Create a new calendar event
@@ -91,6 +91,7 @@ export const createEvent = {
       filename: `${uid}.ics`,
       iCalString,
     });
+    await assertDavSuccess(response, 'create event');
 
     return formatSuccess('Event created successfully', {
       url: response.url,

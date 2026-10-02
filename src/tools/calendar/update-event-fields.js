@@ -1,6 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, davFieldMapSchema, dateOrDateTime, refineDateRange, isDateOnly } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
+import { assertDavSuccess } from '../shared/helpers.js';
 import { z } from 'zod';
 import { updateFields } from 'tsdav-utils';
 import { setEventDates } from '../shared/event-dates.js';
@@ -167,6 +168,7 @@ export const updateEventFields = {
         etag: validated.event_etag
       }
     });
+    await assertDavSuccess(updateResponse, `update event ${validated.event_url}`);
 
     return formatSuccess('Event updated successfully', {
       etag: updateResponse.etag,

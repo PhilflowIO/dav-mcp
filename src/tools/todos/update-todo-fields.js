@@ -1,6 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, davFieldMapSchema } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
+import { assertDavSuccess } from '../shared/helpers.js';
 import { z } from 'zod';
 import { updateFields } from 'tsdav-utils';
 
@@ -104,6 +105,7 @@ export const updateTodoFields = {
         etag: validated.todo_etag
       }
     });
+    await assertDavSuccess(updateResponse, `update todo ${validated.todo_url}`);
 
     return formatSuccess('Todo updated successfully', {
       etag: updateResponse.etag,

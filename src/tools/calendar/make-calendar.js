@@ -1,7 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, makeCalendarSchema } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
-import { getCalendarHome, sanitizeNameForUrl } from '../shared/helpers.js';
+import { getCalendarHome, sanitizeNameForUrl, assertDavSuccess } from '../shared/helpers.js';
 
 /**
  * Create a new calendar collection
@@ -67,10 +67,11 @@ export const makeCalendar = {
       };
     }
 
-    const calendar = await client.makeCalendar({
+    const response = await client.makeCalendar({
       url: newCalendarUrl,
       props: calendarProps
     });
+    await assertDavSuccess(response, `create calendar ${newCalendarUrl}`);
 
     return formatSuccess('Calendar created successfully', {
       displayName: validated.display_name,
