@@ -16,6 +16,27 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # The Dockerfile's deps stage runs npm ci on the build host
+      # ($BUILDPLATFORM) and copies node_modules into every target platform.
+      # That is only correct while production dependencies are pure
+      # JavaScript: an install script may build a native addon for the host,
+      # and an os/cpu-pinned package is chosen for the host. Either would ship
+      # an amd64 binary in the arm64 image, so fail here instead.
+      - name: Production dependencies are platform-independent
+        run: |
+          node -e '
+            const { packages } = require("./package-lock.json");
+            const bad = Object.entries(packages)
+              .filter(([path, meta]) => path && !meta.dev)
+              .filter(([, meta]) => meta.hasInstallScript || meta.os || meta.cpu)
+              .map(([path]) => path);
+            if (bad.length) {
+              console.log("::error::Production dependencies with install scripts or os/cpu pins: " + bad.join(", ") +
+                ". The Dockerfile deps stage must then run on the target platform.");
+              process.exit(1);
+            }
+          '
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
