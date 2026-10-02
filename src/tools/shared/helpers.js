@@ -247,6 +247,9 @@ export function davFailureError(failure, prefix, suffix = '') {
     (failure.message ? `: ${failure.message}` : '') +
     suffix
   );
+  // The error handler derives the MCP error code from this, not from the
+  // message, which contains the URL.
+  error.httpStatus = failure.status;
   error.details = {
     status: failure.status,
     statusText: failure.statusText,

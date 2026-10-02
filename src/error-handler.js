@@ -35,6 +35,29 @@ const ERROR_TYPE_MAP = {
 };
 
 /**
+ * Map the HTTP status a DAV server answered with to an MCP error code.
+ * Statuses without a more specific meaning are internal errors, as before.
+ */
+function codeForHttpStatus(status) {
+  switch (status) {
+    case 401:
+    case 403:
+      return MCP_ERROR_CODES.AUTH_ERROR;
+    case 404:
+    case 410:
+      return MCP_ERROR_CODES.NOT_FOUND_ERROR;
+    case 409:
+    case 412:
+      return MCP_ERROR_CODES.CONFLICT_ERROR;
+    case 408:
+    case 504:
+      return MCP_ERROR_CODES.TIMEOUT_ERROR;
+    default:
+      return MCP_ERROR_CODES.INTERNAL_ERROR;
+  }
+}
+
+/**
  * Get error code based on error type or message
  */
 function getErrorCode(error) {
@@ -46,6 +69,14 @@ function getErrorCode(error) {
   // Map by error type
   if (error.name && ERROR_TYPE_MAP[error.name]) {
     return ERROR_TYPE_MAP[error.name];
+  }
+
+  // A rejected DAV request carries the server's status. Its message also
+  // carries the URL, so the substring guesses below would read a calendar
+  // called "author-notes" as an auth error, or one with "404" in its name as
+  // not found.
+  if (Number.isInteger(error.httpStatus)) {
+    return codeForHttpStatus(error.httpStatus);
   }
 
   // Check error message for CalDAV/CardDAV specific errors
