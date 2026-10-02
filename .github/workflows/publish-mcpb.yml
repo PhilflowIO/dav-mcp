@@ -55,15 +55,20 @@ jobs:
         run: npm ci --prefix .github/mcpb --ignore-scripts
 
       - name: Pack the bundle
-        run: .github/mcpb/node_modules/.bin/mcpb pack . "dav-mcp-${{ steps.version.outputs.version }}.mcpb"
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: .github/mcpb/node_modules/.bin/mcpb pack . "dav-mcp-${VERSION}.mcpb"
 
       # Checks the file that gets uploaded, not the working tree it came from.
       - name: Verify bundle contents and boot
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          .github/mcpb/node_modules/.bin/mcpb unpack "dav-mcp-${{ steps.version.outputs.version }}.mcpb" "${RUNNER_TEMP}/bundle"
+          .github/mcpb/node_modules/.bin/mcpb unpack "dav-mcp-${VERSION}.mcpb" "${RUNNER_TEMP}/bundle"
           node scripts/verify-mcpb.js "${RUNNER_TEMP}/bundle"
 
       - name: Attach bundle to the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$TAG" "dav-mcp-${{ steps.version.outputs.version }}.mcpb" --clobber
+          VERSION: ${{ steps.version.outputs.version }}
+        run: gh release upload "$TAG" "dav-mcp-${VERSION}.mcpb" --clobber
