@@ -45,15 +45,6 @@ export const dateOrDateTime = z.string().superRefine((value, ctx) => {
 });
 
 /**
- * The instant a parsed value names, for ordering a start against an end. A
- * time without a zone is read in the server timezone, as the write tools do;
- * a date is its UTC midnight, which orders dates correctly against each other.
- */
-function instantOf(parsed) {
-  return parsed.kind === 'floating' ? parsed.local.getTime() : Date.parse(parsed.jcal);
-}
-
-/**
  * The day after a date-only value, as a YYYY-MM-DD value.
  *
  * Date.parse of "YYYY-MM-DD" is UTC midnight by spec, so adding 24h and
@@ -71,7 +62,11 @@ function nextDay(dateOnly) {
  *  - A mixed pair. "2026-05-25" + "2026-05-26T10:00:00Z" is not a coherent
  *    event, and it has to be caught from BOTH sides: keying the check off the
  *    start alone lets a timed start with a date-only end through, which
- *    silently produces an event ending at 00:00 UTC.
+ *    silently produces an event ending at 00:00 UTC. The same holds for a
+ *    time with a zone next to one without: the zoneless one is read in the
+ *    event's own timezone, which is not known here, so neither the order nor
+ *    the length of such a pair can be checked — and a Los Angeles event given
+ *    "10:00" + "12:00Z" would end before it starts.
  *  - all_day inferred with `||`. `all_day || isDateOnly(start)` makes an
  *    explicit `all_day: false` unreachable, so the flag has ?? semantics here
  *    and a contradiction between flag and format is reported as such.
@@ -98,6 +93,17 @@ export function refineDateRange(data, ctx, { startKey, endKey }) {
       message:
         `${startKey} and ${endKey} must both be date-only (YYYY-MM-DD, an all-day event) ` +
         `or must both carry a time; got ${startKey}="${start}" and ${endKey}="${end}"`,
+    });
+    return;
+  }
+
+  if (!startIsDate && (startParsed.kind === 'floating') !== (endParsed.kind === 'floating')) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [endParsed.kind === 'floating' ? endKey : startKey],
+      message:
+        `${startKey} and ${endKey} must both name a timezone (Z or an offset) or both leave it out; ` +
+        `got ${startKey}="${start}" and ${endKey}="${end}"`,
     });
     return;
   }
@@ -137,7 +143,10 @@ export function refineDateRange(data, ctx, { startKey, endKey }) {
     return;
   }
 
-  if (instantOf(endParsed) <= instantOf(startParsed)) {
+  // Same kind on both sides by now: two dates, two UTC instants, or two wall
+  // clock times in the same (event's or server's) zone. Their jCal forms
+  // order correctly as strings, without a zone that is not known here.
+  if (endParsed.jcal <= startParsed.jcal) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: [endKey],

@@ -267,6 +267,27 @@ describe('the other field tools get the same encoding', () => {
     expect(lines(data, 'DTEND')).toEqual(['DTEND;TZID=Europe/Berlin:20261027T190000']);
   });
 
+  test('update_event: a start without a zone and an end with one are refused', async () => {
+    // on a Los Angeles event, "10:00" is 17:00Z, after an end at 12:00Z
+    storedEvent = vevent('DTSTART;TZID=America/Los_Angeles:20261020T090000', 'DTEND;TZID=America/Los_Angeles:20261020T100000');
+    await expect(updateEventFields.handler({
+      event_url: EVENT_URL, event_etag: '"1"',
+      start_date: '2026-05-25T10:00:00', end_date: '2026-05-25T12:00:00Z',
+    })).rejects.toThrow(/must both name a timezone/);
+    expect(updateCalendarObject).not.toHaveBeenCalled();
+  });
+
+  test('update_event: basic and extended forms mix freely', async () => {
+    storedEvent = vevent('DTSTART:20261020T160000Z', 'DTEND:20261020T170000Z');
+    await updateEventFields.handler({
+      event_url: EVENT_URL, event_etag: '"1"',
+      start_date: '20261027T160000Z', end_date: '2026-10-27T17:30Z',
+    });
+    const data = updateCalendarObject.mock.calls[0][0].calendarObject.data;
+    expect(lines(data, 'DTSTART')).toEqual(['DTSTART:20261027T160000Z']);
+    expect(lines(data, 'DTEND')).toEqual(['DTEND:20261027T173000Z']);
+  });
+
   test('update_contact: REV with an offset keeps its instant', async () => {
     storedCard = ['BEGIN:VCARD', 'VERSION:4.0', 'UID:card-1', 'FN:Ada', 'REV:20200101T000000Z', 'END:VCARD'].join('\r\n');
     await updateContactFields.handler({
