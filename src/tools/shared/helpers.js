@@ -421,23 +421,46 @@ function compareKeys(a, b) {
  * (see dateKey and textKey in query-objects.js) — not from the raw text,
  * where the first DTSTART line is often the VTIMEZONE's.
  *
+ * When the exact key is expensive (the occurrence of a recurring event a
+ * range query lists means expanding the series), pass a cheap `sortKey` that
+ * is a lower bound of it plus `exactKey`. Items are visited in lower-bound
+ * order and resolved until the next lower bound is past the limit-th exact
+ * key found so far — no unvisited item can then make the cut. Ties at that
+ * boundary are resolved too, so the returned order is exact. Equal keys keep
+ * their input order.
+ *
  * @template T
  * @param {T[]} items
  * @param {number} limit - maximum number of items to return
- * @param {(item: T) => number|string|null} sortKey - instant or text; null sorts last
+ * @param {(item: T) => number|string|null} sortKey - instant or text, or a
+ *   lower bound of exactKey when that is given; null sorts last
+ * @param {(item: T) => number|string|null} [exactKey]
  * @returns {{ items: T[], total: number }}
  */
-export function limitResults(items, limit, sortKey) {
+export function limitResults(items, limit, sortKey, exactKey = null) {
   const total = items.length;
 
   if (!limit || total <= limit) {
     return { items, total };
   }
 
-  const sorted = items
-    .map((item) => ({ item, key: sortKey(item) }))
-    .sort((a, b) => compareKeys(a.key, b.key))
-    .map(({ item }) => item);
+  const byKey = (a, b) => compareKeys(a.key, b.key) || a.index - b.index;
+  const keyed = items
+    .map((item, index) => ({ item, index, key: sortKey(item) }))
+    .sort(byKey);
 
-  return { items: sorted.slice(0, limit), total };
+  if (!exactKey) {
+    return { items: keyed.slice(0, limit).map(({ item }) => item), total };
+  }
+
+  const resolved = []; // kept sorted by exact key
+  for (const entry of keyed) {
+    if (resolved.length >= limit && compareKeys(entry.key, resolved[limit - 1].key) > 0) break;
+    const exact = { item: entry.item, index: entry.index, key: exactKey(entry.item) };
+    let at = resolved.length;
+    while (at > 0 && byKey(resolved[at - 1], exact) > 0) at--;
+    resolved.splice(at, 0, exact);
+  }
+
+  return { items: resolved.slice(0, limit).map(({ item }) => item), total };
 }

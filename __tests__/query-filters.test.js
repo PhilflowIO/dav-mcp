@@ -227,6 +227,15 @@ describe('calendar_query', () => {
         'RRULE:FREQ=WEEKLY;COUNT=353', 'SUMMARY:Counted'))];
       expect(await when({ summary_filter: 'counted', ...OCTOBER })).toMatch(/^October 5, 2026, 09:00 AM/);
     });
+
+    test('the cap sorts a series by its occurrence in the range, not its start', async () => {
+      const weekly = ics('weekly', vevent('w', 'DTSTART:20200106T080000Z', 'DURATION:PT1H',
+        'RRULE:FREQ=WEEKLY', 'SUMMARY:Weekly')); // first October occurrence: Mon 5 Oct
+      storedEvents = [weekly, ics('oct1', vevent('o1', 'DTSTART:20261001T080000Z', 'DURATION:PT1H', 'SUMMARY:Oct 1'))];
+      expect(await urls(calendarQuery, { ...OCTOBER, limit: 1 })).toEqual(['oct1.ics']);
+      storedEvents = [ics('oct20', vevent('o20', 'DTSTART:20261020T080000Z', 'DURATION:PT1H', 'SUMMARY:Oct 20')), weekly];
+      expect(await urls(calendarQuery, { ...OCTOBER, limit: 1 })).toEqual(['weekly.ics']);
+    });
   });
 
   test('detached instances without a master: the one in range is listed and matched', async () => {

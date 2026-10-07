@@ -87,13 +87,25 @@ export const calendarQuery = {
       ? calendarsToSearch[0]
       : `All Calendars (${calendarsToSearch.length})`;
 
-    const { items, total } = limitResults(
-      parsed,
-      validated.limit ?? DEFAULT_RESULT_LIMIT,
-      listedStart
-    );
+    const rangeStart = timeRange ? new Date(timeRange.start).getTime() : null;
+    const { items, total } = timeRange
+      ? limitResults(
+        parsed,
+        validated.limit ?? DEFAULT_RESULT_LIMIT,
+        (p) => startLowerBound(p, rangeStart),
+        (p) => listedStart(shownOf(p, matches, timeRange), rangeStart)
+      )
+      : limitResults(parsed, validated.limit ?? DEFAULT_RESULT_LIMIT, (p) => dateKey(p, 'dtstart'));
 
-    return formatEventList(items.map(({ object }) => object), calendarName, timeRange, total, matches);
+    // the occurrence each listed event is shown as, resolved once for the
+    // filter, the sort and the display alike
+    const shown = new Map();
+    for (const p of items) {
+      const listed = shownOf(p, matches, timeRange);
+      if (listed) shown.set(p.object, listed);
+    }
+
+    return formatEventList(items.map(({ object }) => object), calendarName, timeRange, total, matches, shown);
   },
 };
 
@@ -116,10 +128,11 @@ function searchOf({ summary_filter: summary, location_filter: location }) {
  * judged by its own text. formatEventList lists the same occurrence, so an
  * event always shows the text it was found by.
  *
- * Expanding a series is the expensive part (ical.js takes ~3 ms for a weekly
- * series six years long), so it only happens when the object's components
- * disagree: if none passes, no occurrence can; if all pass, every occurrence
- * does, and the server returned the object for one inside the range.
+ * Expanding a series is the expensive part — bounded by the range for
+ * daily and weekly rules (see expansionStart), but still the bulk of the
+ * work — so it only happens when the object's components disagree: if none
+ * passes, no occurrence can; if all pass, every occurrence does, and the
+ * server returned the object for one inside the range.
  */
 function isFound(parsed, matches, timeRange) {
   if (!parsed.root) return false;
@@ -139,22 +152,44 @@ function shownOf(parsed, matches, timeRange) {
 }
 
 /**
- * Sort key: the start of what is listed, as an instant (see instantOf);
- * null sorts last.
- *
- * Where the search already resolved the listed occurrence (a series whose
- * override was searched), that occurrence's start. Otherwise the master's
- * DTSTART — for a single event that is what is listed; for a recurring one it
- * is the series start, a lower bound of the listed occurrence. Resolving every
- * series just to sort would expand all of them, not only the 20 listed:
- * ~3.4 s for 500 weekly series six years long.
+ * With a range, the start of what is listed: the occurrence in the range
+ * (an override at its own, possibly moved, start), or for a single event or
+ * detached instance its DTSTART. A series with no occurrence to list sorts
+ * where its lower bound puts it (see startLowerBound). null sorts last.
  */
-function listedStart(parsed) {
-  if (!('shown' in parsed)) return dateKey(parsed, 'dtstart');
-  const { shown } = parsed;
+function listedStart(shown, rangeStart) {
   if (!shown) return null;
-  const dtstart = shown.item.component.getFirstProperty('dtstart');
+  if (!shown.occurrence && shown.event.isRecurring()) {
+    return seriesBound(shown.vevent, rangeStart);
+  }
+  return startOf(shown.item.component, shown.occurrence?.startDate);
+}
+
+/**
+ * A cheap key never later than listedStart, so limitResults only has to
+ * resolve the occurrences that can still make the cut. A series' occurrence
+ * in the range starts no earlier than the later of the series start and the
+ * range start — unless an override moved it earlier, so its overrides' own
+ * starts count too. Detached instances: the earliest of them.
+ */
+function startLowerBound(parsed, rangeStart) {
+  if (!parsed.root || !parsed.main) return null;
+  const all = parsed.root.getAllSubcomponents('vevent');
+  const recurring = parsed.main.hasProperty('rrule') || parsed.main.hasProperty('rdate');
+  const starts = all
+    .map((vevent) => (recurring && vevent === parsed.main ? seriesBound(vevent, rangeStart) : startOf(vevent)))
+    .filter((start) => start !== null);
+  return starts.length ? Math.min(...starts) : null;
+}
+
+function seriesBound(master, rangeStart) {
+  const start = startOf(master);
+  return start === null ? null : Math.max(start, rangeStart);
+}
+
+function startOf(vevent, time) {
+  const dtstart = vevent.getFirstProperty('dtstart');
   if (!dtstart) return null;
-  const instant = orNull(() => instantOf(dtstart, shown.occurrence?.startDate ?? dtstart.getFirstValue()));
+  const instant = orNull(() => instantOf(dtstart, time ?? dtstart.getFirstValue()));
   return Number.isFinite(instant) ? instant : null;
 }

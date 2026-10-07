@@ -20,10 +20,11 @@ import { shareTimezones } from './tools/shared/ical-dates.js';
  * When a time range is given, a recurring series resolves to the occurrence
  * inside that range, including any RECURRENCE-ID override of it.
  */
-function parseICalEvent(icalData, timeRange = null, matches = null) {
+function parseICalEvent(icalData, timeRange = null, matches = null, resolved = null) {
   try {
-    // the occurrence calendar_query's text filters read too (see shownEvent)
-    const shown = shownEvent(shareTimezones(new ICAL.Component(ICAL.parse(icalData))), timeRange, matches);
+    // the occurrence calendar_query's text filters read too (see shownEvent);
+    // resolved there already for a listed event
+    const shown = resolved ?? shownEvent(shareTimezones(new ICAL.Component(ICAL.parse(icalData))), timeRange, matches);
     if (!shown) {
       return {};
     }
@@ -338,9 +339,9 @@ function formatDateTime(icalTime) {
 /**
  * Format a single calendar event to Markdown
  */
-export function formatEvent(event, calendar = 'Unknown Calendar', timeRange = null, matches = null) {
+export function formatEvent(event, calendar = 'Unknown Calendar', timeRange = null, matches = null, shown = null) {
   const calendarName = collectionName(calendar, 'Unknown Calendar');
-  const parsed = parseICalEvent(event.data, timeRange, matches);
+  const parsed = parseICalEvent(event.data, timeRange, matches, shown);
 
   const startDate = formatDateTime(parsed.dtstart);
   const endDate = formatDateTime(parsed.dtend);
@@ -409,9 +410,10 @@ export function formatEvent(event, calendar = 'Unknown Calendar', timeRange = nu
  *
  * `matches` is calendar_query's search: with a time range, each recurring
  * event is listed as the first occurrence in the range that the search
- * found (see shownEvent).
+ * found (see shownEvent). `shown` hands over what the query already
+ * resolved per event (a Map from the event object to shownEvent's result).
  */
-export function formatEventList(events, calendar = 'Unknown Calendar', timeRange = null, total = null, matches = null) {
+export function formatEventList(events, calendar = 'Unknown Calendar', timeRange = null, total = null, matches = null, shown = null) {
   const calendarName = collectionName(calendar, 'Unknown Calendar');
 
   if (!events || events.length === 0) {
@@ -427,7 +429,7 @@ export function formatEventList(events, calendar = 'Unknown Calendar', timeRange
 
   events.forEach((event, index) => {
     output += `### ${index + 1}. `;
-    output += formatEvent(event, calendarName, timeRange, matches).replace(/^## /, '') + '\n';
+    output += formatEvent(event, calendarName, timeRange, matches, shown?.get(event)).replace(/^## /, '') + '\n';
   });
 
   output += `---\n<details>\n<summary>Raw Data (JSON)</summary>\n\n\`\`\`json\n`;
