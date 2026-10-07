@@ -94,6 +94,21 @@ docker inspect -f '{{.State.Health.Status}}' dav-mcp   # "healthy" within a minu
 - Fill in the pull request template, including the `Closes #` line.
 - CI must be green.
 
+## Releases
+
+The version lives in `package.json`; four other files repeat it.
+
+1. Set the new version in `package.json` and `server.json` (top level and the
+   npm package entry).
+2. Run `npm run mcpb:sync` and `npm run plugin:sync`. They write the version
+   into `manifest.json` and `claude-plugin/`; the tests fail until they match.
+3. Publish to npm **before** the version bump reaches `main`. The Claude
+   directory follows `main` and the plugin there starts
+   `npx -y dav-mcp@<version>`, so a version that isn't on npm yet breaks it
+   for everyone who has the plugin.
+4. Tag `v<version>` and publish the GitHub release; the bundle and registry
+   workflows run from it.
+
 ## Security issues
 
 Do not open a public issue for a vulnerability. Report it privately via

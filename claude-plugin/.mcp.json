@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "dav-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "dav-mcp@4.1.2"
+      ],
+      "env": {
+        "CALDAV_SERVER_URL": "${user_config.server_url}",
+        "CALDAV_USERNAME": "${user_config.username}",
+        "CALDAV_PASSWORD": "${user_config.password}",
+        "AUTH_METHOD": "${user_config.auth_method}"
+      }
+    }
+  }
+}
