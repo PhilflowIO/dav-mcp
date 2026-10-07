@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { parseDateValue } from 'tsdav-utils';
 
 /**
  * Validation schemas for all MCP tools
@@ -11,32 +12,55 @@ const dateTimeWithOptionalOffset = z.union([
   z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/, 'Invalid datetime format') // Without timezone
 ]);
 
-// Helper: a date-only value, which RFC 5545 3.3.4 calls a DATE and which is how
-// an all-day event is expressed
-const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+/**
+ * A date or date-time a write tool accepts, parsed with the grammar tsdav-utils
+ * encodes it with — so validation can never accept a form the encoder rejects,
+ * or reject one it writes correctly. null when the value is neither.
+ */
+function parseDate(value) {
+  if (typeof value !== 'string') return null;
+  try {
+    return parseDateValue(value);
+  } catch {
+    return null;
+  }
+}
 
 /**
- * Is this a date-only ("2026-05-25") rather than a datetime value?
+ * Is this a date-only value ("2026-05-25", "20260525"), which RFC 5545 3.3.4
+ * calls a DATE and which is how an all-day event is expressed?
  */
 export function isDateOnly(value) {
-  return typeof value === 'string' && DATE_ONLY.test(value);
+  return parseDate(value)?.kind === 'date';
 }
 
 // Helper: either form. Which one was given decides whether the event is
 // all-day, unless the caller says otherwise with an explicit all_day flag.
-export const dateOrDateTime = z.union([
-  z.string().regex(DATE_ONLY, 'Invalid date format'),
-  dateTimeWithOptionalOffset,
-]);
+export const dateOrDateTime = z.string().superRefine((value, ctx) => {
+  try {
+    parseDateValue(value);
+  } catch (error) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: error.message });
+  }
+});
 
 /**
- * The day after a date-only value, as a date-only value.
+ * The instant a parsed value names, for ordering a start against an end. A
+ * time without a zone is read in the server timezone, as the write tools do;
+ * a date is its UTC midnight, which orders dates correctly against each other.
+ */
+function instantOf(parsed) {
+  return parsed.kind === 'floating' ? parsed.local.getTime() : Date.parse(parsed.jcal);
+}
+
+/**
+ * The day after a date-only value, as a YYYY-MM-DD value.
  *
  * Date.parse of "YYYY-MM-DD" is UTC midnight by spec, so adding 24h and
  * reading the date back off the ISO string never crosses a DST seam.
  */
 function nextDay(dateOnly) {
-  return new Date(Date.parse(dateOnly) + 86400000).toISOString().slice(0, 10);
+  return new Date(Date.parse(parseDate(dateOnly).jcal) + 86400000).toISOString().slice(0, 10);
 }
 
 /**
@@ -60,8 +84,12 @@ export function refineDateRange(data, ctx, { startKey, endKey }) {
   const end = data[endKey];
   if (start === undefined || end === undefined) return;
 
-  const startIsDate = isDateOnly(start);
-  const endIsDate = isDateOnly(end);
+  const startParsed = parseDate(start);
+  const endParsed = parseDate(end);
+  // an unparseable value has its own issue from dateOrDateTime already
+  if (!startParsed || !endParsed) return;
+  const startIsDate = startParsed.kind === 'date';
+  const endIsDate = endParsed.kind === 'date';
 
   if (startIsDate !== endIsDate) {
     ctx.addIssue({
@@ -98,7 +126,7 @@ export function refineDateRange(data, ctx, { startKey, endKey }) {
     return;
   }
 
-  if (allDay && start === end) {
+  if (allDay && startParsed.jcal === endParsed.jcal) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: [endKey],
@@ -109,7 +137,7 @@ export function refineDateRange(data, ctx, { startKey, endKey }) {
     return;
   }
 
-  if (new Date(end) <= new Date(start)) {
+  if (instantOf(endParsed) <= instantOf(startParsed)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: [endKey],

@@ -15,6 +15,9 @@ import { jest } from '@jest/globals';
 const mockUpdateFields = jest.fn((obj, fields) => 'UPDATED_ICAL_DATA');
 jest.unstable_mockModule('tsdav-utils', () => ({
   updateFields: mockUpdateFields,
+  // validation.js parses dates with the library's grammar; no test here
+  // sends a date, so any answer will do
+  parseDateValue: jest.fn(() => ({ kind: 'utc', jcal: '2026-01-01T00:00:00Z' })),
 }));
 
 // --- Mock tsdavManager ---
