@@ -55,7 +55,8 @@ function parseICalEvent(icalData, timeRange = null, matches = null, resolved = n
       })),
     };
   } catch (error) {
-    console.error('Error parsing iCal event:', error);
+    // the parser's message quotes the offending line: personal data, so only its type
+    console.error(`Skipped a event that could not be parsed (${error.name})`);
     return {};
   }
 }
@@ -133,7 +134,8 @@ function parseVCard(vcardData) {
 
     return contact;
   } catch (error) {
-    console.error('Error parsing vCard:', error);
+    // the parser's message quotes the offending line: personal data, so only its type
+    console.error(`Skipped a contact that could not be parsed (${error.name})`);
     return {};
   }
 }
@@ -825,7 +827,8 @@ function parseVTodo(icalData) {
       dtstart: vtodo.getFirstPropertyValue('dtstart'),
     };
   } catch (error) {
-    console.error('Error parsing VTODO:', error);
+    // the parser's message quotes the offending line: personal data, so only its type
+    console.error(`Skipped a todo that could not be parsed (${error.name})`);
     return {};
   }
 }
