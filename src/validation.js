@@ -162,6 +162,20 @@ const DAV_PROPERTY_NAME = /^[A-Za-z][A-Za-z0-9-]*$/;
 
 export const davFieldMapSchema = z.record(z.string(), z.string())
   .superRefine((fields, ctx) => {
+    // property names are case-insensitive (RFC 5545 3.1, RFC 6350 3.3); two
+    // spellings of one name would write it twice with no defined winner
+    const seen = new Map();
+    for (const key of Object.keys(fields)) {
+      const upper = key.toUpperCase();
+      if (seen.has(upper)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `"${key}" and "${seen.get(upper)}" name the same property; give it once`,
+        });
+      }
+      seen.set(upper, key);
+    }
     for (const [key, value] of Object.entries(fields)) {
       if (!DAV_PROPERTY_NAME.test(key)) {
         ctx.addIssue({
@@ -179,6 +193,10 @@ export const davFieldMapSchema = z.record(z.string(), z.string())
       }
     }
   })
+  // one spelling from here on, so every check after this one can look up
+  // "DTSTART" or "DUE" without missing "dtstart" or "Due"
+  .transform((fields) =>
+    Object.fromEntries(Object.entries(fields).map(([key, value]) => [key.toUpperCase(), value])))
   .optional();
 
 // Helper: Optional URL that gracefully handles LLM placeholder values
