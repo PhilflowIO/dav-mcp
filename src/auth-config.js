@@ -34,7 +34,7 @@ const AUTH_METHODS = {
 };
 
 const DEFAULT_GOOGLE_SERVER_URL = 'https://apidata.googleusercontent.com/caldav/v2/';
-const DEFAULT_GOOGLE_TOKEN_URL = 'https://accounts.google.com/o/oauth2/token';
+const DEFAULT_GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 
 /**
  * Normalize an AUTH_METHOD value to 'Basic', 'Digest' or 'OAuth'.

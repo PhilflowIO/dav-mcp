@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.3.0] - 2026-10-07
+
+### Security
+- **Requests only go to the configured DAV account**
+  ([GHSA-hfg5-7h5r-vgfq](https://github.com/PhilflowIO/dav-mcp/security/advisories/GHSA-hfg5-7h5r-vgfq)).
+  Tools that take a calendar, address book, event, todo or contact URL
+  accepted a URL on any host, and the DAV login (password or OAuth token) was
+  sent along with the request. A URL is now accepted only below the
+  configured server URL or below a URL that server named itself while logging
+  in or listing the account's collections (for example a per-account host).
+  Other hosts, other paths on the same host, plain http for a server
+  configured over https, and URLs carrying a user name or password are
+  refused before a request is made, with an error naming what is allowed.
+  The check runs in the tool parameters and again on every request the DAV
+  clients make, including each redirect a server answers with; the OAuth
+  token endpoint is only used for token requests. The restriction is scoped to
+  the configured path: a server URL that is only the bare host
+  (`https://dav.example.com/`) leaves the whole host reachable, so configure
+  the DAV path (for example `https://dav.example.com/remote.php/dav/`).
+
 ### Added
 - **Claude plugin** (`claude-plugin/`, #99). dav-mcp can be installed as a
   Claude Code plugin and listed in the Claude directory: it asks for the server
@@ -105,6 +125,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   listed about five times faster than before.
 
 ### Changed
+- The default OAuth token endpoint (`GOOGLE_TOKEN_URL`) is Google's current
+  `https://oauth2.googleapis.com/token`, the one its OpenID discovery document
+  names, instead of the legacy `https://accounts.google.com/o/oauth2/token`.
+  Token requests no longer follow redirects. Setting `GOOGLE_TOKEN_URL` still
+  overrides the default.
 - `create_todo` accepts a bare date for `due_date`, giving a todo due that day;
   before, it became midnight UTC. `create_event`, `create_todo` and the update
   tools now share one date encoder instead of three, and check input against

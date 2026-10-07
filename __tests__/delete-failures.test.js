@@ -1,4 +1,8 @@
 import { describe, test, expect, beforeEach, afterEach, jest } from '@jest/globals';
+import { connectTo } from './support/request-origins.js';
+
+// The URLs below belong to the server these tests stand in for.
+connectTo('https://dav.example.com/', 'https://example.com/');
 
 const CALENDAR_URL = 'https://dav.example.com/calendars/user/work/';
 const EVENT_URL = `${CALENDAR_URL}e.ics`;

@@ -1,5 +1,5 @@
 import { tsdavManager } from '../../tsdav-client.js';
-import { validateInput, davFieldMapSchema } from '../../validation.js';
+import { validateInput, davFieldMapSchema, davUrl } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
 import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
 import { z } from 'zod';
@@ -12,7 +12,7 @@ import { writeFields } from '../shared/ical-dates.js';
  * Custom properties: Any X-* property
  */
 const updateContactFieldsSchema = z.object({
-  vcard_url: z.string().url('vCard URL must be a valid URL'),
+  vcard_url: davUrl('vCard URL must be a valid URL'),
   vcard_etag: z.string().min(1, 'vCard etag is required'),
   fields: davFieldMapSchema
 });

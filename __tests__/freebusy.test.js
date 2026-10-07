@@ -1,4 +1,8 @@
 import { describe, test, expect, beforeEach, jest } from '@jest/globals';
+import { connectTo } from './support/request-origins.js';
+
+// The URLs below belong to the server these tests stand in for.
+connectTo('https://dav.example.com/');
 import { calculateFreeBusy } from '../src/tools/shared/freebusy.js';
 
 const CALENDAR_URL = 'https://dav.example.com/calendars/user/work/';

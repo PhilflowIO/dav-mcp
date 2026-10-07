@@ -2,6 +2,58 @@ import { DAVClient, isDigestUnsupportedError } from 'tsdav';
 import { logger } from './logger.js';
 import { CalDAVError, CardDAVError } from './error-handler.js';
 import { ConfigurationError } from './auth-config.js';
+import { RequestOrigins, activateRequestOrigins } from './request-origins.js';
+
+const DEFAULT_OAUTH_TOKEN_URL = 'https://oauth2.googleapis.com/token';
+
+/**
+ * A tsdav client that only reaches URLs inside the account (see
+ * request-origins.js). Every request tsdav makes goes through the fetch given
+ * here; a fetch passed to a single call is wrapped as well, so passing one
+ * does not open a way around the check. OAuth token requests get a fetch of
+ * their own that reaches the token endpoint and nothing else.
+ */
+class OriginCheckedDAVClient extends DAVClient {
+  constructor(params, origins) {
+    super({ ...params, fetch: origins.fetch() });
+    this.requestOrigins = origins;
+  }
+
+  #checked(params, options) {
+    if (!options && (!params?.fetch || this.requestOrigins.checks(params.fetch))) return params;
+    return { ...params, fetch: this.requestOrigins.fetch(params?.fetch, options) };
+  }
+
+  // tsdav fetches OAuth tokens with the fetch it is handed here; whatever a
+  // caller passes, token requests only go to the token endpoint.
+  async authenticate(force, fetchOptions) {
+    return super.authenticate(force, fetchOptions, this.requestOrigins.tokenFetch());
+  }
+
+  async invoke(fn, params) {
+    return super.invoke(fn, this.#checked(params));
+  }
+
+  async davRequest(params) {
+    return super.davRequest(this.#checked(params));
+  }
+
+  async createAccount(params) {
+    return super.createAccount(this.#checked(params));
+  }
+
+  // A server may list a collection somewhere other than below its home;
+  // tsdav asks each listed collection for its reports while still listing,
+  // so the collections in the home listing have to be known before the
+  // listing call returns.
+  async fetchCalendars(params) {
+    return super.fetchCalendars(this.#checked(params, { listingOf: this.account?.homeUrl }));
+  }
+
+  async fetchAddressBooks(params) {
+    return super.fetchAddressBooks(this.#checked(params, { listingOf: this.account?.homeUrl }));
+  }
+}
 
 /**
  * Singleton CalDAV/CardDAV Client Manager
@@ -47,15 +99,39 @@ class TsdavClientManager {
       // Determine authentication method
       const useOAuth = this.authMethod === 'OAuth' || this.authMethod === 'Oauth';
 
-      if (useOAuth) {
-        logger.info({ serverUrl: config.serverUrl }, 'Initializing tsdav clients with OAuth2');
-        await this._initializeOAuth(config);
-      } else if (this.authMethod === 'Basic' || this.authMethod === 'Digest') {
-        logger.info({ serverUrl: config.serverUrl }, `Initializing tsdav clients, ${this.authMethod} Auth configured`);
-        await this._initializePasswordAuth(config, this.authMethod);
-      } else {
+      if (!useOAuth && this.authMethod !== 'Basic' && this.authMethod !== 'Digest') {
         throw new Error(`Unsupported authMethod '${this.authMethod}'. Use Basic, Digest or OAuth.`);
       }
+
+      // A fresh policy per login: the clients built here may reach the
+      // configured server, what it redirects the login to and the account it
+      // describes; their token requests only the OAuth token endpoint
+      // (see request-origins.js).
+      const tokenUrl = useOAuth ? (config.tokenUrl || DEFAULT_OAUTH_TOKEN_URL) : undefined;
+      const origins = new RequestOrigins({ serverUrl: config.serverUrl, tokenUrl });
+
+      let clients;
+      if (useOAuth) {
+        logger.info({ serverUrl: config.serverUrl }, 'Initializing tsdav clients with OAuth2');
+        clients = await this._initializeOAuth({ ...config, tokenUrl }, origins);
+      } else {
+        logger.info({ serverUrl: config.serverUrl }, `Initializing tsdav clients, ${this.authMethod} Auth configured`);
+        clients = await this._initializePasswordAuth(config, this.authMethod, origins);
+      }
+
+      // The account the server described (root, principal, calendar and
+      // address book home) is where its collections live, e.g. on a
+      // per-account host.
+      origins.trustAccount(clients.calDavClient.account);
+      origins.trustAccount(clients.cardDavClient.account);
+      origins.endDiscovery();
+
+      // Tools only see clients that have finished logging in; until then the
+      // previous clients and their policy stay in place.
+      activateRequestOrigins(origins);
+      this.calDavClient = clients.calDavClient;
+      this.cardDavClient = clients.cardDavClient;
+      logger.info({ allowedPrefixes: origins.allowedPrefixes() }, 'Requests are restricted to these URLs and below');
 
       // "configured", not "used": under Basic tsdav switches to Digest when
       // the server offers nothing else, and does not expose which scheme it
@@ -89,15 +165,17 @@ class TsdavClientManager {
    * @private
    * @param {Object} config - Client configuration
    * @param {'Basic'|'Digest'} authMethod - tsdav auth method
+   * @param {RequestOrigins} origins - where the clients may send requests
+   * @returns {Promise<{calDavClient: DAVClient, cardDavClient: DAVClient}>} logged-in clients
    */
-  async _initializePasswordAuth(config, authMethod) {
+  async _initializePasswordAuth(config, authMethod, origins) {
     // Validate required fields
     if (!config.username || !config.password) {
       throw new Error(`${authMethod} Auth requires username and password`);
     }
 
     // CalDAV Client
-    this.calDavClient = new DAVClient({
+    const calDavClient = new OriginCheckedDAVClient({
       serverUrl: config.serverUrl,
       credentials: {
         username: config.username,
@@ -105,10 +183,10 @@ class TsdavClientManager {
       },
       authMethod,
       defaultAccountType: 'caldav',
-    });
+    }, origins);
 
     // CardDAV Client
-    this.cardDavClient = new DAVClient({
+    const cardDavClient = new OriginCheckedDAVClient({
       serverUrl: config.serverUrl,
       credentials: {
         username: config.username,
@@ -116,21 +194,26 @@ class TsdavClientManager {
       },
       authMethod,
       defaultAccountType: 'carddav',
-    });
+    }, origins);
 
     // Login to both clients
-    await this.calDavClient.login();
+    await calDavClient.login();
     logger.debug({ accountType: 'caldav' }, `CalDAV client logged in (${authMethod} Auth configured)`);
 
-    await this.cardDavClient.login();
+    await cardDavClient.login();
     logger.debug({ accountType: 'carddav' }, `CardDAV client logged in (${authMethod} Auth configured)`);
+
+    return { calDavClient, cardDavClient };
   }
 
   /**
    * Initialize clients with OAuth2 Authentication
    * @private
+   * @param {Object} config - Client configuration, tokenUrl resolved
+   * @param {RequestOrigins} origins - where the clients may send requests
+   * @returns {Promise<{calDavClient: DAVClient, cardDavClient: DAVClient}>} logged-in clients
    */
-  async _initializeOAuth(config) {
+  async _initializeOAuth(config, origins) {
     // Validate required OAuth fields
     if (!config.username) {
       throw new Error('OAuth requires username (user email)');
@@ -139,8 +222,7 @@ class TsdavClientManager {
       throw new Error('OAuth requires clientId, clientSecret, and refreshToken');
     }
 
-    // Default to Google's token endpoint if not specified
-    const tokenUrl = config.tokenUrl || 'https://accounts.google.com/o/oauth2/token';
+    const tokenUrl = config.tokenUrl;
 
     const oauthCredentials = {
       tokenUrl,
@@ -157,31 +239,31 @@ class TsdavClientManager {
     }, 'Configuring OAuth2 credentials');
 
     // CalDAV Client with OAuth
-    this.calDavClient = new DAVClient({
+    const calDavClient = new OriginCheckedDAVClient({
       serverUrl: config.serverUrl,
       credentials: oauthCredentials,
       authMethod: 'Oauth', // Note: tsdav expects 'Oauth' with capital O
       defaultAccountType: 'caldav',
-    });
+    }, origins);
 
     // CardDAV Client with OAuth
     // Note: Google Calendar doesn't support CardDAV, but we initialize it anyway
     // for compatibility with other OAuth2 CalDAV/CardDAV servers
-    this.cardDavClient = new DAVClient({
+    const cardDavClient = new OriginCheckedDAVClient({
       serverUrl: config.serverUrl,
       credentials: oauthCredentials,
       authMethod: 'Oauth',
       defaultAccountType: 'carddav',
-    });
+    }, origins);
 
     // Login to CalDAV client
-    await this.calDavClient.login();
+    await calDavClient.login();
     logger.debug({ accountType: 'caldav' }, 'CalDAV client logged in (OAuth2)');
 
     // Try to login to CardDAV client, but don't fail if it doesn't work
     // (Google Calendar doesn't support CardDAV)
     try {
-      await this.cardDavClient.login();
+      await cardDavClient.login();
       logger.debug({ accountType: 'carddav' }, 'CardDAV client logged in (OAuth2)');
     } catch (error) {
       logger.warn({
@@ -189,6 +271,8 @@ class TsdavClientManager {
       }, 'CardDAV login failed (expected for Google Calendar)');
       // Don't throw - CardDAV is optional for OAuth2 providers like Google
     }
+
+    return { calDavClient, cardDavClient };
   }
 
   /**

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { parseDateValue } from 'tsdav-utils';
+import { requestUrlProblem } from './request-origins.js';
 
 /**
  * Validation schemas for all MCP tools
@@ -213,6 +214,26 @@ export const davFieldMapSchema = z.record(z.string(), z.string())
     Object.fromEntries(Object.entries(fields).map(([key, value]) => [key.toUpperCase(), value])))
   .optional();
 
+/**
+ * A URL dav-mcp will send a request to, with the login attached: it must be
+ * on the configured DAV server or an origin that server named itself
+ * (request-origins.js). Every tool parameter holding a collection or object
+ * URL uses this, so a URL planted in an event or contact is refused here,
+ * with a message naming the allowed origins, before the tool does anything.
+ */
+export const davUrl = (message) =>
+  z.string().url(message).superRefine((url, ctx) => {
+    // not a URL at all: .url() has said so already, in the caller's words
+    // (no URL.canParse: engines allows Node.js 18.0)
+    try {
+      new URL(url);
+    } catch {
+      return;
+    }
+    const problem = requestUrlProblem(url);
+    if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem });
+  });
+
 // Helper: Optional URL that gracefully handles LLM placeholder values
 // Transforms common LLM-generated placeholders ("", "unknown", "default", etc.) to undefined
 const optionalUrl = (message) =>
@@ -232,7 +253,7 @@ const optionalUrl = (message) =>
       }
       return val;
     },
-    z.string().url(message).optional()
+    davUrl(message).optional()
   );
 
 // Helper: cap on how many objects a query may return. The caller is an LLM
@@ -250,7 +271,7 @@ export const listEventsSchema = z.object({
 });
 
 export const createEventSchema = z.object({
-  calendar_url: z.string().url('Invalid calendar URL'),
+  calendar_url: davUrl('Invalid calendar URL'),
   summary: z.string().min(1, 'Summary is required').max(500),
   start_date: dateOrDateTime,
   end_date: dateOrDateTime,
@@ -263,13 +284,13 @@ export const createEventSchema = z.object({
 }));
 
 export const updateEventSchema = z.object({
-  event_url: z.string().url('Invalid event URL'),
+  event_url: davUrl('Invalid event URL'),
   event_etag: z.string().min(1, 'ETag is required'),
   updated_ical_data: z.string().min(1, 'iCal data is required'),
 });
 
 export const deleteEventSchema = z.object({
-  event_url: z.string().url('Invalid event URL'),
+  event_url: davUrl('Invalid event URL'),
   event_etag: z.string().min(1, 'ETag is required'),
 });
 
@@ -313,7 +334,7 @@ export const makeCalendarSchema = z.object({
 });
 
 export const updateCalendarSchema = z.object({
-  calendar_url: z.string().url('Invalid calendar URL'),
+  calendar_url: davUrl('Invalid calendar URL'),
   display_name: z.string().min(1).max(200).optional(),
   description: z.string().max(500).optional(),
   color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
@@ -326,23 +347,23 @@ export const updateCalendarSchema = z.object({
 });
 
 export const deleteCalendarSchema = z.object({
-  calendar_url: z.string().url('Invalid calendar URL'),
+  calendar_url: davUrl('Invalid calendar URL'),
 });
 
 export const calendarMultiGetSchema = z.object({
-  calendar_url: z.string().url('Invalid calendar URL'),
-  event_urls: z.array(z.string().url('Invalid event URL')).min(1, 'At least one event URL required'),
+  calendar_url: davUrl('Invalid calendar URL'),
+  event_urls: z.array(davUrl('Invalid event URL')).min(1, 'At least one event URL required'),
 });
 
 // CardDAV Schemas
 export const listAddressbooksSchema = z.object({});
 
 export const listContactsSchema = z.object({
-  addressbook_url: z.string().url('Invalid addressbook URL'),
+  addressbook_url: davUrl('Invalid addressbook URL'),
 });
 
 export const createContactSchema = z.object({
-  addressbook_url: z.string().url('Invalid addressbook URL'),
+  addressbook_url: davUrl('Invalid addressbook URL'),
   full_name: z.string().min(1, 'Full name is required').max(200),
   family_name: z.string().max(100).optional(),
   given_name: z.string().max(100).optional(),
@@ -353,13 +374,13 @@ export const createContactSchema = z.object({
 });
 
 export const updateContactSchema = z.object({
-  vcard_url: z.string().url('Invalid vCard URL'),
+  vcard_url: davUrl('Invalid vCard URL'),
   vcard_etag: z.string().min(1, 'ETag is required'),
   updated_vcard_data: z.string().min(1, 'vCard data is required'),
 });
 
 export const deleteContactSchema = z.object({
-  vcard_url: z.string().url('Invalid vCard URL'),
+  vcard_url: davUrl('Invalid vCard URL'),
   vcard_etag: z.string().min(1, 'ETag is required'),
 });
 
@@ -379,17 +400,17 @@ export const addressBookQuerySchema = z.object({
 });
 
 export const addressBookMultiGetSchema = z.object({
-  addressbook_url: z.string().url('Invalid addressbook URL'),
-  contact_urls: z.array(z.string().url('Invalid contact URL')).min(1, 'At least one contact URL required'),
+  addressbook_url: davUrl('Invalid addressbook URL'),
+  contact_urls: z.array(davUrl('Invalid contact URL')).min(1, 'At least one contact URL required'),
 });
 
 // VTODO (Task) Schemas
 export const listTodosSchema = z.object({
-  calendar_url: z.string().url('Invalid calendar URL'),
+  calendar_url: davUrl('Invalid calendar URL'),
 });
 
 export const createTodoSchema = z.object({
-  calendar_url: z.string().url('Invalid calendar URL'),
+  calendar_url: davUrl('Invalid calendar URL'),
   summary: z.string().min(1, 'Summary is required').max(500),
   description: z.string().max(5000).optional(),
   due_date: dateOrDateTime.optional(),
@@ -399,13 +420,13 @@ export const createTodoSchema = z.object({
 });
 
 export const updateTodoSchema = z.object({
-  todo_url: z.string().url('Invalid todo URL'),
+  todo_url: davUrl('Invalid todo URL'),
   todo_etag: z.string().min(1, 'ETag is required'),
   updated_ical_data: z.string().min(1, 'iCal data is required'),
 });
 
 export const deleteTodoSchema = z.object({
-  todo_url: z.string().url('Invalid todo URL'),
+  todo_url: davUrl('Invalid todo URL'),
   todo_etag: z.string().min(1, 'ETag is required'),
 });
 
@@ -431,7 +452,7 @@ export const todoQuerySchema = z.object({
 });
 
 export const todoMultiGetSchema = z.object({
-  todo_urls: z.array(z.string().url('Invalid todo URL')).min(1, 'At least one todo URL required'),
+  todo_urls: z.array(davUrl('Invalid todo URL')).min(1, 'At least one todo URL required'),
 });
 
 /**
