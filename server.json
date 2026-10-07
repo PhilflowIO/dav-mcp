@@ -81,7 +81,7 @@
         },
         {
           "name": "GOOGLE_TOKEN_URL",
-          "description": "OAuth2 token endpoint; required when AUTH_METHOD=oauth2",
+          "description": "OAuth2 token endpoint for AUTH_METHOD=oauth2 (default: https://oauth2.googleapis.com/token)",
           "isRequired": false,
           "format": "string",
           "isSecret": false

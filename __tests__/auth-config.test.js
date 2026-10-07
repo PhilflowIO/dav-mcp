@@ -105,7 +105,7 @@ describe('buildTsdavConfig', () => {
       clientId: 'id',
       clientSecret: 'secret',
       refreshToken: 'refresh',
-      tokenUrl: 'https://accounts.google.com/o/oauth2/token',
+      tokenUrl: 'https://oauth2.googleapis.com/token',
     });
   });
 

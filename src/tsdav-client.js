@@ -4,7 +4,7 @@ import { CalDAVError, CardDAVError } from './error-handler.js';
 import { ConfigurationError } from './auth-config.js';
 import { RequestOrigins, activateRequestOrigins } from './request-origins.js';
 
-const DEFAULT_OAUTH_TOKEN_URL = 'https://accounts.google.com/o/oauth2/token';
+const DEFAULT_OAUTH_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 
 /**
  * A tsdav client that only reaches URLs inside the account (see
