@@ -105,7 +105,8 @@ The version lives in `package.json`; four other files repeat it.
 3. Publish to npm **before** the version bump reaches `main`. The Claude
    directory follows `main` and the plugin there starts
    `npx -y dav-mcp@<version>`, so a version that isn't on npm yet breaks it
-   for everyone who has the plugin.
+   for everyone who has the plugin. CI (`plugin-pin` in `test.yml`) fails
+   while the pinned version is missing from npm.
 4. Tag `v<version>` and publish the GitHub release; the bundle and registry
    workflows run from it.
 

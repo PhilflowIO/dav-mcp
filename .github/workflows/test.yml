@@ -107,6 +107,25 @@ jobs:
       - name: Verify bundle contents and boot
         run: node scripts/verify-mcpb.js "${RUNNER_TEMP}/bundle"
 
+  # The Claude plugin starts `npx -y dav-mcp@<version>` with the version in
+  # package.json. Users of the plugin get whatever npm serves under it, so it
+  # has to be published before the version reaches main (CONTRIBUTING.md,
+  # Releases); a pull request that bumps it fails here until it is.
+  plugin-pin:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: The pinned version is on npm
+        run: |
+          pinned=$(node -p 'require("./claude-plugin/.mcp.json").mcpServers["dav-mcp"].args.at(-1)')
+          npm view "$pinned" version >/dev/null || { echo "::error::$pinned is not on npm; publish it before this reaches main"; exit 1; }
+
   audit:
     runs-on: ubuntu-latest
 
