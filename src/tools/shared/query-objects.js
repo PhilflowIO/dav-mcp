@@ -1,4 +1,6 @@
 import ICAL from 'ical.js';
+import { instantOf } from './ical-dates.js';
+
 /**
  * The query tools filter and sort what the server returned on our side. They
  * do it on parsed values, never on the raw text: a pattern such as
@@ -6,10 +8,10 @@ import ICAL from 'ical.js';
  * (SUMMARY;LANGUAGE=de:…) or is folded across lines, compares escaped text
  * (`\,`), and /N:(.+)/ also matches inside FN: or ORGANIZER;CN=…: lines.
  *
- * Each object is parsed once, here, and every filter and the sort read that
- * one parse. One malformed object must not fail the query for all the others:
- * it parses to null, matches no filter and sorts last — it is still returned
- * when no filter is set, as it was before.
+ * Each object is parsed once, here, and every filter and the sort key read
+ * that one parse. One malformed object must not fail the query for all the
+ * others: it parses to null, matches no filter and sorts last — it is still
+ * returned when no filter is set, as it was before.
  */
 
 /**
@@ -123,6 +125,39 @@ export function contactNames(vcard) {
 export function containsText(values, needle) {
   const lower = needle.toLowerCase();
   return values.some((value) => value.toLowerCase().includes(lower));
+}
+
+/**
+ * Sort key for a date property of the main component: its instant (see
+ * instantOf), or null when the property is absent or unreadable — null sorts
+ * last in limitResults.
+ *
+ * @param {ParsedObject} parsed
+ * @param {string} name - property name, any case
+ * @returns {number|null}
+ */
+export function dateKey(parsed, name) {
+  const property = parsed.main?.getFirstProperty(name.toLowerCase());
+  if (!property) return null;
+  try {
+    const instant = instantOf(property);
+    return Number.isFinite(instant) ? instant : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Sort key for a text property of the main component: its first value,
+ * lower-cased, or null when absent.
+ *
+ * @param {ParsedObject} parsed
+ * @param {string} name - property name, any case
+ * @returns {string|null}
+ */
+export function textKey(parsed, name) {
+  const [first] = textValues(parsed.main, name);
+  return first ? first.toLowerCase() : null;
 }
 
 /**

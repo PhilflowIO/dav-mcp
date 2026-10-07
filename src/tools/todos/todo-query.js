@@ -3,7 +3,7 @@ import { validateInput, todoQuerySchema } from '../../validation.js';
 import { formatTodoList } from '../../formatters.js';
 import { limitResults, DEFAULT_RESULT_LIMIT } from '../shared/helpers.js';
 import { dueSpan } from '../shared/ical-dates.js';
-import { parseObjects, textValues, containsText, orNull } from '../shared/query-objects.js';
+import { parseObjects, textValues, containsText, dateKey, orNull } from '../shared/query-objects.js';
 
 /**
  * Search and filter todos efficiently
@@ -99,19 +99,17 @@ export const todoQuery = {
       });
     }
 
-    todos = parsed.map(({ object }) => object);
-
     // Determine calendar name for display
     const calendarName = calendarsToSearch.length === 1
       ? (calendarsToSearch[0].displayName || calendarsToSearch[0].url)
       : `All Calendars (${calendarsToSearch.length})`;
 
     const { items, total } = limitResults(
-      todos,
+      parsed,
       validated.limit ?? DEFAULT_RESULT_LIMIT,
-      'DUE'
+      (p) => dateKey(p, 'due')
     );
 
-    return formatTodoList(items, calendarName, total);
+    return formatTodoList(items.map(({ object }) => object), calendarName, total);
   },
 };

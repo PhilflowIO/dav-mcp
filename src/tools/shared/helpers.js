@@ -397,49 +397,47 @@ export async function assertDeleted(response, kind, url, { existedBefore = false
 export const DEFAULT_RESULT_LIMIT = 20;
 
 /**
- * Extract a sortable key from a raw iCal/vCard body.
- *
- * Date properties normalise to digits so that a DATE ("20260525") and a
- * DATE-TIME ("20260525T100000Z") sort against each other correctly, which they
- * do not as raw strings. Text properties sort case-insensitively.
- *
- * A missing property sorts last either way: an object with no date is not
- * "earliest", and an unnamed contact is not first.
+ * Order two sort keys: numbers (instants) numerically, strings
+ * case-insensitively as given. A missing key (null) sorts last either way: an
+ * object with no date is not "earliest", and an unnamed contact is not first.
  */
-function sortKey(data, property, kind) {
-  const raw = data?.match(new RegExp(`^${property}[^:]*:(.+)$`, 'm'))?.[1]?.trim() || '';
-
-  if (kind === 'text') {
-    return raw ? raw.toLowerCase() : '\uffff';
-  }
-  const digits = raw.replace(/\D/g, '');
-  return digits ? digits.padEnd(14, '0') : '9'.repeat(14);
+function compareKeys(a, b) {
+  if (a === null || a === undefined) return b === null || b === undefined ? 0 : 1;
+  if (b === null || b === undefined) return -1;
+  return typeof a === 'number' && typeof b === 'number'
+    ? a - b
+    : String(a).localeCompare(String(b));
 }
 
 /**
- * Sort by date and cap the result set.
+ * Sort and cap the result set.
  *
  * Truncating without sorting would hand back an arbitrary subset, which is
  * worse than a smaller one: the caller cannot tell which events they are
  * missing. Returns the total so the formatter can say what was left out —
  * silent truncation reads as "this is everything".
  *
- * @param {Array} items - DAV objects with a `data` property
+ * The key comes from the caller, read off the object it has already parsed
+ * (see dateKey and textKey in query-objects.js) — not from the raw text,
+ * where the first DTSTART line is often the VTIMEZONE's.
+ *
+ * @template T
+ * @param {T[]} items
  * @param {number} limit - maximum number of items to return
- * @param {string} property - property to sort by (DTSTART, DUE, FN, ...)
- * @param {'date'|'text'} kind - how to compare that property
- * @returns {{ items: Array, total: number }}
+ * @param {(item: T) => number|string|null} sortKey - instant or text; null sorts last
+ * @returns {{ items: T[], total: number }}
  */
-export function limitResults(items, limit, property, kind = 'date') {
+export function limitResults(items, limit, sortKey) {
   const total = items.length;
 
   if (!limit || total <= limit) {
     return { items, total };
   }
 
-  const sorted = [...items].sort(
-    (a, b) => sortKey(a.data, property, kind).localeCompare(sortKey(b.data, property, kind))
-  );
+  const sorted = items
+    .map((item) => ({ item, key: sortKey(item) }))
+    .sort((a, b) => compareKeys(a.key, b.key))
+    .map(({ item }) => item);
 
   return { items: sorted.slice(0, limit), total };
 }

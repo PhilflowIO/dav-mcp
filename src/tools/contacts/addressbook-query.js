@@ -2,7 +2,7 @@ import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, addressBookQuerySchema } from '../../validation.js';
 import { formatContactList } from '../../formatters.js';
 import { limitResults, DEFAULT_RESULT_LIMIT } from '../shared/helpers.js';
-import { parseObjects, textValues, contactNames, containsText } from '../shared/query-objects.js';
+import { parseObjects, textValues, contactNames, containsText, textKey } from '../shared/query-objects.js';
 
 /**
  * Search and filter contacts efficiently
@@ -75,19 +75,16 @@ export const addressbookQuery = {
         containsText(textValues(main, 'org', ', '), validated.organization_filter));
     }
 
-    const filteredContacts = parsed.map(({ object }) => object);
-
     const addressBookName = addressbooksToSearch.length === 1
       ? addressbooksToSearch[0]
       : `All Address Books (${addressbooksToSearch.length})`;
 
     const { items, total } = limitResults(
-      filteredContacts,
+      parsed,
       validated.limit ?? DEFAULT_RESULT_LIMIT,
-      'FN',
-      'text'
+      (p) => textKey(p, 'fn')
     );
 
-    return formatContactList(items, addressBookName, total);
+    return formatContactList(items.map(({ object }) => object), addressBookName, total);
   },
 };

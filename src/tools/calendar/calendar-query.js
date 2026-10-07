@@ -3,7 +3,7 @@ import { validateInput, calendarQuerySchema } from '../../validation.js';
 import { formatEventList } from '../../formatters.js';
 import { buildTimeRangeOptions, limitResults, DEFAULT_RESULT_LIMIT } from '../shared/helpers.js';
 import { eventSpan } from '../shared/ical-dates.js';
-import { parseObjects, overridesOf, textValues, containsText, orNull } from '../shared/query-objects.js';
+import { parseObjects, overridesOf, textValues, containsText, dateKey, orNull } from '../shared/query-objects.js';
 
 /**
  * Search and filter calendar events efficiently
@@ -84,20 +84,18 @@ export const calendarQuery = {
       parsed = parsed.filter((p) => eventMatches(p, 'location', validated.location_filter, inRange));
     }
 
-    const filteredEvents = parsed.map(({ object }) => object);
-
     // Determine calendar name for display
     const calendarName = calendarsToSearch.length === 1
       ? calendarsToSearch[0]
       : `All Calendars (${calendarsToSearch.length})`;
 
     const { items, total } = limitResults(
-      filteredEvents,
+      parsed,
       validated.limit ?? DEFAULT_RESULT_LIMIT,
-      'DTSTART'
+      (p) => dateKey(p, 'dtstart')
     );
 
-    return formatEventList(items, calendarName, timeRangeOptions.timeRange, total);
+    return formatEventList(items.map(({ object }) => object), calendarName, timeRangeOptions.timeRange, total);
   },
 };
 
