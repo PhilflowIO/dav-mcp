@@ -41,16 +41,16 @@ configuration in the [main README](https://github.com/PhilflowIO/dav-mcp#google-
 
 ## Requirements
 
-- Claude Code (the plugin's server runs on your computer)
+- Claude Code 2.1.271 or newer (the plugin's server runs on your computer)
 - Node.js 18 or newer (20 or newer for `Digest`), with `npx` on your `PATH`
 
 ## What runs and where data goes
 
 On first use, the plugin runs `npx -y dav-mcp@<version>`, which downloads that
-exact version of [dav-mcp](https://www.npmjs.com/package/dav-mcp) from the npm
-registry, and one of its dependencies from GitHub, and starts it on your
-computer. The server connects only to the DAV server you configured. Results
-of tool calls go back to Claude as part of your conversation. dav-mcp has no
+exact version of [dav-mcp](https://www.npmjs.com/package/dav-mcp) and its
+dependencies through npm and starts it on your computer. The server connects
+only to the DAV server you configured. Results of tool calls go back to Claude
+as part of your conversation. dav-mcp has no
 telemetry and sends nothing to its maintainers or anyone else.
 
 ## Privacy Policy

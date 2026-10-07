@@ -29,8 +29,9 @@ with see. Work so that nothing surprising happens there.
   date and the user's time zone. If you don't know the user's zone and the
   time of day matters, ask.
 - A datetime with `Z` or an offset is an exact instant. A datetime without a
-  zone is read in the event's own zone (updates) or the server's zone (new
-  events and to-dos). Prefer sending an explicit offset.
+  zone is read in the event's own zone (updates) or, for new events and
+  to-dos, in the time zone of the computer running dav-mcp, not the calendar
+  server's. Prefer sending an explicit offset.
 - A bare date (`2026-05-25`) makes an all-day event. The end of an all-day
   event is exclusive: one day on 25 May is start `2026-05-25`, end
   `2026-05-26`.
@@ -54,8 +55,10 @@ with see. Work so that nothing surprising happens there.
 
 ## Recurring events
 
-`calendar_query` and `freebusy_query` expand recurring events into their
-occurrences. Changing a single occurrence or the whole series edits the
+`calendar_query` returns each recurring series once, dated at its first
+occurrence inside the queried range; it does not list every occurrence. To
+see each time a series blocks, use `freebusy_query`, which expands
+recurrences. Changing a single occurrence or the whole series edits the
 series' iCalendar data; confirm with the user which one they mean before
 updating or deleting a recurring event.
 

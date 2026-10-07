@@ -34,8 +34,7 @@ back to the assistant that made it.
 - **Nobody else.** dav-mcp has no telemetry, sends no usage data, and shares
   nothing with the maintainers or any third party.
 
-Installing dav-mcp downloads the package from the npm registry and one
-dependency from GitHub. That is a download of software, not a transfer of
+Installing dav-mcp downloads the package and its dependencies through npm. That is a download of software, not a transfer of
 your data.
 
 ## Storage and retention
