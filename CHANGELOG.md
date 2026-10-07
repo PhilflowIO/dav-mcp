@@ -75,8 +75,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   began. A capped contact list says it shows the first contacts by name, not
   "the earliest".
 - Range queries over long-running daily or weekly series no longer walk
-  every occurrence since the series began; 500 daily series since 2020 are
-  listed in about a tenth of the time they took before.
+  every occurrence since the series began: 500 daily series since 2020 are
+  listed about five times faster than before.
 
 ### Changed
 - `create_todo` accepts a bare date for `due_date`, giving a todo due that day;
