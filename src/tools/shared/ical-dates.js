@@ -57,7 +57,7 @@ export function setEventDates(iCalString, { startDate, endDate }) {
  *  - 3.6.2: DURATION requires DTSTART.
  *  - 3.8.2.3: DUE has the same value type as DTSTART (both dates or both
  *    date-times) and is later than it — checked where the two can be ordered
- *    without guessing a zone (see frameOf).
+ *    without guessing a zone (see dueNotAfterStart).
  *
  * @param {string} iCalString - the todo with its fields already written
  * @param {Iterable<string>} changed - property names written by this update
@@ -92,7 +92,7 @@ export function reconcileTodoDates(iCalString, changed) {
           `but ${dateOne} is a date and ${timeOne} has a time`
         );
       }
-      if (frameOf(due) === frameOf(dtstart) && due.getFirstValue().compare(dtstart.getFirstValue()) <= 0) {
+      if (dueNotAfterStart(due, dtstart)) {
         throw new Error(
           `DUE (${due.getFirstValue()}) must be later than DTSTART (${dtstart.getFirstValue()}) (RFC 5545 3.8.2.3)`
         );
@@ -130,25 +130,60 @@ export function toInstant(icalTime) {
  * @returns {{start: number, end: number} | null}
  */
 export function dueSpan(iCalString) {
-  let vtodo;
+  // one malformed todo must not fail the query for all the others
   try {
-    vtodo = new ICAL.Component(ICAL.parse(iCalString)).getFirstSubcomponent('vtodo');
+    const vtodo = new ICAL.Component(ICAL.parse(iCalString)).getFirstSubcomponent('vtodo');
+    const property = vtodo?.getFirstProperty('due');
+    if (!property) return null;
+    const due = property.getFirstValue();
+    const start = absoluteInstant(property) ?? toInstant(due);
+    return { start, end: due.isDate ? start + 86400000 : start };
   } catch {
     return null;
   }
-  const due = vtodo?.getFirstPropertyValue('due');
-  if (!due) return null;
-  const start = toInstant(due);
-  return { start, end: due.isDate ? start + 86400000 : start };
 }
 
 /**
- * What a date property's value can be ordered against: two values compare
- * only if they are both dates, both UTC, both floating, or both in the same
- * TZID. Across those, the order depends on a zone that may not be resolvable
- * here (a TZID without its VTIMEZONE, a floating time), and a guessed order
- * must not reject a valid write.
+ * The instant a date-time property names, or null when that needs a zone
+ * this document does not define: a floating value, or a TZID without its
+ * VTIMEZONE. A date is its UTC day start, as in toInstant.
  */
+function absoluteInstant(property) {
+  const value = property.getFirstValue();
+  if (property.type === 'date') return toInstant(value);
+  const tzid = property.getParameter('tzid');
+  if (!tzid) {
+    return /Z$/i.test(String(property.toJSON()[3])) ? value.toUnixTime() * 1000 : null;
+  }
+  let calendar = property.parent;
+  while (calendar?.parent) calendar = calendar.parent;
+  const vtimezone = calendar?.getAllSubcomponents('vtimezone')
+    .find((zone) => zone.getFirstPropertyValue('tzid') === tzid);
+  if (!vtimezone) return null;
+  const local = new ICAL.Time({
+    year: value.year, month: value.month, day: value.day,
+    hour: value.hour, minute: value.minute, second: value.second,
+  }, new ICAL.Timezone(vtimezone));
+  return local.toUnixTime() * 1000;
+}
+
+/**
+ * Is DUE at or before DTSTART? Answered only where it needs no guess: both
+ * values resolve to instants (UTC, or a TZID whose VTIMEZONE is in the
+ * document), or they are wall-clock times in the same frame. Otherwise the
+ * answer depends on a zone that is not known here, and a guessed order must
+ * not reject a valid write.
+ */
+function dueNotAfterStart(due, dtstart) {
+  const [dueAt, startAt] = [absoluteInstant(due), absoluteInstant(dtstart)];
+  if (dueAt !== null && startAt !== null) return dueAt <= startAt;
+  if (frameOf(due) === frameOf(dtstart)) {
+    return due.getFirstValue().compare(dtstart.getFirstValue()) <= 0;
+  }
+  return false;
+}
+
+/** Dates, UTC, floating, or one TZID: values in one frame order as wall clocks */
 function frameOf(property) {
   if (property.type === 'date') return 'date';
   const tzid = property.getParameter('tzid');

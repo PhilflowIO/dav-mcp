@@ -62,6 +62,16 @@ const vevent = (...lines) => [
   'END:VEVENT', 'END:VCALENDAR',
 ].join('\r\n');
 
+/** the same document with a Europe/Berlin VTIMEZONE, as servers send it */
+const withBerlinZone = (document) => document.replace('BEGIN:VTODO', [
+  'BEGIN:VTIMEZONE', 'TZID:Europe/Berlin',
+  'BEGIN:DAYLIGHT', 'TZOFFSETFROM:+0100', 'TZOFFSETTO:+0200', 'TZNAME:CEST',
+  'DTSTART:19700329T020000', 'RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU', 'END:DAYLIGHT',
+  'BEGIN:STANDARD', 'TZOFFSETFROM:+0200', 'TZOFFSETTO:+0100', 'TZNAME:CET',
+  'DTSTART:19701025T030000', 'RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU', 'END:STANDARD',
+  'END:VTIMEZONE', 'BEGIN:VTODO',
+].join('\r\n'));
+
 /** every line of a document for one property, parameters included */
 const lines = (document, name) =>
   document.split(/\r?\n/).filter((l) => l.startsWith(`${name}:`) || l.startsWith(`${name};`));
@@ -167,6 +177,15 @@ describe('update_todo keeps DUE, DTSTART and DURATION coherent', () => {
     expect(updateTodo).not.toHaveBeenCalled();
   });
 
+  test('a DUE before DTSTART is rejected when the VTIMEZONE says so', async () => {
+    // DTSTART 09:00 Berlin on 20 October (still summer time, UTC+2) is
+    // 07:00Z: a DUE of 06:30Z is before it, 07:30Z after it
+    storedTodo = withBerlinZone(vtodo('DTSTART;TZID=Europe/Berlin:20261020T090000', 'DUE;TZID=Europe/Berlin:20261026T180000'));
+    await expect(setTodo({ DUE: '2026-10-20T06:30:00Z' })).rejects.toThrow(/must be later than DTSTART/);
+    await setTodo({ DUE: '2026-10-20T07:30:00Z' });
+    expect(lines(emittedTodo(), 'DUE')).toEqual(['DUE:20261020T073000Z']);
+  });
+
   test('a DUE in a TZID next to a UTC DTSTART is not ordered by guesswork', async () => {
     // Tokyo 20:00 is 11:00Z, after DTSTART; without the VTIMEZONE the zone is
     // unknown here, so no order is claimed and the write goes through
@@ -205,16 +224,40 @@ describe('todo_query reads DUE by parsing, not by pattern', () => {
   test.each([
     ['a date-time DUE inside the range', 'DUE:20261026T180000Z', true],
     ['an all-day DUE covers its whole day', 'DUE;VALUE=DATE:20261026', true],
+    // without its VTIMEZONE the zone resolves on the server clock; noon on
+    // the 26th lands inside the range from any host zone
     ['a DUE with a TZID', 'DUE;TZID=Europe/Berlin:20261026T120000', true],
     ['a DUE outside the range', 'DUE:20261101T180000Z', false],
     ['no DUE', 'STATUS:NEEDS-ACTION', false],
   ])('%s', async (_label, line, found) => {
     storedTodos = [{ url: TODO_URL, etag: '"1"', data: vtodo(line) }];
     const result = await todoQuery.handler({
-      time_range_start: '2026-10-26T06:00:00Z',
-      time_range_end: '2026-10-26T20:00:00Z',
+      time_range_start: '2026-10-25T20:00:00Z',
+      time_range_end: '2026-10-27T04:00:00Z',
     });
     expect(result.content[0].text.includes('File the report')).toBe(found);
+  });
+
+  test('a TZID with its VTIMEZONE resolves to the right instant', async () => {
+    // 12:00 in Berlin (UTC+1 in late October) is 11:00Z, outside 11:30-12:30Z
+    storedTodos = [{ url: TODO_URL, etag: '"1"', data: withBerlinZone(vtodo('DUE;TZID=Europe/Berlin:20261026T120000')) }];
+    const result = await todoQuery.handler({
+      time_range_start: '2026-10-26T11:30:00Z',
+      time_range_end: '2026-10-26T12:30:00Z',
+    });
+    expect(result.content[0].text.includes('File the report')).toBe(false);
+  });
+
+  test('one malformed todo does not fail the query for the others', async () => {
+    storedTodos = [
+      { url: `${CALENDAR_URL}broken.ics`, etag: '"1"', data: vtodo('DUE:garbage').replace('File the report', 'Broken') },
+      { url: TODO_URL, etag: '"1"', data: vtodo('DUE:20261026T120000Z') },
+    ];
+    const result = await todoQuery.handler({
+      time_range_start: '2026-10-26T00:00:00Z',
+      time_range_end: '2026-10-27T00:00:00Z',
+    });
+    expect(result.content[0].text).toContain('File the report');
   });
 });
 
