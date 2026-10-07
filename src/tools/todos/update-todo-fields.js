@@ -32,7 +32,7 @@ const updateTodoFieldsSchema = z.object({
 // What DUE and DTSTART accept; tsdav-utils parses exactly these forms
 const DATE_FORMS =
   'ISO 8601 with a zone ("2026-10-26T18:00:00Z", "2026-10-26T14:00:00-04:00"), ' +
-  'without one (kept in the todo\'s own timezone if it has one, else read in the server timezone), ' +
+  'without one (kept in the todo\'s own timezone if it has one, else read in the timezone of the computer running dav-mcp), ' +
   'or a date ("2026-10-26") for an all-day value';
 
 /**

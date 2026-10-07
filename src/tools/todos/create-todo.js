@@ -34,7 +34,7 @@ export const createTodo = {
       },
       due_date: {
         type: 'string',
-        description: 'Optional due date in ISO 8601: with a zone (2025-12-31T23:59:59+02:00), without one (read in the server timezone), or a date (2025-12-31) for a todo due that day',
+        description: 'Optional due date in ISO 8601: with a zone (2025-12-31T23:59:59+02:00), without one (read in the timezone of the computer running dav-mcp), or a date (2025-12-31) for a todo due that day',
       },
       priority: {
         type: 'number',
