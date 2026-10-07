@@ -76,13 +76,60 @@ const isHttp = (url) => url.protocol === 'https:' || url.protocol === 'http:';
 // The path as a directory: a prefix that only matches whole segments.
 const directoryOf = (pathname) => (pathname.endsWith('/') ? pathname : `${pathname}/`);
 
-const isUnder = (url, scope) =>
-  url.origin === scope.origin &&
-  (url.pathname.startsWith(scope.path) || `${url.pathname}/` === scope.path);
+/**
+ * The path as a server may end up seeing it: each segment percent-decoded,
+ * split again at a decoded slash or backslash, path parameters (`;...`,
+ * which Java servlet stacks strip) ignored when deciding whether a segment
+ * is `.` or `..`, and dot-segments resolved. URL parsing already resolves
+ * the plain and %2e forms; this covers what a decoding server adds.
+ *
+ * @returns {string[]|null} the segments, or null if the path climbs above
+ *   the root, has a malformed escape, or is encoded twice over a dot, slash
+ *   or backslash (`%252e`), which no check can follow through every decoder
+ */
+function effectiveSegments(pathname) {
+  const segments = [];
+  for (const raw of pathname.split('/').slice(1)) {
+    if (/%25(2e|2f|5c)/i.test(raw)) return null;
+    let decoded;
+    try {
+      decoded = decodeURIComponent(raw);
+    } catch {
+      return null;
+    }
+    for (const part of decoded.split(/[/\\]/)) {
+      const name = part.split(';', 1)[0];
+      if (name === '.') continue;
+      if (name === '..') {
+        if (segments.length === 0) return null;
+        segments.pop();
+        continue;
+      }
+      segments.push(part);
+    }
+  }
+  return segments;
+}
 
-// An encoded slash or backslash survives URL parsing as part of a segment,
-// and a server that decodes it walks out of the directory the check saw.
-const hasEncodedSeparator = (url) => /%2f|%5c/i.test(url.pathname);
+// Whether a list of segments starts with a directory's segments.
+function startsWithDirectory(segments, directory) {
+  const prefix = directory[directory.length - 1] === '' ? directory.slice(0, -1) : directory;
+  return segments.length >= prefix.length && prefix.every((segment, i) => segments[i] === segment);
+}
+
+/**
+ * Whether a URL lies below a scope, both as written and as a server that
+ * decodes the path would see it: `/dav/..;/x` and `/dav/a%2F..%2F..%2Fx`
+ * leave `/dav/`, `/dav/abc%2Fdef.ics` (an object whose name has a slash)
+ * does not.
+ */
+function isUnder(url, scope) {
+  if (url.origin !== scope.origin) return false;
+  if (!url.pathname.startsWith(scope.path) && `${url.pathname}/` !== scope.path) return false;
+  const segments = effectiveSegments(url.pathname);
+  const directory = effectiveSegments(scope.path);
+  return Boolean(segments && directory && startsWithDirectory(segments, directory));
+}
 
 const isReplayable = (body) =>
   body == null || typeof body === 'string' || body instanceof ArrayBuffer ||
@@ -200,7 +247,7 @@ export class RequestOrigins {
   // A URL the server named may become part of the account only if it is
   // http(s), carries no credentials and does not downgrade https to http.
   #acceptable(url) {
-    return url && isHttp(url) && !url.username && !url.password && !hasEncodedSeparator(url) &&
+    return url && isHttp(url) && !url.username && !url.password && effectiveSegments(url.pathname) !== null &&
       !(this.secure && url.protocol === 'http:');
   }
 
@@ -259,8 +306,9 @@ export class RequestOrigins {
       return `${url.origin} is plain http, but the DAV server is configured over https; ` +
         `requests are only sent over https. Allowed: ${allowed}.`;
     }
-    if (hasEncodedSeparator(url)) {
-      return `${url.href} contains an encoded slash or backslash, which could leave the account's directory on the server.`;
+    if (effectiveSegments(url.pathname) === null) {
+      return `${url.href} has a path that cannot be checked safely (it climbs above the root once decoded, ` +
+        'has a malformed escape, or is encoded twice). Use a URL returned by this server.';
     }
     if (this.discovering && this.loginOrigins.has(url.origin)) return null;
     if (this.scopes.some(scope => isUnder(url, scope))) return null;
