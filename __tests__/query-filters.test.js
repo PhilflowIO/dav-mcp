@@ -196,6 +196,39 @@ describe('calendar_query', () => {
     });
   });
 
+  describe('long-running series with a range', () => {
+    const OCTOBER = { time_range_start: '2026-10-01T00:00:00Z', time_range_end: '2026-10-31T23:59:59Z' };
+    const BERLIN = [
+      'BEGIN:VTIMEZONE', 'TZID:Europe/Berlin',
+      'BEGIN:DAYLIGHT', 'TZOFFSETFROM:+0100', 'TZOFFSETTO:+0200', 'DTSTART:19700329T020000',
+      'RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU', 'END:DAYLIGHT',
+      'BEGIN:STANDARD', 'TZOFFSETFROM:+0200', 'TZOFFSETTO:+0100', 'DTSTART:19701025T030000',
+      'RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU', 'END:STANDARD', 'END:VTIMEZONE',
+    ];
+    const when = async (args) => shown(await calendarQuery.handler(args)).match(/- \*\*When\*\*: ([^\n]*)/)?.[1];
+
+    // expansion starts a whole number of periods before the range instead of
+    // at 2020; these pin that it lands on the same occurrences
+    test('every other week on Tue/Thu since 2020, first in-range one excluded', async () => {
+      storedEvents = [ics('biweekly', vevent('bw', 'DTSTART:20200107T090000Z', 'DURATION:PT1H',
+        'RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,TH', 'EXDATE:20261006T090000Z', 'SUMMARY:Sync'))];
+      expect(await when({ summary_filter: 'sync', ...OCTOBER })).toMatch(/^October 8, 2026, 09:00 AM/);
+    });
+
+    test('every third day since 2020 in a named timezone', async () => {
+      storedEvents = [ics('third', BERLIN, vevent('t', 'DTSTART;TZID=Europe/Berlin:20200101T090000',
+        'DURATION:PT1H', 'RRULE:FREQ=DAILY;INTERVAL=3', 'SUMMARY:Water'))];
+      expect(await when({ summary_filter: 'water', ...OCTOBER })).toMatch(/^October 2, 2026, 09:00 AM/);
+    });
+
+    test('a COUNT series is still walked from its start', async () => {
+      // 2020-01-06 + 352 weeks = Monday 5 October 2026: the 353rd and last occurrence
+      storedEvents = [ics('counted', vevent('c', 'DTSTART:20200106T090000Z', 'DURATION:PT1H',
+        'RRULE:FREQ=WEEKLY;COUNT=353', 'SUMMARY:Counted'))];
+      expect(await when({ summary_filter: 'counted', ...OCTOBER })).toMatch(/^October 5, 2026, 09:00 AM/);
+    });
+  });
+
   test('detached instances without a master: the one in range is listed and matched', async () => {
     storedEvents = [ics('detached',
       vevent('d', 'RECURRENCE-ID:20261001T090000Z', 'DTSTART:20261001T090000Z', 'DTEND:20261001T100000Z',

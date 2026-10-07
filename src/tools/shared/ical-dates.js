@@ -218,6 +218,30 @@ function absoluteInstant(property, value = property.getFirstValue()) {
 }
 
 /**
+ * Make a parsed VCALENDAR resolve its TZIDs to the shared zones of
+ * timezoneFor.
+ *
+ * ical.js resolves a TZID through the root component's getTimeZoneByID, which
+ * hydrates a new ICAL.Timezone per parsed object — and a new zone recomputes
+ * its offset changes since 1970 on first use (~1 ms). Every time a recurring
+ * event is expanded or compared paid that once per object. Overriding the
+ * lookup on the root makes every date-time in the document use the zone
+ * built once per definition.
+ *
+ * @param {ICAL.Component} root - a freshly parsed VCALENDAR
+ * @returns {ICAL.Component} the same component
+ */
+export function shareTimezones(root) {
+  const zones = root.getAllSubcomponents('vtimezone');
+  if (zones.length === 0) return root;
+  root.getTimeZoneByID = (tzid) => {
+    const vtimezone = zones.find((zone) => zone.getFirstPropertyValue('tzid') === tzid);
+    return vtimezone ? timezoneFor(vtimezone) : null;
+  };
+  return root;
+}
+
+/**
  * The ICAL.Timezone for a VTIMEZONE, built once per definition.
  *
  * A new ICAL.Timezone starts with an empty cache of its UTC-offset changes and

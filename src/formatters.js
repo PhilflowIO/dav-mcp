@@ -12,6 +12,7 @@
 import ICAL from 'ical.js';
 import { readVCard, nameComponents, organizationText } from './vcard.js';
 import { readSeries, shownEvent, todoStatus } from './ical-components.js';
+import { shareTimezones } from './tools/shared/ical-dates.js';
 
 /**
  * Parse iCal data string to extract event properties (RFC 5545 compliant)
@@ -21,9 +22,8 @@ import { readSeries, shownEvent, todoStatus } from './ical-components.js';
  */
 function parseICalEvent(icalData, timeRange = null, matches = null) {
   try {
-    const comp = new ICAL.Component(ICAL.parse(icalData));
     // the occurrence calendar_query's text filters read too (see shownEvent)
-    const shown = shownEvent(comp, timeRange, matches);
+    const shown = shownEvent(shareTimezones(new ICAL.Component(ICAL.parse(icalData))), timeRange, matches);
     if (!shown) {
       return {};
     }

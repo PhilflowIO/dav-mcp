@@ -258,13 +258,13 @@ describe('timezones are built once per definition', () => {
     expect(timezoneFor(shifted)).not.toBe(timezoneFor(berlin));
   });
 
-  test('capping 2000 zoned events stays fast', () => {
-    // each zone was rebuilt per object: ~2.5 s for this set before
-    const many = Array.from({ length: 2000 }, (_, i) =>
-      berlinEvent(`e${i}`, `2026${String(1 + (i % 12)).padStart(2, '0')}${String(1 + (i % 28)).padStart(2, '0')}T090000`));
-    const started = performance.now();
-    const { urls } = byStart(many, 20);
-    expect(performance.now() - started).toBeLessThan(1000);
-    expect(urls[0]).toBe(`${CALENDAR_URL}e0.ics`);
+  test('date-times in parsed objects resolve to the shared zone', () => {
+    // ical.js would hydrate a fresh zone per object, recomputing its offset
+    // changes since 1970 (~1 ms) each time a series is expanded or compared.
+    // Timings are measured in the PR, not asserted: they depend on the host.
+    const [a, b] = parseObjects([berlinEvent('a', '20260502T090000'), berlinEvent('b', '20260601T090000')], 'vevent');
+    const zoneOf = (parsed) => parsed.main.getFirstPropertyValue('dtstart').zone;
+    expect(zoneOf(a)).toBe(zoneOf(b));
+    expect(zoneOf(a)).toBe(timezoneFor(a.root.getFirstSubcomponent('vtimezone')));
   });
 });

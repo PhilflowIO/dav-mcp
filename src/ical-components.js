@@ -106,7 +106,7 @@ function toICALRange(timeRange) {
 function firstOccurrenceInRange(event, range, matches) {
   const expand = new ICAL.RecurExpansion({
     component: event.component,
-    dtstart: event.startDate,
+    dtstart: expansionStart(event, range),
   });
 
   for (let step = 0; step < MAX_RECURRENCE_ITERATIONS; step++) {
@@ -121,6 +121,48 @@ function firstOccurrenceInRange(event, range, matches) {
 
   console.error(`Recurrence expansion gave up after ${MAX_RECURRENCE_ITERATIONS} occurrences`);
   return { occurrence: null, truncated: true };
+}
+
+// Rule parts that keep a DAILY/WEEKLY series periodic in its INTERVAL: the
+// candidates are the same days in every period, so the expansion can start a
+// whole number of periods later without changing which occurrences it yields.
+const PERIODIC_PARTS = new Set(['BYDAY', 'BYMONTH', 'WKST']);
+
+/**
+ * Where to start expanding a series to reach the range: the series start, or
+ * — for a DAILY/WEEKLY rule without COUNT — a whole number of periods later,
+ * just before the range.
+ *
+ * Walking from DTSTART costs one step per occurrence since the series began:
+ * a daily series from 2020 takes ~2400 steps to reach October 2026, and a
+ * query over hundreds of such series took seconds. Shifted by k periods, the
+ * walk only covers the range. That is exact here: the rule's candidates
+ * repeat every period (only BYDAY/BYMONTH restrict them), there is no COUNT to
+ * count from the original start, and no RDATE to miss. EXDATEs and overrides
+ * are absolute, so they still apply. The shifted start stays at least one
+ * period plus a day before the range, so the start itself — which ical.js
+ * always yields, even if the rule would not — never lands inside it, and a
+ * zone offset cannot push an occurrence across the range start. Other rules
+ * (COUNT, MONTHLY, YEARLY, ...) are walked from DTSTART as before; COUNT
+ * bounds that walk, and monthly or yearly series have few occurrences.
+ */
+function expansionStart(event, range) {
+  const start = event.startDate;
+  const component = event.component;
+  const rules = component.getAllProperties('rrule');
+  if (rules.length !== 1 || component.hasProperty('rdate')) return start;
+  const rule = rules[0].getFirstValue();
+  if (rule.count || !['DAILY', 'WEEKLY'].includes(rule.freq)) return start;
+  if (Object.keys(rule.parts ?? {}).some((part) => !PERIODIC_PARTS.has(part))) return start;
+
+  const periodDays = (rule.interval || 1) * (rule.freq === 'WEEKLY' ? 7 : 1);
+  const daysToRange = Math.floor((range.start.toUnixTime() - start.toUnixTime()) / 86400);
+  const periods = Math.floor((daysToRange - periodDays - 2) / periodDays);
+  if (!(periods > 0)) return start;
+
+  const shifted = start.clone();
+  shifted.adjust(periods * periodDays, 0, 0, 0);
+  return shifted;
 }
 
 /**
