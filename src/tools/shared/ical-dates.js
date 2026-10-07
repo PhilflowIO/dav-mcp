@@ -56,7 +56,8 @@ export function setEventDates(iCalString, { startDate, endDate }) {
  *    DURATION on an event.
  *  - 3.6.2: DURATION requires DTSTART.
  *  - 3.8.2.3: DUE has the same value type as DTSTART (both dates or both
- *    date-times) and is later than it.
+ *    date-times) and is later than it — checked where the two can be ordered
+ *    without guessing a zone (see frameOf).
  *
  * @param {string} iCalString - the todo with its fields already written
  * @param {Iterable<string>} changed - property names written by this update
@@ -91,13 +92,68 @@ export function reconcileTodoDates(iCalString, changed) {
           `but ${dateOne} is a date and ${timeOne} has a time`
         );
       }
-      if (due.getFirstValue().compare(dtstart.getFirstValue()) <= 0) {
+      if (frameOf(due) === frameOf(dtstart) && due.getFirstValue().compare(dtstart.getFirstValue()) <= 0) {
         throw new Error(
           `DUE (${due.getFirstValue()}) must be later than DTSTART (${dtstart.getFirstValue()}) (RFC 5545 3.8.2.3)`
         );
       }
     }
   });
+}
+
+/**
+ * Absolute instant for an ICAL.Time.
+ *
+ * A date-only value is floating — "the 25th, wherever you are" — and has no
+ * instant of its own. toJSDate() would resolve it against whatever zone the
+ * server happens to run in, which makes the same query answer differently in
+ * Berlin and in Auckland. Reading the fields as UTC is at least deterministic:
+ * an all-day value covers the UTC day. The alternative would be to guess a
+ * zone, and a wrong guess is worse than a stated convention.
+ *
+ * @param {ICAL.Time} icalTime
+ * @returns {number} milliseconds since the epoch
+ */
+export function toInstant(icalTime) {
+  if (icalTime.isDate) {
+    return Date.UTC(icalTime.year, icalTime.month - 1, icalTime.day);
+  }
+  return icalTime.toJSDate().getTime();
+}
+
+/**
+ * The span a todo's DUE covers, for range queries: an instant for a
+ * date-time, the whole UTC day for a date (see toInstant). null when the todo
+ * has no DUE or does not parse.
+ *
+ * @param {string} iCalString
+ * @returns {{start: number, end: number} | null}
+ */
+export function dueSpan(iCalString) {
+  let vtodo;
+  try {
+    vtodo = new ICAL.Component(ICAL.parse(iCalString)).getFirstSubcomponent('vtodo');
+  } catch {
+    return null;
+  }
+  const due = vtodo?.getFirstPropertyValue('due');
+  if (!due) return null;
+  const start = toInstant(due);
+  return { start, end: due.isDate ? start + 86400000 : start };
+}
+
+/**
+ * What a date property's value can be ordered against: two values compare
+ * only if they are both dates, both UTC, both floating, or both in the same
+ * TZID. Across those, the order depends on a zone that may not be resolvable
+ * here (a TZID without its VTIMEZONE, a floating time), and a guessed order
+ * must not reject a valid write.
+ */
+function frameOf(property) {
+  if (property.type === 'date') return 'date';
+  const tzid = property.getParameter('tzid');
+  if (tzid) return `tzid:${tzid}`;
+  return /Z$/i.test(String(property.toJSON()[3])) ? 'utc' : 'floating';
 }
 
 /**

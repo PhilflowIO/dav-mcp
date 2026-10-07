@@ -19,13 +19,17 @@ const updateVCard = jest.fn(async () => ok());
 
 // what the fetch calls hand back; each test sets what it needs
 let storedTodo = '';
+let storedTodos = [];
 let storedEvent = '';
 let storedCard = '';
 
 jest.unstable_mockModule('../src/tsdav-client.js', () => ({
   tsdavManager: {
     getCalDavClient: () => ({
-      fetchTodos: async () => [{ url: TODO_URL, etag: '"1"', data: storedTodo }],
+      fetchCalendars: async () => [{ url: CALENDAR_URL, displayName: 'Tasks', components: ['VTODO'] }],
+      fetchTodos: async ({ objectUrls } = {}) => objectUrls
+        ? [{ url: TODO_URL, etag: '"1"', data: storedTodo }]
+        : storedTodos,
       updateTodo,
       createTodo,
       fetchCalendarObjects: async () => [{ url: EVENT_URL, etag: '"1"', data: storedEvent }],
@@ -42,6 +46,7 @@ const { updateTodoFields } = await import('../src/tools/todos/update-todo-fields
 const { createTodo: createTodoTool } = await import('../src/tools/todos/create-todo.js');
 const { updateEventFields } = await import('../src/tools/calendar/update-event-fields.js');
 const { updateContactFields } = await import('../src/tools/contacts/update-contact-fields.js');
+const { todoQuery } = await import('../src/tools/todos/todo-query.js');
 
 const vtodo = (...lines) => [
   'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//test//EN',
@@ -152,8 +157,26 @@ describe('update_todo keeps DUE, DTSTART and DURATION coherent', () => {
 
   test('an all-day DUE next to a timed DTSTART is rejected (RFC 5545 3.8.2.3)', async () => {
     storedTodo = vtodo('DTSTART:20261020T090000Z', 'DUE:20261026T180000Z');
-    await expect(setTodo({ DUE: '2026-10-26' })).rejects.toThrow(/both be dates or both be date-times/);
+    await expect(setTodo({ DUE: '2026-10-26' })).rejects.toThrow(/DUE needs a time: DTSTART has one/);
     expect(updateTodo).not.toHaveBeenCalled();
+  });
+
+  test('an all-day DTSTART next to a timed DUE is rejected', async () => {
+    storedTodo = vtodo('DTSTART:20261020T090000Z', 'DUE:20261026T180000Z');
+    await expect(setTodo({ DTSTART: '2026-10-20' })).rejects.toThrow(/both be dates or both be date-times/);
+    expect(updateTodo).not.toHaveBeenCalled();
+  });
+
+  test('a DUE in a TZID next to a UTC DTSTART is not ordered by guesswork', async () => {
+    // Tokyo 20:00 is 11:00Z, after DTSTART; without the VTIMEZONE the zone is
+    // unknown here, so no order is claimed and the write goes through
+    storedTodo = vtodo('DTSTART:20261026T100000Z', 'DUE;TZID=Asia/Tokyo:20261025T200000');
+    await setTodo({ DUE: '2026-10-26T20:00:00' });
+    expect(lines(emittedTodo(), 'DUE')).toEqual(['DUE;TZID=Asia/Tokyo:20261026T200000']);
+  });
+
+  test('field names are case-insensitive, so the DUE/DURATION guard holds for "due"', async () => {
+    await expect(setTodo({ due: '2026-10-26T18:00:00Z', Duration: 'PT2H' })).rejects.toThrow(/either DUE or DURATION/);
   });
 
   test('a DUE before DTSTART is rejected', async () => {
@@ -173,6 +196,25 @@ describe('update_todo keeps DUE, DTSTART and DURATION coherent', () => {
     storedTodo = vtodo('DURATION:PT2H');
     await setTodo({ SUMMARY: 'Renamed' });
     expect(lines(emittedTodo(), 'DURATION')).toEqual(['DURATION:PT2H']);
+  });
+});
+
+describe('todo_query reads DUE by parsing, not by pattern', () => {
+  // create_todo now writes an all-day due date as DUE;VALUE=DATE, and
+  // update_todo keeps a TZID; a DUE:-only pattern found neither
+  test.each([
+    ['a date-time DUE inside the range', 'DUE:20261026T180000Z', true],
+    ['an all-day DUE covers its whole day', 'DUE;VALUE=DATE:20261026', true],
+    ['a DUE with a TZID', 'DUE;TZID=Europe/Berlin:20261026T120000', true],
+    ['a DUE outside the range', 'DUE:20261101T180000Z', false],
+    ['no DUE', 'STATUS:NEEDS-ACTION', false],
+  ])('%s', async (_label, line, found) => {
+    storedTodos = [{ url: TODO_URL, etag: '"1"', data: vtodo(line) }];
+    const result = await todoQuery.handler({
+      time_range_start: '2026-10-26T06:00:00Z',
+      time_range_end: '2026-10-26T20:00:00Z',
+    });
+    expect(result.content[0].text.includes('File the report')).toBe(found);
   });
 });
 

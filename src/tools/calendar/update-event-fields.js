@@ -115,7 +115,7 @@ export const updateEventFields = {
       },
       end_date: {
         type: 'string',
-        description: 'New end, in the same form as start_date. For an all-day event the end is EXCLUSIVE: a single day on 2026-05-25 is start_date "2026-05-25" and end_date "2026-05-26".'
+        description: 'New end, in the same form as start_date (a datetime without a zone is read in the event\'s own timezone, like start_date). For an all-day event the end is EXCLUSIVE: a single day on 2026-05-25 is start_date "2026-05-25" and end_date "2026-05-26".'
       },
       all_day: {
         type: 'boolean',
