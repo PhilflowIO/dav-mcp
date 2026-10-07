@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.2.0] - 2026-10-07
+
 ### Fixed
 - **Updates to a recurring event or todo reach the series, not one
   occurrence** (#96). A server may store the change to a single occurrence

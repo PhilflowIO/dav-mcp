@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "dav-mcp",
   "display_name": "dav-mcp: Calendars, Contacts & Tasks",
-  "version": "4.1.2",
+  "version": "4.2.0",
   "description": "Calendars, contacts and tasks on your own CalDAV/CardDAV server, such as Nextcloud, Baïkal or Radicale.",
   "long_description": "dav-mcp connects Claude to a CalDAV/CardDAV server with your username and password. It lists, searches, creates, updates and deletes calendar events, contacts (vCard) and tasks (VTODO), manages calendars, and answers free/busy questions. dav-mcp runs on your computer and connects only to the server you configure.",
   "author": {
