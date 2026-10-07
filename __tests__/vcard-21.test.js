@@ -1,11 +1,13 @@
 import { describe, test, expect, beforeEach, jest } from '@jest/globals';
 import ICAL from 'ical.js';
+import { connectTo } from './support/request-origins.js';
 
 // Issue #103: vCard 2.1 cards (Outlook/Android exports) are read and edited as
 // the 3.0 card that says the same — quoted-printable decoded, 2.1 escaping
 // kept, one normalizer for reading and for update_contact.
 const ADDRESSBOOK_URL = 'https://dav.example.com/addressbooks/user/default/';
 const CARD_URL = `${ADDRESSBOOK_URL}card.vcf`;
+connectTo('https://dav.example.com/');
 
 const updateVCard = jest.fn(async () => ({ ok: true, status: 204, headers: new Headers({ etag: '"2"' }) }));
 let storedCard = '';

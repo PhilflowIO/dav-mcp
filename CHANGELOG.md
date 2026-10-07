@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Quoted-printable contacts are decoded** (#103). vCard 2.1 cards from
+  Outlook and Android exports encode non-ASCII text as
+  `ENCODING=QUOTED-PRINTABLE`; they were shown as "Hans M=C3=BCller" and a
+  search for "müller" missed them. Such values are now decoded in their
+  `CHARSET` (UTF-8, ISO-8859-1, windows-1252, …; a missing or unknown one
+  is read as UTF-8, and bytes that are not valid UTF-8 as windows-1252), soft
+  line breaks included, for the contact list and the filters alike.
+- **vCard 2.1 commas and backslashes are read as text** (#103). Only `\;` is
+  an escape in vCard 2.1, but cards were read with 3.0 escaping, so
+  `N:Mueller, Jr.;Hans` showed two family names.
+- **`update_contact` writes a vCard 2.1 card back as vCard 3.0** (#103). It
+  used to edit the stored 2.1 text: a new value kept the line's
+  `ENCODING=QUOTED-PRINTABLE` (and read back altered, or swallowed the next
+  line), the other lines stayed encoded, and a card with a bare parameter
+  (`TEL;CELL:`) or a soft line break could not be edited at all. The card is
+  now edited as it is read and written as the 3.0 card that says the same,
+  decoded, which is the version every CardDAV server accepts (sabre/dav,
+  i.e. Baïkal and Nextcloud, refuses 2.1).
+
 ## [4.3.0] - 2026-10-07
 
 ### Security
@@ -50,26 +70,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `TOOL_CALL_LOG_FILE`. **If you ran an earlier version, delete the old log**:
   `/tmp/mcp-tool-calls.jsonl` (on Windows `C:\tmp\mcp-tool-calls.jsonl`) still
   holds the calendar and contact data it recorded.
-
-### Fixed
-- **Quoted-printable contacts are decoded** (#103). vCard 2.1 cards from
-  Outlook and Android exports encode non-ASCII text as
-  `ENCODING=QUOTED-PRINTABLE`; they were shown as "Hans M=C3=BCller" and a
-  search for "müller" missed them. Such values are now decoded in their
-  `CHARSET` (UTF-8, ISO-8859-1, windows-1252, …; a missing or unknown one
-  is read as UTF-8, and bytes that are not valid UTF-8 as windows-1252), soft
-  line breaks included, for the contact list and the filters alike.
-- **vCard 2.1 commas and backslashes are read as text** (#103). Only `\;` is
-  an escape in vCard 2.1, but cards were read with 3.0 escaping, so
-  `N:Mueller, Jr.;Hans` showed two family names.
-- **`update_contact` writes a vCard 2.1 card back as vCard 3.0** (#103). It
-  used to edit the stored 2.1 text: a new value kept the line's
-  `ENCODING=QUOTED-PRINTABLE` (and read back altered, or swallowed the next
-  line), the other lines stayed encoded, and a card with a bare parameter
-  (`TEL;CELL:`) or a soft line break could not be edited at all. The card is
-  now edited as it is read and written as the 3.0 card that says the same,
-  decoded, which is the version every CardDAV server accepts (sabre/dav,
-  i.e. Baïkal and Nextcloud, refuses 2.1).
 
 ## [4.2.0] - 2026-10-07
 
