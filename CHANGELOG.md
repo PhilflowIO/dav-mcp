@@ -31,6 +31,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `/tmp/mcp-tool-calls.jsonl` (on Windows `C:\tmp\mcp-tool-calls.jsonl`) still
   holds the calendar and contact data it recorded.
 
+### Fixed
+- **Quoted-printable contacts are decoded** (#103). vCard 2.1 cards from
+  Outlook and Android exports encode non-ASCII text as
+  `ENCODING=QUOTED-PRINTABLE`; they were shown as "Hans M=C3=BCller" and a
+  search for "müller" missed them. Such values are now decoded in their
+  `CHARSET` (UTF-8, ISO-8859-1, windows-1252, …; a missing or unknown one
+  is read as UTF-8, and bytes that are not valid UTF-8 as windows-1252), soft
+  line breaks included, for the contact list and the filters alike.
+
 ## [4.2.0] - 2026-10-07
 
 ### Fixed
