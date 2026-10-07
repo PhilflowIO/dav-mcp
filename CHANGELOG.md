@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.3.0] - 2026-10-07
+
 ### Security
 - **Requests only go to the configured DAV account**
   ([GHSA-hfg5-7h5r-vgfq](https://github.com/PhilflowIO/dav-mcp/security/advisories/GHSA-hfg5-7h5r-vgfq)).
