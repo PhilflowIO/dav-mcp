@@ -8,9 +8,11 @@ import { seriesMaster } from 'tsdav-utils';
  * RECURRENCE-ID (RFC 5545 3.8.4.4), in whatever order the server chose. The
  * master is the one without RECURRENCE-ID. Writes go through tsdav-utils'
  * updateFields, which edits exactly that component (its seriesMaster); every
- * read in dav-mcp goes through here, so what is shown, filtered and counted
- * as busy is the component that was written — never "the first one in the
- * file".
+ * place in dav-mcp that selects a component of a parsed object goes through
+ * here, so what is shown, filtered on DUE and counted as busy is the
+ * component that was written — never "the first one in the file". (The
+ * text filters of calendar_query/todo_query and the list sort key still
+ * match the raw text; they are not component selections.)
  *
  * Unlike seriesMaster, this never throws. A read must not fail because a
  * server stores detached instances without their master (as it does for an
