@@ -29,6 +29,8 @@ const propResponse = (href, prop) =>
  *   for /.well-known/ requests
  * @param {() => string} [options.extraCalendarHref] - an absolute href for a
  *   calendar on another origin, listed next to the server's own
+ * @param {(req, res, path, body) => boolean} [options.handle] - answers a
+ *   request itself when it returns true
  */
 function davServer(options = {}) {
   const hits = [];
@@ -38,6 +40,7 @@ function davServer(options = {}) {
     req.on('end', () => {
       hits.push({ method: req.method, url: req.url, authorization: req.headers.authorization });
       const path = new URL(req.url, 'http://local').pathname;
+      if (options.handle?.(req, res, path, body)) return;
       if (path.startsWith('/.well-known/')) {
         const location = options.redirect?.(req);
         if (location) {
@@ -108,57 +111,78 @@ describe('before any login', () => {
 });
 
 describe('the policy', () => {
-  const policy = () => {
-    const origins = new RequestOrigins({
-      serverUrl: 'https://dav.example.com/dav/',
-      authUrls: ['https://accounts.example.com/o/oauth2/token'],
-    });
+  const policy = (serverUrl = 'https://dav.example.com/dav/') => {
+    const origins = new RequestOrigins({ serverUrl, tokenUrl: 'https://accounts.example.com/o/oauth2/token' });
     origins.endDiscovery();
     return origins;
   };
 
-  test('accepts any path on the configured origin', () => {
-    expect(policy().problem('https://dav.example.com/calendars/user/work/x.ics')).toBeNull();
-    expect(policy().problem('https://dav.example.com:443/other/')).toBeNull();
+  test('accepts the configured URL and everything below it', () => {
+    expect(policy().problem('https://dav.example.com/dav/calendars/user/work/x.ics')).toBeNull();
+    expect(policy().problem('https://dav.example.com:443/dav/')).toBeNull();
+    expect(policy().problem('https://DAV.Example.COM/dav')).toBeNull();
   });
 
-  test('refuses another host, another port and another scheme, naming the allowed origin', () => {
-    for (const url of ['https://attacker.example/x', 'https://dav.example.com:8443/x', 'https://dav.example.com.attacker.example/x']) {
-      const problem = policy().problem(url);
-      expect(problem).toMatch(/is not the configured DAV server/);
-      expect(problem).toContain('https://dav.example.com');
+  test('refuses other paths on the same host, so other tenants of a shared host do not get the login', () => {
+    for (const url of ['https://dav.example.com/other/', 'https://dav.example.com/~tenant/x.ics',
+      'https://dav.example.com/dav-evil/', 'https://dav.example.com/dav/../other/', 'https://dav.example.com/dav/%2e%2e/other/']) {
+      expect(policy().problem(url)).toMatch(/is outside the configured DAV account/);
     }
   });
 
-  test('refuses a downgrade from https to http, even on the same host', () => {
-    expect(policy().problem('http://dav.example.com/calendars/')).toMatch(/plain http.*configured over https/);
+  test('refuses an encoded slash or backslash that a server could decode out of the account', () => {
+    expect(policy().problem('https://dav.example.com/dav/..%2F..%2Fother')).toMatch(/encoded slash/);
+    expect(policy().problem('https://dav.example.com/dav/..%5c..%5cother')).toMatch(/encoded slash/);
   });
 
-  test('never trusts an http origin the server names when it is configured over https', () => {
+  test('refuses another host, another port and another scheme, naming what is allowed', () => {
+    for (const url of ['https://attacker.example/dav/x', 'https://dav.example.com:8443/dav/x',
+      'https://dav.example.com.attacker.example/dav/x', 'https://dav.example.com\\@attacker.example/dav/',
+      'https://dav.example.com%2eattacker.example/dav/', '//attacker.example/dav/', 'https:/\\attacker.example/dav/']) {
+      const problem = policy().problem(url);
+      expect(problem).not.toBeNull();
+    }
+    expect(policy().problem('https://attacker.example/dav/x')).toContain('https://dav.example.com/dav/');
+  });
+
+  test('refuses a downgrade from https to http, even on the same host', () => {
+    expect(policy().problem('http://dav.example.com/dav/calendars/')).toMatch(/plain http.*configured over https/);
+  });
+
+  test('never trusts an http URL the server names when it is configured over https', () => {
     const origins = policy();
     expect(origins.trust('http://p01-caldav.example.com/calendars/')).toBe(false);
     expect(origins.problem('http://p01-caldav.example.com/calendars/')).toMatch(/plain http/);
   });
 
   test('refuses user info in a URL', () => {
-    expect(policy().problem('https://user:pw@dav.example.com/calendars/')).toMatch(/user name or password/);
+    expect(policy().problem('https://user:pw@dav.example.com/dav/')).toMatch(/user name or password/);
     expect(policy().trust('https://user:pw@other.example.com/')).toBe(false);
   });
 
   test('refuses non-http schemes', () => {
     expect(policy().problem('file:///etc/passwd')).toMatch(/not an http\(s\) URL/);
+    expect(policy().problem('data:text/plain,hi')).toMatch(/not an http\(s\) URL/);
   });
 
-  test('accepts an origin the server named', () => {
+  test('accepts what is below a URL the server named, not the rest of its host', () => {
     const origins = policy();
     origins.trust('https://p42-caldav.example.com:443/123/calendars/');
     expect(origins.problem('https://p42-caldav.example.com/123/calendars/work/')).toBeNull();
+    expect(origins.problem('https://p42-caldav.example.com/456/calendars/work/')).toMatch(/outside/);
   });
 
-  test('the OAuth token endpoint is reachable by the client but never a tool argument', () => {
-    const url = 'https://accounts.example.com/anything';
-    expect(policy().problem(url)).toMatch(/is not the configured DAV server/);
-    expect(policy().problem(url, { transport: true })).toBeNull();
+  test('the OAuth token endpoint is neither a tool argument nor a target of DAV requests', async () => {
+    const origins = policy();
+    expect(origins.problem('https://accounts.example.com/o/oauth2/token')).toMatch(/outside/);
+    let calls = 0;
+    const base = async () => { calls += 1; return new Response('{}'); };
+    await expect(origins.fetch(base)('https://accounts.example.com/o/oauth2/token')).rejects.toBeInstanceOf(RequestOriginError);
+    // and the token fetch reaches the token endpoint only
+    await origins.tokenFetch(base)('https://accounts.example.com/o/oauth2/token', { method: 'POST' });
+    await expect(origins.tokenFetch(base)('https://accounts.example.com/other')).rejects.toBeInstanceOf(RequestOriginError);
+    await expect(origins.tokenFetch(base)('https://dav.example.com/dav/')).rejects.toBeInstanceOf(RequestOriginError);
+    expect(calls).toBe(1);
   });
 
   test('a server URL with user info or a non-http scheme is a configuration error', () => {
@@ -177,20 +201,148 @@ describe('the policy', () => {
     expect(calls).toBe(0);
   });
 
-  test('during login it follows the server\'s redirect, after login it learns nothing', async () => {
-    const origins = new RequestOrigins({ serverUrl: 'https://dav.example.com/' });
-    const redirect = (location) => async () => new Response('', { status: 301, headers: { location } });
+  describe('redirects', () => {
+    // a fake network: answers by URL, records what was sent where
+    const network = (routes) => {
+      const sent = [];
+      const fetch = async (url, init = {}) => {
+        sent.push({ url: String(url), method: init.method, redirect: init.redirect,
+          authorization: new Headers(init.headers).get('authorization'), body: init.body });
+        const route = routes[String(url)];
+        return route ? route() : new Response(null, { status: 204 });
+      };
+      return { sent, fetch };
+    };
+    const redirect = (status, location) => () => new Response('', { status, headers: { location } });
 
-    await origins.fetch(redirect('https://root.example.com/dav/'))('https://dav.example.com/.well-known/caldav');
-    expect(origins.problem('https://root.example.com/dav/principals/')).toBeNull();
+    test('a redirect out of the account is refused, and nothing is sent there', async () => {
+      for (const status of [301, 302, 303, 307, 308]) {
+        const net = network({ 'https://dav.example.com/dav/cal/x.ics': redirect(status, 'https://attacker.example/steal') });
+        const error = await policy().fetch(net.fetch)('https://dav.example.com/dav/cal/x.ics', {
+          method: 'PUT', body: 'SECRET', headers: { authorization: 'Basic c2VjcmV0' },
+        }).then(() => null, e => e);
+        expect(error).toBeInstanceOf(RequestOriginError);
+        expect(error.message).toMatch(/redirected .* to https:\/\/attacker\.example\/steal.*did not take effect/);
+        expect(net.sent.map(r => r.url)).toEqual(['https://dav.example.com/dav/cal/x.ics']);
+        expect(net.sent[0].redirect).toBe('manual');
+      }
+    });
 
-    // a downgrade is not followed, not even during login
-    await origins.fetch(redirect('http://plain.example.com/'))('https://dav.example.com/.well-known/carddav');
-    expect(origins.problem('http://plain.example.com/')).not.toBeNull();
+    test('a redirect to another path on the same host outside the account is refused too', async () => {
+      const net = network({ 'https://dav.example.com/dav/x': redirect(307, '/~tenant/x') });
+      await expect(policy().fetch(net.fetch)('https://dav.example.com/dav/x', { method: 'DELETE' }))
+        .rejects.toThrow(/outside the configured DAV account/);
+      expect(net.sent).toHaveLength(1);
+    });
 
-    origins.endDiscovery();
-    await origins.fetch(redirect('https://later.example.com/'))('https://dav.example.com/x');
-    expect(origins.problem('https://later.example.com/')).not.toBeNull();
+    test('a redirect inside the account is followed with the semantics of fetch', async () => {
+      const net = network({
+        'https://dav.example.com/dav/a': redirect(307, '/dav/b'),
+        'https://dav.example.com/dav/b': redirect(303, '/dav/c'),
+      });
+      const response = await policy().fetch(net.fetch)('https://dav.example.com/dav/a', {
+        method: 'PUT', body: 'data', headers: { authorization: 'Basic x', 'content-type': 'text/calendar' },
+      });
+      expect(response.status).toBe(204);
+      expect(net.sent.map(r => [r.url, r.method, r.body, r.authorization])).toEqual([
+        ['https://dav.example.com/dav/a', 'PUT', 'data', 'Basic x'],
+        ['https://dav.example.com/dav/b', 'PUT', 'data', 'Basic x'],
+        ['https://dav.example.com/dav/c', 'GET', undefined, 'Basic x'],
+      ]);
+    });
+
+    test('a hop to another origin inside the account drops the login header', async () => {
+      const origins = policy();
+      origins.trust('https://p42.example.com/123/');
+      const net = network({ 'https://dav.example.com/dav/a': redirect(307, 'https://p42.example.com/123/a') });
+      await origins.fetch(net.fetch)('https://dav.example.com/dav/a', { headers: { authorization: 'Basic x' } });
+      expect(net.sent[1].authorization).toBeNull();
+    });
+
+    test('a caller that follows redirects itself gets the 3xx, and its next hop is checked', async () => {
+      const net = network({ 'https://dav.example.com/dav/a': redirect(307, 'https://attacker.example/') });
+      const guarded = policy().fetch(net.fetch);
+      const response = await guarded('https://dav.example.com/dav/a', { redirect: 'manual' });
+      expect(response.status).toBe(307);
+      await expect(guarded('https://attacker.example/', { redirect: 'manual' })).rejects.toBeInstanceOf(RequestOriginError);
+      expect(net.sent).toHaveLength(1);
+    });
+
+    test('during login a redirect is followed and its target joins the account; afterwards nothing is learned', async () => {
+      const origins = new RequestOrigins({ serverUrl: 'https://dav.example.com/' });
+      const net = network({
+        'https://dav.example.com/.well-known/caldav': redirect(301, 'https://root.example.com/dav/'),
+        'https://dav.example.com/x': redirect(301, 'https://later.example.com/'),
+      });
+      await origins.fetch(net.fetch)('https://dav.example.com/.well-known/caldav', { redirect: 'manual' });
+      expect(origins.problem('https://root.example.com/dav/principals/')).toBeNull();
+
+      origins.endDiscovery();
+      await expect(origins.fetch(net.fetch)('https://dav.example.com/x')).rejects.toThrow(/later\.example\.com/);
+      expect(origins.problem('https://later.example.com/')).not.toBeNull();
+    });
+
+    test('a login redirected from https to http is refused, and the error says so', async () => {
+      const origins = new RequestOrigins({ serverUrl: 'https://dav.example.com/' });
+      const net = network({ 'https://dav.example.com/.well-known/caldav': redirect(301, 'http://dav.example.com/dav/') });
+      await origins.fetch(net.fetch)('https://dav.example.com/.well-known/caldav', { redirect: 'manual' });
+      await expect(origins.fetch(net.fetch)('http://dav.example.com/dav/'))
+        .rejects.toThrow(/redirected the login from https to plain http/);
+
+      const followed = new RequestOrigins({ serverUrl: 'https://dav.example.com/' });
+      const net2 = network({ 'https://dav.example.com/': redirect(302, 'http://dav.example.com/dav/') });
+      await expect(followed.fetch(net2.fetch)('https://dav.example.com/'))
+        .rejects.toThrow(/redirected the login from https to plain http/);
+      expect(net2.sent).toHaveLength(1);
+    });
+  });
+
+  describe('collections listed in the home', () => {
+    const HOME = 'https://dav.example.com/dav/calendars/user/';
+    const listing = (responses) =>
+      '<?xml version="1.0"?><d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">' +
+      `${responses}</d:multistatus>`;
+    const calendar = (href, extraProps = '') =>
+      `<d:response><d:href>${href}</d:href><d:propstat><d:prop>` +
+      `<d:resourcetype><d:collection/><c:calendar/></d:resourcetype>${extraProps}` +
+      '</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>';
+    const learnFrom = async (body, { url = HOME, method = 'PROPFIND' } = {}) => {
+      const origins = policy();
+      const fetch = origins.fetch(async () => new Response(body, { status: 207, headers: { 'content-type': 'application/xml' } }), { listingOf: HOME });
+      await fetch(url, { method });
+      return origins;
+    };
+
+    test('a calendar the home lists elsewhere becomes reachable', async () => {
+      const origins = await learnFrom(listing(calendar('https://p42.example.com/123/work/')));
+      expect(origins.problem('https://p42.example.com/123/work/x.ics')).toBeNull();
+      expect(origins.problem('https://p42.example.com/123/other/')).toMatch(/outside/);
+    });
+
+    test.each([
+      ['an escaped href in a property', calendar('/dav/calendars/user/work/',
+        '<c:calendar-description>&lt;d:href&gt;https://escaped.attacker.test/&lt;/d:href&gt;</c:calendar-description>')],
+      ['an href in CDATA', calendar('/dav/calendars/user/work/',
+        '<c:calendar-description><![CDATA[notes <d:href>https://cdata.attacker.test/</d:href>]]></c:calendar-description>')],
+      ['an href inside a property', calendar('/dav/calendars/user/work/',
+        '<d:owner><d:href>https://owner-prop.attacker.test/x</d:href></d:owner>')],
+      ['a response that is no collection', '<d:response><d:href>https://plain.attacker.test/</d:href><d:propstat><d:prop>' +
+        '<d:resourcetype/></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>'],
+      ['an href in a foreign namespace', '<d:response><x:href xmlns:x="urn:x">https://ns.attacker.test/</x:href>' +
+        '<d:propstat><d:prop><d:resourcetype><c:calendar/></d:resourcetype></d:prop>' +
+        '<d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>'],
+    ])('%s is not learned', async (_name, responses) => {
+      const origins = await learnFrom(listing(responses));
+      expect(origins.allowedPrefixes().join(' ')).not.toMatch(/attacker/);
+    });
+
+    test('only the home listing teaches, not any other multistatus', async () => {
+      const body = listing(calendar('https://p42.example.com/123/work/'));
+      for (const options of [{ url: 'https://dav.example.com/dav/calendars/user/work/' }, { method: 'REPORT' }]) {
+        const origins = await learnFrom(body, options);
+        expect(origins.problem('https://p42.example.com/123/work/')).not.toBeNull();
+      }
+    });
   });
 });
 
@@ -286,7 +438,7 @@ describe('against real listeners', () => {
     const error = await tool.handler(args).then(() => null, e => e);
 
     expect(error).not.toBeNull();
-    expect(error.message).toMatch(/is not the configured DAV server/);
+    expect(error.message).toMatch(/is outside the configured DAV account/);
     expect(error.message).toContain(dav.origin);
     expect(attacker.hits).toHaveLength(0);
     // refused while validating: no request at all, not even to the real server
@@ -307,7 +459,7 @@ describe('against real listeners', () => {
     // covered by the policy tests; here the listener is plain http, so the
     // other direction must still be refused: another scheme is another origin
     const problem = requestUrlProblem(`${dav.origin.replace('http:', 'https:')}/calendars/user/work/`);
-    expect(problem).toMatch(/is not the configured DAV server/);
+    expect(problem).toMatch(/is outside the configured DAV account/);
   });
 
   describe('a request that bypasses the tool schemas still cannot leave the server', () => {
@@ -370,7 +522,7 @@ describe('origins the server names during login and listing', () => {
 
   test('a calendar the server lists on another origin becomes reachable once listed', async () => {
     const shared = `${elsewhere.origin}/calendars/user/shared/`;
-    expect(requestUrlProblem(shared)).toMatch(/is not the configured DAV server/);
+    expect(requestUrlProblem(shared)).toMatch(/is outside the configured DAV account/);
 
     const listCalendars = tools.find(tool => tool.name === 'list_calendars');
     await listCalendars.handler({});
@@ -395,5 +547,135 @@ describe('a failed login', () => {
     expect(requestUrlProblem(`${good.origin}/calendars/user/work/`)).toBeNull();
     await good.stop();
     activateRequestOrigins(null);
+  });
+});
+
+describe('a server that redirects a request out of the account', () => {
+  let dav;
+  let attacker;
+
+  beforeAll(async () => {
+    attacker = await davServer().start();
+    dav = await davServer({
+      handle: (req, res, path) => {
+        if (!path.startsWith('/calendars/user/work/redir')) return false;
+        res.writeHead(307, { location: `${attacker.origin}/steal` });
+        res.end();
+        return true;
+      },
+    }).start();
+  });
+
+  afterAll(async () => {
+    await dav.stop();
+    await attacker.stop();
+  });
+
+  test.each(['Basic', 'Digest'])('with %s, neither the request nor its body reach the target', async (authMethod) => {
+    await tsdavManager.initialize({ serverUrl: `${dav.origin}/`, authMethod, username: 'user', password: 'secret' });
+    attacker.hits.length = 0;
+    const tool = (name) => tools.find(t => t.name === name);
+
+    const deleted = await tool('delete_event').handler({
+      event_url: `${dav.origin}/calendars/user/work/redir1.ics`, event_etag: '"1"',
+    }).then(() => null, e => e);
+    const updated = await tool('update_event_raw').handler({
+      event_url: `${dav.origin}/calendars/user/work/redir2.ics`, event_etag: '"1"',
+      updated_ical_data: 'BEGIN:VCALENDAR\r\nX-SECRET:body\r\nEND:VCALENDAR\r\n',
+    }).then(() => null, e => e);
+
+    // an error, never a success for a request that went elsewhere (under
+    // Digest tsdav follows the redirect itself, and its next hop is refused)
+    expect(deleted?.message).toMatch(/Request refused: .*\/steal/);
+    expect(updated?.message).toMatch(/Request refused: .*\/steal/);
+    expect(attacker.hits).toHaveLength(0);
+  });
+});
+
+describe('a shared host', () => {
+  let dav;
+
+  beforeAll(async () => {
+    // the account lives below /dav.php/, as on Baikal; other paths on the
+    // host belong to someone else
+    const base = '/dav.php';
+    dav = await davServer({
+      handle: (req, res, path, body) => {
+        const xml = (responses) => {
+          res.writeHead(207, { 'content-type': 'application/xml; charset=utf-8' });
+          res.end(multistatus(responses));
+        };
+        if (path.startsWith('/.well-known/')) {
+          res.writeHead(301, { location: `${base}/` });
+          res.end();
+          return true;
+        }
+        if (body.includes('current-user-principal')) {
+          xml(propResponse(path, `<d:current-user-principal><d:href>${base}/principals/user/</d:href></d:current-user-principal>`));
+          return true;
+        }
+        if (body.includes('calendar-home-set')) {
+          xml(propResponse(path, `<cal:calendar-home-set><d:href>${base}/calendars/user/</d:href></cal:calendar-home-set>`));
+          return true;
+        }
+        if (body.includes('addressbook-home-set')) {
+          xml(propResponse(path, `<card:addressbook-home-set><d:href>${base}/addressbooks/user/</d:href></card:addressbook-home-set>`));
+          return true;
+        }
+        return false;
+      },
+    }).start();
+    await tsdavManager.initialize({ serverUrl: `${dav.origin}/dav.php`, authMethod: 'Basic', username: 'user', password: 'secret' });
+  });
+
+  afterAll(() => dav.stop());
+
+  test('only the account below the server\'s DAV root gets the login', async () => {
+    expect(requestUrlProblem(`${dav.origin}/dav.php/calendars/user/work/x.ics`)).toBeNull();
+    const before = dav.hits.length;
+    const error = await tools.find(t => t.name === 'delete_event').handler({
+      event_url: `${dav.origin}/~tenant/inbox.ics`, event_etag: '"1"',
+    }).then(() => null, e => e);
+    expect(error.message).toMatch(/is outside the configured DAV account/);
+    expect(dav.hits.length).toBe(before);
+  });
+});
+
+describe('OAuth', () => {
+  let dav;
+  let token;
+
+  beforeAll(async () => {
+    token = await davServer({
+      handle: (req, res, path) => {
+        if (path !== '/o/oauth2/token') return false;
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ access_token: 'bearer-token', expires_in: 3600, token_type: 'Bearer' }));
+        return true;
+      },
+    }).start();
+    dav = await davServer().start();
+    await tsdavManager.initialize({
+      serverUrl: `${dav.origin}/`, authMethod: 'OAuth', username: 'user@example.com',
+      clientId: 'id', clientSecret: 'secret', refreshToken: 'refresh', tokenUrl: `${token.origin}/o/oauth2/token`,
+    });
+  });
+
+  afterAll(async () => {
+    await dav.stop();
+    await token.stop();
+  });
+
+  test('logs in through the token endpoint, which DAV requests then cannot reach', async () => {
+    expect(token.hits.some(hit => hit.url === '/o/oauth2/token')).toBe(true);
+    expect(dav.hits.some(hit => hit.authorization === 'Bearer bearer-token')).toBe(true);
+    const before = token.hits.length;
+
+    expect(requestUrlProblem(`${token.origin}/o/oauth2/token`)).toMatch(/outside/);
+    const error = await tsdavManager.getCalDavClient()
+      .davRequest({ url: `${token.origin}/o/oauth2/token`, init: { method: 'GET' } })
+      .then(() => null, e => e);
+    expect(error).toBeInstanceOf(RequestOriginError);
+    expect(token.hits.length).toBe(before);
   });
 });
