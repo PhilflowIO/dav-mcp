@@ -7,10 +7,11 @@ import { RequestOrigins, activateRequestOrigins } from './request-origins.js';
 const DEFAULT_OAUTH_TOKEN_URL = 'https://accounts.google.com/o/oauth2/token';
 
 /**
- * A tsdav client that only reaches the origins of its RequestOrigins (see
+ * A tsdav client that only reaches URLs inside the account (see
  * request-origins.js). Every request tsdav makes goes through the fetch given
  * here; a fetch passed to a single call is wrapped as well, so passing one
- * does not open a way around the check.
+ * does not open a way around the check. OAuth token requests get a fetch of
+ * their own that reaches the token endpoint and nothing else.
  */
 class OriginCheckedDAVClient extends DAVClient {
   constructor(params, origins) {
@@ -19,8 +20,14 @@ class OriginCheckedDAVClient extends DAVClient {
   }
 
   #checked(params, options) {
-    if (!params?.fetch && !options) return params;
+    if (!options && (!params?.fetch || this.requestOrigins.checks(params.fetch))) return params;
     return { ...params, fetch: this.requestOrigins.fetch(params?.fetch, options) };
+  }
+
+  // tsdav fetches OAuth tokens with the fetch it is handed here; whatever a
+  // caller passes, token requests only go to the token endpoint.
+  async authenticate(force, fetchOptions) {
+    return super.authenticate(force, fetchOptions, this.requestOrigins.tokenFetch());
   }
 
   async invoke(fn, params) {
@@ -35,15 +42,16 @@ class OriginCheckedDAVClient extends DAVClient {
     return super.createAccount(this.#checked(params));
   }
 
-  // A server may list a collection on an origin other than its root; tsdav
-  // asks that collection for its reports while still listing, so the origins
-  // in the listing have to be known before the listing call returns.
+  // A server may list a collection somewhere other than below its home;
+  // tsdav asks each listed collection for its reports while still listing,
+  // so the collections in the home listing have to be known before the
+  // listing call returns.
   async fetchCalendars(params) {
-    return super.fetchCalendars(this.#checked(params, { learnCollections: true }));
+    return super.fetchCalendars(this.#checked(params, { listingOf: this.account?.homeUrl }));
   }
 
   async fetchAddressBooks(params) {
-    return super.fetchAddressBooks(this.#checked(params, { learnCollections: true }));
+    return super.fetchAddressBooks(this.#checked(params, { listingOf: this.account?.homeUrl }));
   }
 }
 
@@ -96,10 +104,11 @@ class TsdavClientManager {
       }
 
       // A fresh policy per login: the clients built here may reach the
-      // configured server, whatever it redirects the login to, and the OAuth
-      // token endpoint — nothing else (see request-origins.js).
+      // configured server, what it redirects the login to and the account it
+      // describes; their token requests only the OAuth token endpoint
+      // (see request-origins.js).
       const tokenUrl = useOAuth ? (config.tokenUrl || DEFAULT_OAUTH_TOKEN_URL) : undefined;
-      const origins = new RequestOrigins({ serverUrl: config.serverUrl, authUrls: tokenUrl ? [tokenUrl] : [] });
+      const origins = new RequestOrigins({ serverUrl: config.serverUrl, tokenUrl });
 
       let clients;
       if (useOAuth) {
@@ -110,8 +119,9 @@ class TsdavClientManager {
         clients = await this._initializePasswordAuth(config, this.authMethod, origins);
       }
 
-      // The account the server described (principal, calendar and address
-      // book home) is where its collections live, e.g. on a per-user host.
+      // The account the server described (root, principal, calendar and
+      // address book home) is where its collections live, e.g. on a
+      // per-account host.
       origins.trustAccount(clients.calDavClient.account);
       origins.trustAccount(clients.cardDavClient.account);
       origins.endDiscovery();
@@ -121,7 +131,7 @@ class TsdavClientManager {
       activateRequestOrigins(origins);
       this.calDavClient = clients.calDavClient;
       this.cardDavClient = clients.cardDavClient;
-      logger.info({ allowedOrigins: origins.allowedOrigins() }, 'Requests are restricted to these origins');
+      logger.info({ allowedPrefixes: origins.allowedPrefixes() }, 'Requests are restricted to these URLs and below');
 
       // "configured", not "used": under Basic tsdav switches to Digest when
       // the server offers nothing else, and does not expose which scheme it

@@ -72,6 +72,7 @@
     "ical.js": "^2.2.1",
     "tsdav": "https://github.com/PhilflowIO/tsdav/releases/download/v2.3.5%2Bphilflow.5/tsdav-2.3.5-philflow.5.tgz",
     "tsdav-utils": "github:PhilflowIO/tsdav-utils#v0.4.0",
+    "xml-js": "1.6.11",
     "zod": "^3.25.76"
   },
   "devDependencies": {
