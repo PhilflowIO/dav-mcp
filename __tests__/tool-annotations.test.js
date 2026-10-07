@@ -36,14 +36,17 @@ describe.each(tools.map(t => [t.name, t]))('%s', (name, tool) => {
     if (READ.test(name)) {
       expect(a.readOnlyHint).toBe(true);
       expect(a.destructiveHint).toBe(false);
+      expect(a.idempotentHint).toBe(true);
     } else if (CREATE.test(name)) {
       expect(a.readOnlyHint).toBe(false);
       expect(a.destructiveHint).toBe(false);
       expect(a.idempotentHint).toBe(false);
     } else {
-      // updates overwrite stored values, deletes remove them
+      // updates overwrite stored values, deletes remove them; the etag makes
+      // a repeated call fail instead of acting twice
       expect(a.readOnlyHint).toBe(false);
       expect(a.destructiveHint).toBe(true);
+      expect(a.idempotentHint).toBe(true);
     }
   });
 

@@ -27,7 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Set `LOG_TOOL_CALLS=true` to turn it on. It then writes to
   `$XDG_STATE_HOME/dav-mcp/tool-calls.jsonl` (`~/.local/state/…`, on Windows
   `%LOCALAPPDATA%\dav-mcp\…`) with owner-only permissions, or to
-  `TOOL_CALL_LOG_FILE`.
+  `TOOL_CALL_LOG_FILE`. **If you ran an earlier version, delete the old log**:
+  `/tmp/mcp-tool-calls.jsonl` (on Windows `C:\tmp\mcp-tool-calls.jsonl`) still
+  holds the calendar and contact data it recorded.
 
 ## [4.2.0] - 2026-10-07
 

@@ -47,6 +47,25 @@ describe('tool-call log', () => {
     }
   });
 
+  test('an existing log file is narrowed to its owner before anything is written', () => {
+    if (process.platform === 'win32') return;
+    const file = process.env.TOOL_CALL_LOG_FILE;
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '', { mode: 0o644 });
+    fs.chmodSync(file, 0o644);
+
+    process.env.LOG_TOOL_CALLS = 'true';
+    initializeToolCallLogger();
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+  });
+
+  test('reports whether it is on, and where it writes', () => {
+    expect(initializeToolCallLogger().describe()).toEqual({ enabled: false });
+    process.env.LOG_TOOL_CALLS = 'true';
+    expect(initializeToolCallLogger().describe())
+      .toEqual({ enabled: true, mode: 'file', file: process.env.TOOL_CALL_LOG_FILE });
+  });
+
   test('the default location is per user, never a shared temp directory', () => {
     const home = os.homedir();
     expect(defaultToolCallLogFile({}, 'linux'))

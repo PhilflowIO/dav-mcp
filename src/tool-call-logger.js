@@ -30,15 +30,36 @@ class ToolCallLogger {
     this.logFile = options.logFile || defaultToolCallLogFile();
 
     if (this.enabled && this.outputMode.includes('file')) {
-      this.ensureLogFileExists();
+      this.ensurePrivateLogFile();
     }
   }
 
-  ensureLogFileExists() {
-    const dir = path.dirname(this.logFile);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  /**
+   * Create the log file readable by its owner only. A file that already
+   * exists (an older log, or a TOOL_CALL_LOG_FILE the user chose) is
+   * narrowed to the owner too: it is about to receive calendar and
+   * contact data.
+   */
+  ensurePrivateLogFile() {
+    try {
+      const dir = path.dirname(this.logFile);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+      }
+      fs.closeSync(fs.openSync(this.logFile, 'a', 0o600));
+      if (process.platform !== 'win32') {
+        fs.chmodSync(this.logFile, 0o600);
+      }
+    } catch (error) {
+      console.error('Failed to prepare tool call log:', error.message);
     }
+  }
+
+  /** What the startup log reports about this logger. */
+  describe() {
+    return this.enabled
+      ? { enabled: true, mode: this.outputMode, ...(this.outputMode !== 'console' && { file: this.logFile }) }
+      : { enabled: false };
   }
 
   log(entry) {
@@ -53,7 +74,6 @@ class ToolCallLogger {
 
     if (this.outputMode === 'file' || this.outputMode === 'both') {
       try {
-        // mode applies when the file is created: readable by the owner only
         fs.appendFileSync(this.logFile, line, { mode: 0o600 });
       } catch (error) {
         console.error('Failed to write to tool call log:', error.message);

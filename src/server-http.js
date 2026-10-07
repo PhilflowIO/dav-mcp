@@ -356,8 +356,7 @@ async function start() {
   await initializeTsdav();
 
   // Initialize tool call logger
-  initializeToolCallLogger();
-  logger.info('Tool call logger initialized');
+  logger.info(initializeToolCallLogger().describe(), 'Tool-call log');
 
   // Start Express server
   httpServer = app.listen(PORT, () => {

@@ -180,8 +180,7 @@ async function startStdioServer() {
     }
 
     // Initialize tool call logger
-    initializeToolCallLogger();
-    logger.info('Tool call logger initialized');
+    logger.info(initializeToolCallLogger().describe(), 'Tool-call log');
 
     // Create MCP server
     const server = createMCPServer(ensureTsdavInitialized);

@@ -54,7 +54,9 @@ Two logs exist, both under your control:
   tool call is written with its arguments, which include calendar and contact
   data, to a file only your user account can read
   (`~/.local/state/dav-mcp/tool-calls.jsonl` by default). It is kept until you
-  delete it.
+  delete it. Versions before this policy had it on by default and wrote to
+  `/tmp/mcp-tool-calls.jsonl` (`C:\tmp\mcp-tool-calls.jsonl` on Windows);
+  if you used one, delete that file.
 
 ## Self-hosted HTTP mode
 
