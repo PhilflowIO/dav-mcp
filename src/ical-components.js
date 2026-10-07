@@ -1,4 +1,6 @@
+import ICAL from 'ical.js';
 import { seriesMaster } from 'tsdav-utils';
+import { ValidationError } from './error-handler.js';
 
 /**
  * Which component of a calendar object a reader shows.
@@ -62,4 +64,45 @@ export function readSeries(calendar, type) {
     overrides: all.filter((c) => c !== master && c.hasProperty('recurrence-id')),
     detached: [],
   };
+}
+
+const KINDS = {
+  vevent: { noun: 'event', update: 'update_event', raw: 'update_event_raw', fetch: 'calendar_multi_get' },
+  vtodo: { noun: 'todo', update: 'update_todo', raw: 'update_todo_raw', fetch: 'todo_multi_get' },
+};
+
+/**
+ * Refuse a field update the object cannot take, before anything is written.
+ *
+ * A field update edits the series master. An object holding several
+ * instances and no master has none, so updateFields throws — with a message
+ * that knows nothing about the tools here and surfaces as an internal error.
+ * This checks the object itself (readSeries, i.e. the same seriesMaster rule)
+ * and answers with a validation error naming the route that does work:
+ * fetch the whole object, edit the instance meant, write it back raw.
+ *
+ * An object that does not parse is left to the write, which reports that.
+ *
+ * @param {string|{data: string}} object - the calendar object as fetched
+ * @param {'vevent'|'vtodo'} type
+ * @throws {ValidationError} when there are several instances and no master
+ */
+export function assertFieldUpdatable(object, type) {
+  let calendar;
+  try {
+    calendar = new ICAL.Component(ICAL.parse(typeof object === 'string' ? object : object.data));
+  } catch {
+    return;
+  }
+  const series = readSeries(calendar, type);
+  if (!series || series.detached.length < 2) return;
+
+  const { noun, update, raw, fetch } = KINDS[type];
+  throw new ValidationError(
+    `This ${noun} is stored as ${series.detached.length} single occurrences (each with a ` +
+    `RECURRENCE-ID) and no series master, so ${update} cannot tell which one to change. ` +
+    `Fetch it with ${fetch} (its Raw Data block holds the full iCalendar text and the etag), ` +
+    `edit the ${type.toUpperCase()} of the occurrence you mean, and send the whole object ` +
+    `with ${raw}.`
+  );
 }

@@ -4,6 +4,7 @@ import { formatSuccess } from '../../formatters.js';
 import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
 import { z } from 'zod';
 import { writeEventFields } from '../shared/ical-dates.js';
+import { assertFieldUpdatable } from '../../ical-components.js';
 
 /**
  * Schema for field-based event updates
@@ -140,6 +141,8 @@ export const updateEventFields = {
     }
 
     const calendarObject = currentEvents[0];
+    // a field update edits the series master; refuse one that has none
+    assertFieldUpdatable(calendarObject, 'vevent');
 
     // Step 2: Write the fields and, when moving the event, its dates in one
     // updateFields call on the series master, so an RRULE UNTIL in fields

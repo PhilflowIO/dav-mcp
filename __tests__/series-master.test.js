@@ -36,6 +36,17 @@ const { calculateFreeBusy } = await import('../src/tools/shared/freebusy.js');
 const { dueSpan } = await import('../src/tools/shared/ical-dates.js');
 const { formatTodo, formatEvent } = await import('../src/formatters.js');
 const { readSeries } = await import('../src/ical-components.js');
+const { createToolErrorResponse, MCP_ERROR_CODES } = await import('../src/error-handler.js');
+
+/** what the LLM gets back for a failed call, as the servers build it */
+const errorReply = async (call) => {
+  try {
+    await call;
+  } catch (error) {
+    return JSON.parse(createToolErrorResponse(error).content[0].text);
+  }
+  throw new Error('expected the call to fail');
+};
 
 /** a VCALENDAR holding the given components, each a list of property lines */
 const calendar = (type, ...components) => [
@@ -210,18 +221,34 @@ describe('several instances without a master (#96)', () => {
     expect(busy.map((b) => b.start.toISOString())).toEqual(['2026-10-01T09:00:00.000Z', '2026-10-08T09:00:00.000Z']);
   });
 
-  test('update_event refuses with an actionable error and writes nothing', async () => {
+  test('update_event refuses with a validation error that names the raw route', async () => {
     storedEvent = events;
-    await expect(setEvent({ fields: { LOCATION: 'Room 4' } }))
-      .rejects.toThrow(/2 VEVENT instances .* no master.*rewriting the whole iCalendar object/s);
-    await expect(setEvent({ start_date: '2026-10-01T10:00:00Z', end_date: '2026-10-01T11:00:00Z' }))
-      .rejects.toThrow(/no master/);
+    for (const args of [
+      { fields: { LOCATION: 'Room 4' } },
+      { start_date: '2026-10-01T10:00:00Z', end_date: '2026-10-01T11:00:00Z' },
+    ]) {
+      const reply = await errorReply(setEvent(args));
+      expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+      expect(reply.message).toBe(
+        'This event is stored as 2 single occurrences (each with a RECURRENCE-ID) and no series ' +
+        'master, so update_event cannot tell which one to change. Fetch it with calendar_multi_get ' +
+        '(its Raw Data block holds the full iCalendar text and the etag), edit the VEVENT of the ' +
+        'occurrence you mean, and send the whole object with update_event_raw.');
+    }
     expect(updateCalendarObject).not.toHaveBeenCalled();
   });
 
-  test('update_todo refuses with an actionable error and writes nothing', async () => {
+  test('update_todo refuses with a validation error that names the raw route', async () => {
     storedTodo = todos;
-    await expect(setTodo({ DUE: '2026-10-02T10:00:00Z' })).rejects.toThrow(/2 VTODO instances .* no master/s);
+    const reply = await errorReply(setTodo({ DUE: '2026-10-02T10:00:00Z' }));
+    expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+    expect(reply.message).toMatch(/2 single occurrences .* update_todo cannot tell .* todo_multi_get .* VTODO .* update_todo_raw\.$/);
     expect(updateTodo).not.toHaveBeenCalled();
+  });
+
+  test('a lone detached instance is still updated as it is', async () => {
+    storedTodo = calendar('VTODO', first.filter((l) => !l.startsWith('DTEND')));
+    await setTodo({ SUMMARY: 'Review (moved)' });
+    expect(emittedTodo()).toContain('SUMMARY:Review (moved)');
   });
 });
