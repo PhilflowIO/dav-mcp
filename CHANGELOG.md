@@ -28,6 +28,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `update_todo` keeps a todo's dates coherent: setting DUE replaces a DURATION
   and the other way round, and a DUE that is not later than DTSTART, or not of
   the same kind (date vs. date-time), is rejected before anything is written.
+- `todo_query`, `calendar_query` and `addressbook_query` filter on parsed
+  values (#94). A summary, location, name or organization with a parameter
+  (`SUMMARY;LANGUAGE=de:`), folded across lines or containing an escaped
+  comma now matches; every EMAIL of a contact is searched, not just the
+  first; and `name_filter` no longer matches text from other lines (`vcard`
+  matched every contact). A recurring event matches on its series title and
+  location, or on an occurrence renamed or moved inside the queried range.
+- When a query result is capped, the earliest events are kept even if they
+  carry a timezone; the zone definition's 1970 start date was sorted on
+  instead, so the kept events were arbitrary.
 
 ### Changed
 - `create_todo` accepts a bare date for `due_date`, giving a todo due that day;
