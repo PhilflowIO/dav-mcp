@@ -18,6 +18,9 @@ jest.unstable_mockModule('tsdav-utils', () => ({
   // validation.js parses dates with the library's grammar; no test here
   // sends a date, so any answer will do
   parseDateValue: jest.fn(() => ({ kind: 'utc', jcal: '2026-01-01T00:00:00Z' })),
+  // imported by the master selection (src/ical-components.js); these tests
+  // never read a component back
+  seriesMaster: jest.fn(),
 }));
 
 // --- Mock tsdavManager ---

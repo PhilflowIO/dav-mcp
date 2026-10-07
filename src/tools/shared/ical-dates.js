@@ -1,5 +1,6 @@
 import ICAL from 'ical.js';
 import { updateFields } from 'tsdav-utils';
+import { readSeries } from '../../ical-components.js';
 
 /**
  * Every property dav-mcp writes onto a calendar object or vCard goes through
@@ -157,7 +158,8 @@ export function toInstant(icalTime) {
 export function dueSpan(iCalString) {
   // one malformed todo must not fail the query for all the others
   try {
-    const vtodo = new ICAL.Component(ICAL.parse(iCalString)).getFirstSubcomponent('vtodo');
+    // the todo a range query matches is the one shown and edited: the master
+    const vtodo = readSeries(new ICAL.Component(ICAL.parse(iCalString)), 'vtodo')?.master;
     const property = vtodo?.getFirstProperty('due');
     if (!property) return null;
     const due = property.getFirstValue();
