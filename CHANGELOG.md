@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Dates written through `update_todo` keep their time and zone** (#91).
+  `fields.DUE` rejected the iCal form its own description advertised
+  (`20261026T180000Z`), and a value with an offset such as
+  `2026-10-26T14:00:00-04:00` was stored without its zone — hours off for
+  anyone reading it elsewhere. A TZID or all-day marker left on the old value
+  produced lines RFC 5545 forbids. The same applied to every date field of
+  `update_event` (EXDATE, RECURRENCE-ID) and to `REV` in `update_contact`.
+  All date values are now encoded in one place (tsdav-utils 0.2.0): offsets are
+  converted to UTC, a bare date (`2026-10-26`) makes an all-day value, and a
+  time without a zone keeps the timezone the property already has — otherwise
+  it is read in the server timezone, as `create_event` always did.
+- `update_todo` keeps a todo's dates coherent: setting DUE replaces a DURATION
+  and the other way round, and a DUE that is not later than DTSTART, or not of
+  the same kind (date vs. date-time), is rejected before anything is written.
+
+### Changed
+- `create_todo` accepts a bare date for `due_date`, giving a todo due that day;
+  before, it became midnight UTC. `create_event`, `create_todo` and the update
+  tools now share one date encoder instead of three.
+- `update_event`: a `start_date`/`end_date` without a zone on an event that has
+  a timezone stays in that timezone (18:00 on a Berlin event is 18:00 Berlin);
+  before, it was read in the server timezone and stored as UTC.
+
 ## [4.1.2] - 2026-10-02
 
 ### Added
