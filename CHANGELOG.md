@@ -54,10 +54,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`SUMMARY;LANGUAGE=de:`), folded across lines or containing an escaped
   comma now matches; every EMAIL of a contact is searched, not just the
   first; and `name_filter` no longer matches text from other lines (`vcard`
-  matched every contact). A recurring event matches on its series title and
-  location, or on an occurrence renamed or moved inside the queried range.
-  `status_filter` compares case-insensitively, so `STATUS:completed` counts
-  as COMPLETED.
+  matched every contact). The filters read exactly what the list shows, so
+  an event is always listed with the text it was found by: a recurring
+  event's series title and location, or — with a time range — those of the
+  first occurrence in the range, including one renamed or moved; a recurring
+  todo's series, not a completed single occurrence. `status_filter` compares
+  case-insensitively, and the list shows `STATUS:completed` as COMPLETED.
 - Contacts exported with unnamed parameters (vCard 2.1 / Outlook / Android:
   `EMAIL;PREF;INTERNET:`, `TEL;CELL:`) are shown with their name and fields
   and found by `addressbook_query`; they appeared as "Unnamed Contact". A
