@@ -1,5 +1,6 @@
 import ICAL from 'ical.js';
 import { toInstant } from './ical-dates.js';
+import { readSeries } from '../../ical-components.js';
 
 /**
  * Client-side free/busy calculation.
@@ -19,9 +20,8 @@ const MAX_RECURRENCE_ITERATIONS = 10000;
 /**
  * Busy intervals contributed by a single calendar object.
  *
- * Skips anything that does not actually occupy time: TRANSP:TRANSPARENT is the
- * RFC 5545 way of saying "this does not block me", and a cancelled event does
- * not either. All-day events count as busy for their whole span.
+ * Skips anything that does not actually occupy time (see blocksTime). All-day
+ * events count as busy for their whole span.
  */
 function busyIntervalsOf(calendarObject, range) {
   const intervals = [];
@@ -34,26 +34,33 @@ function busyIntervalsOf(calendarObject, range) {
     return intervals;
   }
 
-  const vevents = comp.getAllSubcomponents('vevent');
-  const master = vevents.find(v => !v.getFirstProperty('recurrence-id')) || vevents[0];
-  if (!master) return intervals;
-
-  const transparency = master.getFirstPropertyValue('transp');
-  const status = master.getFirstPropertyValue('status');
-  if (transparency === 'TRANSPARENT' || status === 'CANCELLED') return intervals;
-
-  const event = new ICAL.Event(master);
-  for (const override of vevents) {
-    if (override !== master && override.getFirstProperty('recurrence-id')) {
-      event.relateException(override);
-    }
-  }
+  const series = readSeries(comp, 'vevent');
+  if (!series) return intervals;
 
   const add = (start, end) => {
     const from = Math.max(toInstant(start), range.start.getTime());
     const to = Math.min(toInstant(end), range.end.getTime());
     if (to > from) intervals.push({ start: from, end: to });
   };
+
+  // Detached instances stored without their master (see readSeries): no
+  // series to expand, but each instance occupies its own time.
+  if (series.detached.length > 0) {
+    for (const instance of series.detached) {
+      if (!blocksTime(instance)) continue;
+      const event = new ICAL.Event(instance);
+      add(event.startDate, event.endDate);
+    }
+    return intervals;
+  }
+
+  const { master } = series;
+  if (!blocksTime(master)) return intervals;
+
+  const event = new ICAL.Event(master);
+  for (const override of series.overrides) {
+    event.relateException(override);
+  }
 
   if (!event.isRecurring()) {
     add(event.startDate, event.endDate);
@@ -75,6 +82,15 @@ function busyIntervalsOf(calendarObject, range) {
   }
 
   return intervals;
+}
+
+/**
+ * Does a VEVENT occupy time? TRANSP:TRANSPARENT is the RFC 5545 way of saying
+ * "this does not block me", and a cancelled event does not either.
+ */
+function blocksTime(vevent) {
+  return vevent.getFirstPropertyValue('transp') !== 'TRANSPARENT' &&
+    vevent.getFirstPropertyValue('status') !== 'CANCELLED';
 }
 
 /**

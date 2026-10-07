@@ -1,5 +1,5 @@
 import ICAL from 'ical.js';
-import { updateFields } from 'tsdav-utils';
+import { updateFields, seriesMaster } from 'tsdav-utils';
 
 /**
  * Every property dav-mcp writes onto a calendar object or vCard goes through
@@ -21,25 +21,43 @@ export function writeFields(object, fields) {
 }
 
 /**
- * Move an event: rewrite DTSTART/DTEND together.
+ * Write an event's fields and, when given, its new dates — in ONE updateFields
+ * call.
  *
- * Whether the event is all-day follows from the format of the values (a bare
- * date or a date-time); validation has already rejected a pair that disagrees,
- * or that contradicts an explicit all_day flag.
+ * One call, because tsdav-utils writes DTSTART before everything else and
+ * anchors the rest to it: an RRULE UNTIL given in `fields` takes the form of
+ * the NEW DTSTART (a date for an all-day series, UTC for a timed one; RFC 5545
+ * 3.3.10). Written in two calls, the rule would be checked against the old
+ * DTSTART and a valid move such as
+ * `{ RRULE: 'FREQ=DAILY;UNTIL=2026-10-20' }` + an all-day start_date refused.
+ *
+ * Start and end are rewritten together. Whether the event is all-day follows
+ * from the format of the values (a bare date or a date-time); validation has
+ * already rejected a pair that disagrees, or that contradicts an explicit
+ * all_day flag.
  *
  * RFC 5545 3.6.1: "'dtend' and 'duration' MUST NOT occur in the same
  * 'eventprop'". An event stored as DTSTART + DURATION has just been given an
  * explicit end, so the DURATION is both redundant and illegal here — and a
- * server is entitled to refuse the PUT.
+ * server is entitled to refuse the PUT. Both that and the end-after-start
+ * check act on the series master, the component updateFields wrote.
  *
- * @param {string} iCalString - the current calendar object
- * @param {Object} dates
+ * @param {string|{data: string}} object - the current calendar object
+ * @param {Record<string, string>} fields - bare property name -> value; must
+ *   not hold DTSTART, DTEND or DURATION (the dates come in `dates`)
+ * @param {Object} [dates] - omitted when the event is not being moved
  * @param {string} dates.startDate - YYYY-MM-DD or ISO 8601 date-time
  * @param {string} dates.endDate - same form as startDate; exclusive when a date
  * @returns {string} the rewritten calendar object
  */
-export function setEventDates(iCalString, { startDate, endDate }) {
-  const written = writeFields(iCalString, { DTSTART: startDate, DTEND: endDate });
+export function writeEventFields(object, fields, dates) {
+  if (!dates) return writeFields(object, fields);
+
+  const written = writeFields(object, {
+    ...fields,
+    DTSTART: dates.startDate,
+    DTEND: dates.endDate,
+  });
   return editComponent(written, 'vevent', (vevent) => {
     vevent.removeAllProperties('duration');
     assertEndAfterStart(vevent);
@@ -269,7 +287,13 @@ function frameOf(property) {
 }
 
 /**
- * Parse, hand the first component of the given kind to `edit`, serialize.
+ * Parse, hand the component updateFields just wrote to `edit`, serialize.
+ *
+ * That component is the series master (tsdav-utils' seriesMaster), not the
+ * first one in the file: with an override stored first, a check or a
+ * DURATION removal on the first component would miss what was written. The
+ * object updateFields refused to edit (several instances, no master) cannot
+ * reach this point, and seriesMaster would throw the same error if it did.
  */
 function editComponent(iCalString, name, edit) {
   let calendar;
@@ -279,10 +303,10 @@ function editComponent(iCalString, name, edit) {
     throw new Error(`Failed to parse iCal data: ${error.message}`);
   }
 
-  const component = calendar.name === name ? calendar : calendar.getFirstSubcomponent(name);
-  if (!component) {
+  if (calendar.name !== name && calendar.getAllSubcomponents(name).length === 0) {
     throw new Error(`No ${name.toUpperCase()} found in the calendar object`);
   }
+  const component = calendar.name === name ? calendar : seriesMaster(calendar, name);
 
   edit(component);
   return calendar.toString();

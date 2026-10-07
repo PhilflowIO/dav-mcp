@@ -11,6 +11,7 @@
 
 import ICAL from 'ical.js';
 import { readVCard, nameComponents, organizationText } from './vcard.js';
+import { readSeries } from './ical-components.js';
 
 // A CalDAV server answers a time-range query with the master VEVENT of a
 // recurring series, not with the occurrences inside the range, so the series
@@ -76,20 +77,18 @@ function parseICalEvent(icalData, timeRange = null) {
   try {
     const jcalData = ICAL.parse(icalData);
     const comp = new ICAL.Component(jcalData);
-    const vevents = comp.getAllSubcomponents('vevent');
     // Overrides are siblings of the master in the same calendar object; taking
-    // the first VEVENT would pick one of them at the server's whim.
-    const vevent = vevents.find(v => !v.getFirstProperty('recurrence-id')) || vevents[0];
-
-    if (!vevent) {
+    // the first VEVENT would pick one of them at the server's whim. readSeries
+    // picks the component update_event writes (see src/ical-components.js).
+    const series = readSeries(comp, 'vevent');
+    if (!series) {
       return {};
     }
 
+    const vevent = series.master;
     const event = new ICAL.Event(vevent);
-    for (const override of vevents) {
-      if (override !== vevent && override.getFirstProperty('recurrence-id')) {
-        event.relateException(override);
-      }
+    for (const override of series.overrides) {
+      event.relateException(override);
     }
 
     let occurrence = null;
@@ -879,7 +878,8 @@ function parseVTodo(icalData) {
   try {
     const jcalData = ICAL.parse(icalData);
     const comp = new ICAL.Component(jcalData);
-    const vtodo = comp.getFirstSubcomponent('vtodo');
+    // the master, the todo update_todo edits, not whichever VTODO comes first
+    const vtodo = readSeries(comp, 'vtodo')?.master;
 
     if (!vtodo) {
       return {};
