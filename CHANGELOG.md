@@ -37,7 +37,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   times without seconds (`2026-10-26T18:00`).
 - `update_event`: a `start_date`/`end_date` without a zone on an event that has
   a timezone stays in that timezone (18:00 on a Berlin event is 18:00 Berlin);
-  before, it was read in the server timezone and stored as UTC.
+  before, it was read in the server timezone and stored as UTC. A
+  `start_date`/`end_date` pair where one names a zone and the other does not is
+  refused, because its order cannot be checked: the zoneless one is read in the
+  event's own timezone.
 
 ## [4.1.2] - 2026-10-02
 
