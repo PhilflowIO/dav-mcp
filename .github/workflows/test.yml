@@ -126,7 +126,7 @@ jobs:
           pinned=$(node -p 'require("./claude-plugin/.mcp.json").mcpServers["dav-mcp"].args.at(-1)')
           npm view "$pinned" version >/dev/null || { echo "::error::$pinned is not on npm; publish it before this reaches main"; exit 1; }
 
-  # npm 12 (Node 26) refuses git and remote-tarball dependencies by default
+  # npm 12 refuses git and remote-tarball dependencies by default
   # (allow-git=none, allow-remote=none). dav-mcp 4.1.2 depended on both and
   # `npx -y dav-mcp` failed before the server started (#100). This job runs
   # with those defaults: a git or tarball dependency in package-lock.json
@@ -145,6 +145,11 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '26.x'
+
+      # Node 26 still bundles npm 11, which fetches git and tarball
+      # dependencies; the npm this job is about is installed explicitly.
+      - name: Use npm 12
+        run: npm install --global --ignore-scripts --no-audit --no-fund npm@12.2.0
 
       # The job only proves something while these are the defaults.
       - name: Check the npm 12 defaults are in effect
