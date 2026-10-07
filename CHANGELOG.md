@@ -70,8 +70,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   organization with an empty part reads "Acme, Sales", not "Acme, , Sales".
 - When a query result is capped, the earliest events are kept even if they
   carry a timezone; the zone definition's 1970 start date was sorted on
-  instead, so the kept events were arbitrary. A capped contact list says it
-  shows the first contacts by name, not "the earliest".
+  instead, so the kept events were arbitrary. With a time range, a recurring
+  event is sorted by the occurrence it is listed as, not by when the series
+  began. A capped contact list says it shows the first contacts by name, not
+  "the earliest".
+- Range queries over long-running daily or weekly series no longer walk
+  every occurrence since the series began; 500 daily series since 2020 are
+  listed in about a tenth of the time they took before.
 
 ### Changed
 - `create_todo` accepts a bare date for `due_date`, giving a todo due that day;
