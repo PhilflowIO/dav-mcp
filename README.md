@@ -237,6 +237,7 @@ For Google Calendar, use OAuth2 authentication:
 - **Bearer Auth**: Token authentication for HTTP transport
 - **No Credential Storage**: Pass-through only, never logged or cached
 - **Structured Logging**: Audit trail with request IDs, no PII exposure
+- **Tool-Call Log Off by Default**: `LOG_TOOL_CALLS=true` records every tool call with its arguments, for debugging — to `~/.local/state/dav-mcp/tool-calls.jsonl` (or `$XDG_STATE_HOME`, `%LOCALAPPDATA%` on Windows, or `TOOL_CALL_LOG_FILE`), readable by you only. `TOOL_CALL_LOG_MODE=console` sends it to stderr instead.
 - **CORS Protection**: Whitelist origins, block cross-site attacks
 
 ---

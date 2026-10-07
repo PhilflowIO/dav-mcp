@@ -1,17 +1,33 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { writeLogLine } from './log-sink.js';
 
 /**
  * Tool Call Logger - Logs all MCP tool calls to JSON Lines format
  * Enables real-time monitoring of LLM tool selection behavior
+ *
+ * Off unless LOG_TOOL_CALLS=true: every entry carries the full tool
+ * arguments, i.e. event titles, attendees and contact data.
  */
+
+/**
+ * Per-user default for the log file: $XDG_STATE_HOME, else
+ * %LOCALAPPDATA% on Windows, else ~/.local/state. Never a shared
+ * directory such as /tmp, where other local users could read it.
+ */
+export function defaultToolCallLogFile(env = process.env, platform = process.platform) {
+  const stateDir = env.XDG_STATE_HOME
+    || (platform === 'win32' && env.LOCALAPPDATA)
+    || path.join(os.homedir(), '.local', 'state');
+  return path.join(stateDir, 'dav-mcp', 'tool-calls.jsonl');
+}
 
 class ToolCallLogger {
   constructor(options = {}) {
-    this.enabled = options.enabled !== false;
+    this.enabled = options.enabled === true;
     this.outputMode = options.outputMode || 'file'; // 'file' | 'console' | 'both'
-    this.logFile = options.logFile || '/tmp/mcp-tool-calls.jsonl';
+    this.logFile = options.logFile || defaultToolCallLogFile();
 
     if (this.enabled && this.outputMode.includes('file')) {
       this.ensureLogFileExists();
@@ -21,7 +37,7 @@ class ToolCallLogger {
   ensureLogFileExists() {
     const dir = path.dirname(this.logFile);
     if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     }
   }
 
@@ -37,7 +53,8 @@ class ToolCallLogger {
 
     if (this.outputMode === 'file' || this.outputMode === 'both') {
       try {
-        fs.appendFileSync(this.logFile, line);
+        // mode applies when the file is created: readable by the owner only
+        fs.appendFileSync(this.logFile, line, { mode: 0o600 });
       } catch (error) {
         console.error('Failed to write to tool call log:', error.message);
       }
@@ -128,9 +145,9 @@ class ToolCallLogger {
 let instance = null;
 
 export function initializeToolCallLogger(options = {}) {
-  const enabled = process.env.LOG_TOOL_CALLS !== 'false';
+  const enabled = process.env.LOG_TOOL_CALLS === 'true';
   const outputMode = process.env.TOOL_CALL_LOG_MODE || 'file';
-  const logFile = process.env.TOOL_CALL_LOG_FILE || '/tmp/mcp-tool-calls.jsonl';
+  const logFile = process.env.TOOL_CALL_LOG_FILE || defaultToolCallLogFile();
 
   instance = new ToolCallLogger({
     enabled,
