@@ -137,7 +137,7 @@ describe('calendar_query', () => {
     expect(await urls(calendarQuery, { summary_filter: 'standup' })).toEqual(['ok.ics']);
   });
 
-  describe('a recurring event with a renamed occurrence: filter reads what is listed', () => {
+  describe('a recurring event with a renamed occurrence: found and listed as the same occurrence', () => {
     // weekly from Mon 1 June; the 15 June occurrence is renamed and moved.
     // The override comes first, as some servers store it.
     const series = () => ics('series',
@@ -147,11 +147,11 @@ describe('calendar_query', () => {
         'SUMMARY:Standup', 'LOCATION:Room A'),
     );
     const listed = async (args) => shown(await calendarQuery.handler(args));
-    const JUNE_15 = { time_range_start: '2026-06-15T00:00:00Z', time_range_end: '2026-06-16T00:00:00Z' };
+    const JUNE_8_TO_16 = { time_range_start: '2026-06-08T00:00:00Z', time_range_end: '2026-06-16T00:00:00Z' };
 
     beforeEach(() => { storedEvents = [series()]; });
 
-    test('without a range the series is listed, and only its own text matches', async () => {
+    test('without a range only the series is searched', async () => {
       expect(await urls(calendarQuery, { summary_filter: 'standup' })).toEqual(['series.ics']);
       expect(await listed({ summary_filter: 'standup' })).toContain('### 1. Standup\n');
       expect(await urls(calendarQuery, { location_filter: 'room a' })).toEqual(['series.ics']);
@@ -159,21 +159,40 @@ describe('calendar_query', () => {
       expect(await urls(calendarQuery, { location_filter: 'room b' })).toEqual([]);
     });
 
-    test('with the renamed occurrence in range, it is listed and its text matches', async () => {
-      const text = await listed({ summary_filter: 'customer', ...JUNE_15 });
+    test('a search finds the renamed occurrence inside the range and lists it', async () => {
+      const text = await listed({ summary_filter: 'customer', ...JUNE_8_TO_16 });
       expect(text).toContain('### 1. Standup with customer');
+      expect(text).toContain('- **When**: June 15, 2026, 02:00 PM UTC');
       expect(text).toContain('- **Where**: Room B');
-      expect(await urls(calendarQuery, { location_filter: 'room b', ...JUNE_15 })).toEqual(['series.ics']);
-      // the listed occurrence is not in Room A
-      expect(await urls(calendarQuery, { location_filter: 'room a', ...JUNE_15 })).toEqual([]);
+      const byPlace = await listed({ location_filter: 'room b', ...JUNE_8_TO_16 });
+      expect(byPlace).toContain('June 15, 2026');
     });
 
-    test('a range whose first occurrence is unchanged lists the series text', async () => {
-      const range = { time_range_start: '2026-06-08T00:00:00Z', time_range_end: '2026-06-16T00:00:00Z' };
-      expect(await urls(calendarQuery, { summary_filter: 'customer', ...range })).toEqual([]);
-      expect(await listed({ summary_filter: 'standup', ...range })).toContain('### 1. Standup\n');
+    test('a search the series itself passes lists its first occurrence in the range', async () => {
+      const text = await listed({ summary_filter: 'standup', ...JUNE_8_TO_16 });
+      expect(text).toContain('### 1. Standup\n');
+      expect(text).toContain('- **When**: June 8, 2026, 09:00 AM UTC');
+      expect(text).toContain('- **Where**: Room A');
+    });
+
+    test('both filters must hold on the same occurrence', async () => {
+      expect(await urls(calendarQuery, { summary_filter: 'customer', location_filter: 'room a', ...JUNE_8_TO_16 }))
+        .toEqual([]);
+      expect(await urls(calendarQuery, { summary_filter: 'customer', location_filter: 'room b', ...JUNE_8_TO_16 }))
+        .toEqual(['series.ics']);
+    });
+
+    test('a renamed occurrence outside the range is not found', async () => {
       expect(await urls(calendarQuery, { summary_filter: 'customer',
-        time_range_start: '2026-06-01T00:00:00Z', time_range_end: '2026-06-02T00:00:00Z' })).toEqual([]);
+        time_range_start: '2026-06-01T00:00:00Z', time_range_end: '2026-06-09T00:00:00Z' })).toEqual([]);
+    });
+
+    test('the cap sorts by the listed occurrence, not the series start', async () => {
+      // the series starts 1 June but is listed as 15 June; "single" is on 10 June
+      storedEvents = [series(), ics('single', vevent('single', 'DTSTART:20260610T120000Z',
+        'DTEND:20260610T130000Z', 'SUMMARY:Customer lunch'))];
+      expect(await urls(calendarQuery, { summary_filter: 'customer', ...JUNE_8_TO_16, limit: 1 }))
+        .toEqual(['single.ics']);
     });
   });
 

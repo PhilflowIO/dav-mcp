@@ -183,11 +183,15 @@ export function dueSpan(vtodo) {
  * The instant a date or date-time property stands for: resolved against the
  * document's own VTIMEZONE where it names one, otherwise as toInstant reads it.
  *
+ * `value` reads another time in the property's frame — an occurrence of a
+ * recurring DTSTART, which keeps its TZID.
+ *
  * @param {ICAL.Property} property
+ * @param {ICAL.Time} [value] - defaults to the property's own value
  * @returns {number} milliseconds since the epoch
  */
-export function instantOf(property) {
-  return absoluteInstant(property) ?? toInstant(property.getFirstValue());
+export function instantOf(property, value = property.getFirstValue()) {
+  return absoluteInstant(property, value) ?? toInstant(value);
 }
 
 /**
@@ -195,9 +199,8 @@ export function instantOf(property) {
  * this document does not define: a floating value, or a TZID without its
  * VTIMEZONE. A date is its UTC day start, as in toInstant.
  */
-function absoluteInstant(property) {
-  const value = property.getFirstValue();
-  if (property.type === 'date') return toInstant(value);
+function absoluteInstant(property, value = property.getFirstValue()) {
+  if (property.type === 'date' || value.isDate) return toInstant(value);
   const tzid = property.getParameter('tzid');
   if (!tzid) {
     return /Z$/i.test(String(property.toJSON()[3])) ? value.toUnixTime() * 1000 : null;

@@ -19,11 +19,11 @@ import { readSeries, shownEvent, todoStatus } from './ical-components.js';
  * When a time range is given, a recurring series resolves to the occurrence
  * inside that range, including any RECURRENCE-ID override of it.
  */
-function parseICalEvent(icalData, timeRange = null) {
+function parseICalEvent(icalData, timeRange = null, matches = null) {
   try {
     const comp = new ICAL.Component(ICAL.parse(icalData));
     // the occurrence calendar_query's text filters read too (see shownEvent)
-    const shown = shownEvent(comp, timeRange);
+    const shown = shownEvent(comp, timeRange, matches);
     if (!shown) {
       return {};
     }
@@ -338,9 +338,9 @@ function formatDateTime(icalTime) {
 /**
  * Format a single calendar event to Markdown
  */
-export function formatEvent(event, calendar = 'Unknown Calendar', timeRange = null) {
+export function formatEvent(event, calendar = 'Unknown Calendar', timeRange = null, matches = null) {
   const calendarName = collectionName(calendar, 'Unknown Calendar');
-  const parsed = parseICalEvent(event.data, timeRange);
+  const parsed = parseICalEvent(event.data, timeRange, matches);
 
   const startDate = formatDateTime(parsed.dtstart);
   const endDate = formatDateTime(parsed.dtend);
@@ -406,8 +406,12 @@ export function formatEvent(event, calendar = 'Unknown Calendar', timeRange = nu
 
 /**
  * Format a list of calendar events to LLM-friendly Markdown
+ *
+ * `matches` is calendar_query's search: with a time range, each recurring
+ * event is listed as the first occurrence in the range that the search
+ * found (see shownEvent).
  */
-export function formatEventList(events, calendar = 'Unknown Calendar', timeRange = null, total = null) {
+export function formatEventList(events, calendar = 'Unknown Calendar', timeRange = null, total = null, matches = null) {
   const calendarName = collectionName(calendar, 'Unknown Calendar');
 
   if (!events || events.length === 0) {
@@ -423,7 +427,7 @@ export function formatEventList(events, calendar = 'Unknown Calendar', timeRange
 
   events.forEach((event, index) => {
     output += `### ${index + 1}. `;
-    output += formatEvent(event, calendarName, timeRange).replace(/^## /, '') + '\n';
+    output += formatEvent(event, calendarName, timeRange, matches).replace(/^## /, '') + '\n';
   });
 
   output += `---\n<details>\n<summary>Raw Data (JSON)</summary>\n\n\`\`\`json\n`;

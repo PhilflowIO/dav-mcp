@@ -95,13 +95,15 @@ function toICALRange(timeRange) {
 }
 
 /**
- * Find the first occurrence of a recurring event inside the queried range.
+ * Find the first occurrence of a recurring event inside the queried range —
+ * the first one `matches` accepts, when given (an occurrence is judged by its
+ * own component: the override where there is one, else the master).
  *
- * Returns null when the series has no occurrence there — the caller must say so
- * rather than fall back to the master DTSTART, which is the wrong-date bug this
- * whole path exists to fix.
+ * Returns null when the series has no such occurrence there — the caller must
+ * say so rather than fall back to the master DTSTART, which is the wrong-date
+ * bug this whole path exists to fix.
  */
-function firstOccurrenceInRange(event, range) {
+function firstOccurrenceInRange(event, range, matches) {
   const expand = new ICAL.RecurExpansion({
     component: event.component,
     dtstart: event.startDate,
@@ -112,7 +114,8 @@ function firstOccurrenceInRange(event, range) {
     if (!next) return { occurrence: null };
     if (next.compare(range.end) > 0) return { occurrence: null };
     if (next.compare(range.start) >= 0) {
-      return { occurrence: event.getOccurrenceDetails(next) };
+      const occurrence = event.getOccurrenceDetails(next);
+      if (!matches || matches(occurrence.item.component)) return { occurrence };
     }
   }
 
@@ -124,31 +127,35 @@ function firstOccurrenceInRange(event, range) {
  * The event as a reader shows it — the one place that decides, so the event
  * list and calendar_query's SUMMARY/LOCATION filters read the same thing.
  *
- *  - No time range: the series master (readSeries).
+ *  - No time range: the series master (readSeries). A search without a range
+ *    therefore only searches the series, not its renamed occurrences.
  *  - A time range and a recurring series: the first occurrence inside the
- *    range, with its RECURRENCE-ID override applied if it has one. An
- *    override renaming a later occurrence in the range is not what is shown,
- *    so it is not what a filter matches either.
+ *    range, with its RECURRENCE-ID override applied if it has one — the first
+ *    one `matches` accepts, when a search passes it. So a search finds an
+ *    occurrence renamed or moved inside the range and lists that occurrence,
+ *    with its own title, place and date.
  *  - A time range and several detached instances without a master: the
- *    first instance inside the range (the server returned the object for
- *    one of them), else the first in document order.
+ *    first instance inside the range (that `matches` accepts, if given),
+ *    else the first in document order.
  *
  * @param {ICAL.Component} calendar - the parsed VCALENDAR
  * @param {{start: string, end: string}|null} timeRange
+ * @param {((vevent: ICAL.Component) => boolean)|null} [matches] - the search
  * @returns {{
  *   vevent: ICAL.Component, event: ICAL.Event,
  *   occurrence: Object|null, item: ICAL.Event,
  *   outsideRange: boolean, expansionTruncated: boolean,
  * } | null}
  */
-export function shownEvent(calendar, timeRange = null) {
+export function shownEvent(calendar, timeRange = null, matches = null) {
   const series = readSeries(calendar, 'vevent');
   if (!series) return null;
   const range = toICALRange(timeRange);
 
   let vevent = series.master;
   if (range && series.detached.length > 1) {
-    vevent = series.detached.find((instance) => overlaps(new ICAL.Event(instance), range)) ?? vevent;
+    const inRange = series.detached.filter((instance) => overlaps(new ICAL.Event(instance), range));
+    vevent = inRange.find((instance) => !matches || matches(instance)) ?? inRange[0] ?? vevent;
   }
   const event = new ICAL.Event(vevent);
   for (const override of series.overrides) {
@@ -159,7 +166,7 @@ export function shownEvent(calendar, timeRange = null) {
   let outsideRange = false;
   let expansionTruncated = false;
   if (range && event.isRecurring()) {
-    const result = firstOccurrenceInRange(event, range);
+    const result = firstOccurrenceInRange(event, range, matches);
     occurrence = result.occurrence;
     expansionTruncated = Boolean(result.truncated);
     outsideRange = !occurrence && !expansionTruncated;
