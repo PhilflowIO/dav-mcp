@@ -242,6 +242,12 @@ For Google Calendar, use OAuth2 authentication:
 
 ---
 
+## Privacy Policy
+
+dav-mcp runs on your machine (or your own server) and talks only to the DAV server you configure. It has no telemetry and shares nothing with its maintainers or third parties. Tool results go to the AI assistant that called the tool. Credentials and calendar data are not stored by dav-mcp; the optional tool-call log is off by default. Full policy: [PRIVACY.md](PRIVACY.md). Contact: [hello@philflow.io](mailto:hello@philflow.io).
+
+---
+
 ## Documentation
 
 - **[MCP Specification](https://modelcontextprotocol.io/specification/2025-03-26)** - Model Context Protocol docs

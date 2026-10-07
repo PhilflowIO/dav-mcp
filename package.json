@@ -59,6 +59,7 @@
     "src/**/*",
     "README.md",
     "LICENSE",
+    "PRIVACY.md",
     "CHANGELOG.md"
   ],
   "dependencies": {

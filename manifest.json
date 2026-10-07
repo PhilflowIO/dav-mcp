@@ -7,7 +7,8 @@
   "long_description": "dav-mcp connects Claude to a CalDAV/CardDAV server with your username and password. It lists, searches, creates, updates and deletes calendar events, contacts (vCard) and tasks (VTODO), manages calendars, and answers free/busy questions. dav-mcp runs on your computer and connects only to the server you configure.",
   "author": {
     "name": "dav-mcp contributors",
-    "url": "https://github.com/PhilflowIO/dav-mcp"
+    "url": "https://github.com/PhilflowIO/dav-mcp",
+    "email": "hello@philflow.io"
   },
   "repository": {
     "type": "git",
@@ -17,6 +18,9 @@
   "documentation": "https://github.com/PhilflowIO/dav-mcp#readme",
   "support": "https://github.com/PhilflowIO/dav-mcp/issues",
   "license": "MIT",
+  "privacy_policies": [
+    "https://github.com/PhilflowIO/dav-mcp/blob/main/PRIVACY.md"
+  ],
   "keywords": [
     "caldav",
     "carddav",
