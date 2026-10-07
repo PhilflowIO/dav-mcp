@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Claude plugin** (`claude-plugin/`, #99). dav-mcp can be installed as a
+  Claude Code plugin and listed in the Claude directory: it asks for the server
+  URL, username and password (stored in the system credential store), starts
+  this package pinned to its exact version, and adds a skill on using the tools
+  well. `npm run plugin:sync` writes the pinned version on release.
+- **Tool annotations.** Every tool declares a title and whether it only reads,
+  or overwrites or deletes data (`readOnlyHint`, `destructiveHint`, …), so
+  clients such as Claude can let lookups run and stop changes for approval.
+- **Privacy policy** ([PRIVACY.md](PRIVACY.md)), linked from the README and the
+  MCP Bundle manifest.
+
 ### Changed
 - **The tool-call log is off by default** (#88). It used to append every tool
   call, with its full arguments (event titles, attendees, contact data), to
