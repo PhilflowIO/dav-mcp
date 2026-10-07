@@ -11,6 +11,13 @@ import { parseObjects, textValues, containsText, dateKey, orNull } from '../shar
  */
 export const calendarQuery = {
   name: 'calendar_query',
+  annotations: {
+    title: 'Search events',
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
   description: '⭐ PREFERRED: Search and filter calendar events efficiently. Use instead of list_events to avoid loading thousands of entries. Omit calendar_url to search across ALL calendars automatically.',
   inputSchema: {
     type: 'object',

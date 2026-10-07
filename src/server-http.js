@@ -32,7 +32,7 @@ import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprot
 import { tsdavManager } from './tsdav-client.js';
 import { isLocalOrPrivateAddress } from './client-address.js';
 import { buildTsdavConfig } from './auth-config.js';
-import { tools } from './tools/index.js';
+import { tools, toListedTool } from './tools/index.js';
 import { createToolErrorResponse, MCP_ERROR_CODES } from './error-handler.js';
 import { logger, createRequestLogger } from './logger.js';
 import { initializeToolCallLogger, getToolCallLogger } from './tool-call-logger.js';
@@ -169,11 +169,7 @@ function createMCPServer(requestId) {
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     requestLogger.debug({ count: tools.length }, 'tools/list request');
     return {
-      tools: tools.map(t => ({
-        name: t.name,
-        description: t.description,
-        inputSchema: t.inputSchema,
-      })),
+      tools: tools.map(toListedTool),
     };
   });
 

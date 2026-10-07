@@ -8,6 +8,13 @@ import { multiGetObjects } from '../shared/multiget.js';
  */
 export const calendarMultiGet = {
   name: 'calendar_multi_get',
+  annotations: {
+    title: 'Get events by URL',
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
   description: 'Batch fetch multiple specific calendar events by their URLs. Use when you have exact event URLs and want to retrieve their details',
   inputSchema: {
     type: 'object',

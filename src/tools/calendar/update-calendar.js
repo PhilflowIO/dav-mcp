@@ -8,6 +8,13 @@ import { assertDavSuccess } from '../shared/helpers.js';
  */
 export const updateCalendar = {
   name: 'update_calendar',
+  annotations: {
+    title: 'Update calendar properties',
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
   description: 'Update an existing calendar\'s properties (display name, description, color, timezone). Use this when user asks to "rename calendar", "change calendar color", or "update calendar properties"',
   inputSchema: {
     type: 'object',

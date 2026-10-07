@@ -122,7 +122,10 @@ describe('HTTP transport', () => {
     const client = await connect('solo');
     const { tools } = await import('../src/tools/index.js');
 
-    expect((await client.listTools()).tools).toHaveLength(tools.length);
+    const listed = (await client.listTools()).tools;
+    expect(listed).toHaveLength(tools.length);
+    expect(listed.map(t => [t.name, t.annotations]))
+      .toEqual(tools.map(t => [t.name, t.annotations]));
     const result = await client.callTool({ name: 'list_calendars', arguments: {} });
     expect(result.isError).toBeFalsy();
     expect(text(result)).toContain('Work');

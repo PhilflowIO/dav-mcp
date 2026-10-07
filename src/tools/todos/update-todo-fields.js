@@ -46,6 +46,13 @@ const DATE_FORMS =
  */
 export const updateTodoFields = {
   name: 'update_todo',
+  annotations: {
+    title: 'Update to-do fields',
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
   description: 'PREFERRED: Update todo fields without iCal formatting. Supports: SUMMARY (title), DESCRIPTION (details), STATUS (NEEDS-ACTION/IN-PROCESS/COMPLETED/CANCELLED), PRIORITY (0-9), DUE (due date), PERCENT-COMPLETE (0-100), and any RFC 5545 VTODO property including custom X-* properties.',
   inputSchema: {
     type: 'object',

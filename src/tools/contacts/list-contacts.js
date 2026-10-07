@@ -8,6 +8,13 @@ import { findAddressbookOrThrow } from '../shared/helpers.js';
  */
 export const listContacts = {
   name: 'list_contacts',
+  annotations: {
+    title: 'List contacts',
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
   description: 'List ALL contacts from an address book without filtering. WARNING: Returns all contacts which can be thousands - use addressbook_query instead when searching for specific contacts by name, email, or organization to save tokens',
   inputSchema: {
     type: 'object',

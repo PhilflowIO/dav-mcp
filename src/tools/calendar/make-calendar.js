@@ -36,6 +36,13 @@ function alreadyExistsError(url, displayName) {
  */
 export const makeCalendar = {
   name: 'make_calendar',
+  annotations: {
+    title: 'Create calendar',
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: true,
+  },
   description: 'Create a new calendar collection on the CalDAV server with optional color, description, and component types. A timezone is accepted but not applied yet (the result says so). The URL is derived from display_name. If a calendar already exists at that URL, nothing is created and the error names the existing calendar — use it instead of creating another. If the URL is only held by something else (e.g. a deleted calendar in the trash bin), a numeric suffix is added (-2, -3, ...). Always use the URL returned in the response.',
   inputSchema: {
     type: 'object',

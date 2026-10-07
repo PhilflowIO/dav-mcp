@@ -56,3 +56,15 @@ export const tools = [
   todoTools.todoQuery,
   todoTools.todoMultiGet,
 ];
+
+/**
+ * The tools/list entry for a tool: everything the client sees, without the
+ * handler. Both transports answer tools/list with this, so a field added to
+ * the tool definitions reaches every client the same way.
+ */
+export const toListedTool = ({ name, description, inputSchema, annotations }) => ({
+  name,
+  description,
+  inputSchema,
+  annotations,
+});

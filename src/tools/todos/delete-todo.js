@@ -8,6 +8,13 @@ import { assertDeleted } from '../shared/helpers.js';
  */
 export const deleteTodo = {
   name: 'delete_todo',
+  annotations: {
+    title: 'Delete to-do',
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
   description: 'Permanently delete a todo/task from the calendar. WARNING: This action cannot be undone — the todo is removed from the server immediately. Use only when the user explicitly requests deletion. Obtain the todo URL and etag from list_todos or todo_query first. The etag ensures no conflicting changes occurred since the todo was last retrieved.',
   inputSchema: {
     type: 'object',

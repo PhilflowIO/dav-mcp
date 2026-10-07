@@ -8,6 +8,13 @@ import { assertDeleted } from '../shared/helpers.js';
  */
 export const deleteContact = {
   name: 'delete_contact',
+  annotations: {
+    title: 'Delete contact',
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
   description: 'Permanently delete a contact (vCard) from the address book. WARNING: This action cannot be undone — the contact is removed from the server immediately. Use only when the user explicitly requests deletion. Obtain the vCard URL and etag from list_contacts or addressbook_query first. The etag ensures no conflicting changes occurred since the contact was last retrieved.',
   inputSchema: {
     type: 'object',

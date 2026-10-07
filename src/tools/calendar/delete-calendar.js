@@ -8,6 +8,13 @@ import { assertDeleted, inspectCollection } from '../shared/helpers.js';
  */
 export const deleteCalendar = {
   name: 'delete_calendar',
+  annotations: {
+    title: 'Delete calendar',
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
   description: 'Delete a calendar and all its events. WARNING: on servers without a trash bin this cannot be undone; servers with one (e.g. Nextcloud) keep the calendar in the trash for a while. Use this when user explicitly asks to "delete calendar" or "remove calendar"',
   inputSchema: {
     type: 'object',

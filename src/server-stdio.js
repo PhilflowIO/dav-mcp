@@ -54,7 +54,7 @@ async function startStdioServer() {
 
   const { tsdavManager } = await import('./tsdav-client.js');
   const { buildTsdavConfig } = await import('./auth-config.js');
-  const { tools } = await import('./tools/index.js');
+  const { tools, toListedTool } = await import('./tools/index.js');
   const { createToolErrorResponse, MCP_ERROR_CODES } = await import('./error-handler.js');
   const { logger } = await import('./logger.js');
   const { initializeToolCallLogger, getToolCallLogger } = await import('./tool-call-logger.js');
@@ -93,11 +93,7 @@ async function startStdioServer() {
     server.setRequestHandler(ListToolsRequestSchema, async () => {
       logger.debug({ count: tools.length }, 'tools/list request received');
       return {
-        tools: tools.map(t => ({
-          name: t.name,
-          description: t.description,
-          inputSchema: t.inputSchema,
-        })),
+        tools: tools.map(toListedTool),
       };
     });
 

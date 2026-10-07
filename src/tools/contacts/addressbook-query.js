@@ -9,6 +9,13 @@ import { parseObjects, textValues, contactNames, organizations, containsText, te
  */
 export const addressbookQuery = {
   name: 'addressbook_query',
+  annotations: {
+    title: 'Search contacts',
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
   description: '⭐ PREFERRED: Search and filter contacts efficiently (name, email, organization). Use for "find contacts with...", "search for email...", "contacts at company..." queries. Use instead of list_contacts when ANY filter is specified. Omit addressbook_url to search across ALL addressbooks automatically.',
   inputSchema: {
     type: 'object',

@@ -9,6 +9,13 @@ import { writeFields } from '../shared/ical-dates.js';
  */
 export const createTodo = {
   name: 'create_todo',
+  annotations: {
+    title: 'Create to-do',
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: true,
+  },
   description: 'Create a new todo/task in a calendar. Use this when user wants to add a task, todo item, or reminder with optional due date, priority, and status.',
   inputSchema: {
     type: 'object',

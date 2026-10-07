@@ -8,6 +8,13 @@ import { multiGetObjects } from '../shared/multiget.js';
  */
 export const addressbookMultiGet = {
   name: 'addressbook_multi_get',
+  annotations: {
+    title: 'Get contacts by URL',
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
   description: 'Batch fetch multiple specific contacts by their URLs. Use when you have exact contact URLs and want to retrieve their details',
   inputSchema: {
     type: 'object',
