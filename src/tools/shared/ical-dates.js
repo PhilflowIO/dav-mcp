@@ -1,5 +1,5 @@
 import ICAL from 'ical.js';
-import { updateFields } from 'tsdav-utils';
+import { updateFields, seriesMaster } from 'tsdav-utils';
 import { readSeries } from '../../ical-components.js';
 
 /**
@@ -219,7 +219,13 @@ function frameOf(property) {
 }
 
 /**
- * Parse, hand the first component of the given kind to `edit`, serialize.
+ * Parse, hand the component updateFields just wrote to `edit`, serialize.
+ *
+ * That component is the series master (tsdav-utils' seriesMaster), not the
+ * first one in the file: with an override stored first, a check or a
+ * DURATION removal on the first component would miss what was written. The
+ * object updateFields refused to edit (several instances, no master) cannot
+ * reach this point, and seriesMaster would throw the same error if it did.
  */
 function editComponent(iCalString, name, edit) {
   let calendar;
@@ -229,10 +235,10 @@ function editComponent(iCalString, name, edit) {
     throw new Error(`Failed to parse iCal data: ${error.message}`);
   }
 
-  const component = calendar.name === name ? calendar : calendar.getFirstSubcomponent(name);
-  if (!component) {
+  if (calendar.name !== name && calendar.getAllSubcomponents(name).length === 0) {
     throw new Error(`No ${name.toUpperCase()} found in the calendar object`);
   }
+  const component = calendar.name === name ? calendar : seriesMaster(calendar, name);
 
   edit(component);
   return calendar.toString();
