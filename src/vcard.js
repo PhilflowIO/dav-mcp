@@ -4,34 +4,59 @@ import ICAL from 'ical.js';
  * The one way dav-mcp reads a vCard — for display and for query filters
  * alike, so a contact shown in a list is also one a filter can find.
  *
- * Two vCard 2.1 forms that Outlook and Android still export are rewritten
- * into what ical.js reads before parsing; nothing else about the card
- * changes.
- *
- * - A parameter without a name: `EMAIL;PREF;INTERNET:john@doe.com`,
- *   `TEL;CELL:…`. ical.js only accepts `name=value` parameters and rejects
- *   the whole card ("Invalid parameters in …"). A bare parameter is a TYPE
- *   value (vCard 2.1 section 2.1.2, RFC 2426 section 4), so it becomes
- *   `TYPE=…` — except the bare encoding `QUOTED-PRINTABLE`.
- * - A quoted-printable value: `FN;CHARSET=UTF-8;ENCODING=QUOTED-PRINTABLE:
- *   Hans M=C3=BCller`, its lines joined by soft line breaks (a trailing `=`).
- *   ical.js would show the escapes as text. The value is decoded in its
- *   CHARSET and the ENCODING and CHARSET parameters dropped, so the card
- *   reads "Hans Müller" everywhere.
- *
  * @param {string} data - the vCard text
  * @returns {ICAL.Component} the VCARD
  * @throws when the card does not parse even then
  */
 export function readVCard(data) {
-  const jcard = ICAL.parse(normalizeContentLines(data));
+  const jcard = ICAL.parse(normalizeVCard(data));
   // a body holding several cards parses to a list of them; a DAV resource
   // is one card, so the first is the one
   return new ICAL.Component(Array.isArray(jcard[0]) ? jcard[0] : jcard);
 }
 
-function normalizeContentLines(data) {
-  return unfold(data).map(normalizeContentLine).join('\r\n');
+/**
+ * A vCard as ical.js reads it.
+ *
+ * Outlook and Android still export vCard 2.1, which ical.js does not know:
+ *
+ * - A parameter without a name: `EMAIL;PREF;INTERNET:john@doe.com`. ical.js
+ *   rejects the whole card ("Invalid parameters in …"). A bare parameter is a
+ *   TYPE value (vCard 2.1 section 2.1.2, RFC 2426 section 4) and becomes
+ *   `TYPE=…`; a bare encoding (`QUOTED-PRINTABLE`, `BASE64`, `8BIT`) becomes
+ *   `ENCODING=…`. This applies to 3.0 cards too, where the bare form is legal.
+ * - A quoted-printable value: `FN;CHARSET=UTF-8;ENCODING=QUOTED-PRINTABLE:
+ *   Hans M=C3=BCller`, continued by soft line breaks (a trailing `=`). It is
+ *   decoded in its CHARSET, and ENCODING and CHARSET are dropped.
+ * - 2.1 escaping: only `\;` is an escape; `,` and `\` are plain text, and a
+ *   line break can only be quoted-printable. ical.js reads every card with
+ *   3.0 escaping, which split "Mueller, Jr." into two names.
+ *
+ * So a 2.1 card becomes the 3.0 card that says the same: VERSION:3.0, its
+ * text values escaped the 3.0 way, decoded, without CHARSET, BASE64 as `b`.
+ * 3.0 rather than a cleaned-up 2.1, because what is decoded can no longer be
+ * 2.1 (a decoded line break has no 2.1 form other than quoted-printable),
+ * and because 3.0 is the version every CardDAV server must accept (RFC 6352
+ * section 5.1); sabre/dav (Baïkal, Nextcloud) refuses 2.1 outright.
+ *
+ * @param {string} data - the vCard text
+ * @returns {string} the card, CRLF line endings, unfolded
+ */
+export function normalizeVCard(data) {
+  const lines = unfold(data);
+  let version21 = false;
+  return lines.map((line, index) => {
+    if (/^BEGIN:VCARD\s*$/i.test(line)) version21 = isVersion21(lines, index);
+    return normalizeContentLine(line, version21);
+  }).join('\r\n');
+}
+
+/** whether the card that begins at `lines[begin]` says VERSION:2.1 */
+function isVersion21(lines, begin) {
+  for (let i = begin + 1; i < lines.length && !/^END:VCARD\s*$/i.test(lines[i]); i++) {
+    if (/^VERSION:\s*2\.1\s*$/i.test(lines[i])) return true;
+  }
+  return false;
 }
 
 /**
@@ -131,63 +156,115 @@ function parseContentLine(line) {
   return null; // no value: not a content line ical.js can read anyway
 }
 
-/** A parameter as `[NAME, value]`, the value unquoted; a bare one has no name. */
-function splitParameter(parameter) {
-  const equals = parameter.indexOf('=');
-  if (equals === -1) return [null, parameter];
-  return [parameter.slice(0, equals).trim().toUpperCase(),
-    parameter.slice(equals + 1).trim().replace(/^"(.*)"$/, '$1')];
+/**
+ * A parameter as `{name, value, text}`: the name upper case, the value
+ * unquoted, `text` as written. A bare one is named here: ENCODING for an
+ * encoding, else TYPE.
+ */
+function readParameter(text) {
+  const equals = text.indexOf('=');
+  if (equals === -1) {
+    const value = text.trim();
+    return { name: BARE_ENCODINGS.has(value.toUpperCase()) ? 'ENCODING' : 'TYPE', value, text: null };
+  }
+  return {
+    name: text.slice(0, equals).trim().toUpperCase(),
+    value: text.slice(equals + 1).trim().replace(/^"(.*)"$/, '$1'),
+    text,
+  };
 }
 
-function isQuotedPrintable(parameters) {
-  return parameters.some((parameter) => {
-    const [name, value] = splitParameter(parameter);
-    return (name === null || name === 'ENCODING') && value.trim().toUpperCase() === 'QUOTED-PRINTABLE';
+const BARE_ENCODINGS = new Set(['QUOTED-PRINTABLE', 'BASE64', '8BIT', '7BIT']);
+
+/** the ENCODING parameter's value, upper case, or null */
+function encodingOf(parameters) {
+  const encoding = parameters.find(({ name }) => name === 'ENCODING');
+  return encoding ? encoding.value.toUpperCase() : null;
+}
+
+function isQuotedPrintable(parameterTexts) {
+  return encodingOf(parameterTexts.map(readParameter)) === 'QUOTED-PRINTABLE';
+}
+
+/**
+ * One content line as ical.js reads it; see normalizeVCard.
+ *
+ * @param {string} line - unfolded
+ * @param {boolean} version21 - the line belongs to a vCard 2.1
+ */
+function normalizeContentLine(line, version21) {
+  const parsed = parseContentLine(line);
+  if (!parsed) return line;
+  const propertyName = parsed.name.slice(parsed.name.lastIndexOf('.') + 1).toUpperCase();
+  if (version21 && propertyName === 'VERSION') return `${parsed.name}:3.0`;
+  if (!version21 && parsed.parameters.length === 0) return line;
+
+  let parameters = parsed.parameters.map(readParameter);
+  const encoding = encodingOf(parameters);
+  const quotedPrintable = encoding === 'QUOTED-PRINTABLE';
+
+  let { value } = parsed;
+  if (quotedPrintable) {
+    value = decodeQuotedPrintable(value, parameters.find(({ name }) => name === 'CHARSET')?.value);
+  }
+  if (version21 && isText(propertyName, parameters)) {
+    value = escape21(value, Boolean(ICAL.design.vcard3.property[propertyName.toLowerCase()]?.structuredValue));
+  } else if (quotedPrintable) {
+    value = value.replace(/\r\n|\r|\n/g, '\\n');
+  }
+
+  if (quotedPrintable || version21) {
+    parameters = parameters.filter(({ name }) => name !== 'ENCODING' && name !== 'CHARSET');
+    // 3.0 knows only ENCODING=b; 8BIT and 7BIT say nothing a 3.0 card needs
+    if (version21 && encoding === 'BASE64') parameters.push({ name: 'ENCODING', value: 'b', text: null });
+  }
+  const written = parameters.map(({ name, value: parameterValue, text }) => text ?? `${name}=${parameterValue}`);
+  return `${parsed.name}${written.map((parameter) => `;${parameter}`).join('')}:${value}`;
+}
+
+/**
+ * Whether ical.js reads the property as text (and so unescapes it). Other
+ * types — URIs, dates, binary — take no backslash escapes in either version.
+ */
+function isText(propertyName, parameters) {
+  const valueType = parameters.find(({ name }) => name === 'VALUE')?.value;
+  if (valueType) return valueType.toLowerCase() === 'text';
+  return ICAL.design.vcard3.property[propertyName.toLowerCase()]?.defaultType === 'text';
+}
+
+/**
+ * A 2.1 text value (decoded, if it was quoted-printable) in the escaping
+ * ical.js reads: a backslash and a comma are plain text, a line break
+ * becomes `\n`. `\;` is a literal semicolon — kept escaped in a structured
+ * value (N, ADR, ORG), where a bare `;` separates components, and written
+ * bare elsewhere, as ical.js unescapes `\;` only in structured values.
+ */
+function escape21(value, structured) {
+  return value.replace(/\\;|\\|,|\r\n|\r|\n/g, (match) => {
+    if (match === '\\;') return structured ? match : ';';
+    if (match === '\\') return '\\\\';
+    if (match === ',') return '\\,';
+    return '\\n';
   });
 }
 
 /**
- * `EMAIL;PREF;INTERNET:x` -> `EMAIL;TYPE=PREF;TYPE=INTERNET:x`, and a
- * quoted-printable value decoded, without its ENCODING and CHARSET.
- */
-function normalizeContentLine(line) {
-  const parsed = parseContentLine(line);
-  if (!parsed || parsed.parameters.length === 0) return line;
-
-  let { parameters, value } = parsed;
-  if (isQuotedPrintable(parameters)) {
-    const charset = parameters.map(splitParameter).find(([name]) => name === 'CHARSET')?.[1];
-    value = decodeQuotedPrintable(value, charset);
-    parameters = parameters.filter((parameter) => {
-      const [name, bare] = splitParameter(parameter);
-      return name === null ? bare.trim().toUpperCase() !== 'QUOTED-PRINTABLE'
-        : name !== 'ENCODING' && name !== 'CHARSET';
-    });
-  }
-
-  const named = parameters.map((parameter) => (parameter.includes('=') ? parameter : `TYPE=${parameter}`));
-  return `${parsed.name}${named.map((parameter) => `;${parameter}`).join('')}:${value}`;
-}
-
-/**
  * A quoted-printable value as text. Each run of `=XX` escapes is one byte
- * sequence, decoded in `charset`; everything else is already text. A line
- * break the value encodes (`=0D=0A`, common in NOTE and ADR) becomes the
- * `\n` escape, because a raw one would end the content line. A `;` stays a
- * component separator, as in vCard 2.1 the value is decoded before it is
- * split.
+ * sequence, decoded in `charset`; everything else is already text. A soft
+ * line break left at the end (one that had no continuation) is dropped. In
+ * vCard 2.1 the value is decoded before it is split, so a decoded `;` is a
+ * component separator.
  *
  * @param {string} value
  * @param {string|undefined} charset - the CHARSET parameter
  * @returns {string}
  */
-export function decodeQuotedPrintable(value, charset) {
+function decodeQuotedPrintable(value, charset) {
   const decode = byteDecoder(charset);
   return value
     .replace(/=[ \t]*$/, '')
     .replace(/(?:=[0-9A-Fa-f]{2})+/g, (run) =>
-      decode(Uint8Array.from(run.slice(1).split('='), (hex) => parseInt(hex, 16))))
-    .replace(/\r\n|\r|\n/g, '\\n');
+      decode(Uint8Array.from(run.slice(1).split('='), (hex) => parseInt(hex, 16))));
 }
 
 const utf8 = new TextDecoder('utf-8', { fatal: true });
@@ -228,8 +305,8 @@ const WINDOWS_1252_HIGH = [
 
 /**
  * windows-1252, which WHATWG also uses for the ISO-8859-1 and Latin-1
- * labels. Decoded here rather than by TextDecoder: before Node 22 its
- * windows-1252 is plain Latin-1 and turns 0x80 into a control character
+ * labels. Decoded here rather than by TextDecoder: Node 20's windows-1252
+ * is plain Latin-1 and turns 0x80 into a control character
  * instead of "€".
  */
 function windows1252(bytes) {

@@ -39,6 +39,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `CHARSET` (UTF-8, ISO-8859-1, windows-1252, …; a missing or unknown one
   is read as UTF-8, and bytes that are not valid UTF-8 as windows-1252), soft
   line breaks included, for the contact list and the filters alike.
+- **vCard 2.1 commas and backslashes are read as text** (#103). Only `\;` is
+  an escape in vCard 2.1, but cards were read with 3.0 escaping, so
+  `N:Mueller, Jr.;Hans` showed two family names.
 
 ## [4.2.0] - 2026-10-07
 

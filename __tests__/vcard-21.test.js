@@ -1,12 +1,10 @@
-import { describe, test, expect, beforeEach, jest } from '@jest/globals';
-import ICAL from 'ical.js';
+import { describe, test, expect, jest } from '@jest/globals';
 
-// Issue #103: vCard 2.1 cards (Outlook/Android exports) and their
-// quoted-printable values, through the one vCard reader.
+// Issue #103: vCard 2.1 cards (Outlook/Android exports) are read as the 3.0
+// card that says the same — quoted-printable decoded, 2.1 escaping kept.
 const ADDRESSBOOK_URL = 'https://dav.example.com/addressbooks/user/default/';
 const CARD_URL = `${ADDRESSBOOK_URL}card.vcf`;
 
-const updateVCard = jest.fn(async () => ({ ok: true, status: 204, headers: new Headers({ etag: '"2"' }) }));
 let storedCard = '';
 
 jest.unstable_mockModule('../src/tsdav-client.js', () => ({
@@ -14,12 +12,10 @@ jest.unstable_mockModule('../src/tsdav-client.js', () => ({
     getCardDavClient: () => ({
       fetchAddressBooks: async () => [{ url: ADDRESSBOOK_URL, displayName: 'Default' }],
       fetchVCards: async () => [{ url: CARD_URL, etag: '"1"', data: storedCard }],
-      updateVCard,
     }),
   },
 }));
 
-const { updateContactFields } = await import('../src/tools/contacts/update-contact-fields.js');
 const { listContacts } = await import('../src/tools/contacts/list-contacts.js');
 const { readVCard } = await import('../src/vcard.js');
 
@@ -28,15 +24,24 @@ const v21 = (...lines) => ['BEGIN:VCARD', 'VERSION:2.1', 'UID:card-1', ...lines,
 /** the listing a reader sees, without the Raw Data block */
 const listed = async () => (await listContacts.handler({ addressbook_url: ADDRESSBOOK_URL })).content[0].text.split('<details>')[0];
 
-const update = async (fields) => {
-  updateVCard.mockClear();
-  await updateContactFields.handler({ vcard_url: CARD_URL, vcard_etag: '"1"', fields });
-  return updateVCard.mock.calls[0][0].vCard.data;
-};
-
-const parsed = (data) => new ICAL.Component(ICAL.parse(data));
-
 describe('reading a vCard 2.1 card', () => {
+  test('list_contacts shows quoted-printable values decoded', async () => {
+    storedCard = v21('N;CHARSET=UTF-8;ENCODING=QUOTED-PRINTABLE:M=C3=BCller;Hans',
+      'FN;CHARSET=ISO-8859-1;ENCODING=QUOTED-PRINTABLE:Hans M=FCller');
+    const text = await listed();
+    expect(text).toContain('### 1. Hans Müller');
+    expect(text).toContain('- **Full Name**: Hans Müller');
+  });
+
+  test('2.1 escaping: commas and backslashes are text, \\; a literal semicolon', () => {
+    const card = readVCard(v21('N:Mueller, Jr.;Hans', 'FN:A\\;B',
+      'NOTE;ENCODING=QUOTED-PRINTABLE:C:=5Cnew', 'ORG:Acme\\;Corp;Sales'));
+    expect(card.getFirstPropertyValue('n')).toEqual(['Mueller, Jr.', 'Hans']);
+    expect(card.getFirstPropertyValue('fn')).toBe('A;B');
+    expect(card.getFirstPropertyValue('note')).toBe('C:\\new');
+    expect(card.getFirstPropertyValue('org')).toEqual(['Acme;Corp', 'Sales']);
+  });
+
   test('a dangling soft line break does not swallow the next property', () => {
     const atEnd = readVCard(v21('FN:X', 'NOTE;ENCODING=QUOTED-PRINTABLE:abc='));
     expect(atEnd.getFirstPropertyValue('note')).toBe('abc');
