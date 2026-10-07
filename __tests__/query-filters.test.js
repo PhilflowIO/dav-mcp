@@ -194,6 +194,51 @@ describe('addressbook_query', () => {
     expect(await urls(addressbookQuery, { organization_filter: 'sales' })).toEqual(['acme.vcf']);
   });
 
+  describe('a vCard 2.1 card with bare parameters', () => {
+    // Outlook/Android export form; ical.js alone rejects "EMAIL;PREF;INTERNET:"
+    const legacy = () => ({
+      url: `${ADDRESSBOOK_URL}legacy.vcf`,
+      etag: '"1"',
+      data: ['BEGIN:VCARD', 'VERSION:2.1', 'N:Doe;John', 'FN:John Doe',
+        'EMAIL;PREF;INTERNET:john@doe.com', 'TEL;CELL:+49 170 1234567', 'ORG:Initech', 'END:VCARD'].join('\r\n'),
+    });
+
+    beforeEach(() => { storedCards = [legacy()]; });
+
+    test('name, email and organization filters match it', async () => {
+      expect(await urls(addressbookQuery, { name_filter: 'john doe' })).toEqual(['legacy.vcf']);
+      expect(await urls(addressbookQuery, { email_filter: 'john@doe.com' })).toEqual(['legacy.vcf']);
+      expect(await urls(addressbookQuery, { organization_filter: 'initech' })).toEqual(['legacy.vcf']);
+    });
+
+    test('the display shows it', async () => {
+      const text = (await addressbookQuery.handler({ name_filter: 'john' })).content[0].text;
+      expect(text).toContain('### 1. John Doe');
+      expect(text).toContain('- **Email**: john@doe.com (PREF, INTERNET)');
+      expect(text).toContain('- **Organization**: Initech');
+    });
+  });
+
+  test('a quoted parameter value keeps its semicolons and colons', async () => {
+    storedCards = [card('quoted', 'FN:Quoted Person', 'EMAIL;X-LABEL="Work; HQ: main";PREF:q@example.com')];
+    expect(await urls(addressbookQuery, { email_filter: 'q@example.com' })).toEqual(['quoted.vcf']);
+  });
+
+  test('a one-part N is the family name, not split into letters', async () => {
+    storedCards = [card('cher', 'N:Cher')];
+    expect(await urls(addressbookQuery, { name_filter: 'cher' })).toEqual(['cher.vcf']);
+    expect(await urls(addressbookQuery, { name_filter: 'c h' })).toEqual([]);
+    const text = (await addressbookQuery.handler({ name_filter: 'cher' })).content[0].text;
+    expect(text).toContain('- **Full Name**: Cher');
+  });
+
+  test('ORG is filtered and displayed with the same join', async () => {
+    storedCards = [card('units', 'FN:Unit Person', 'ORG:Acme;;Sales')];
+    expect(await urls(addressbookQuery, { organization_filter: 'Acme, Sales' })).toEqual(['units.vcf']);
+    const text = (await addressbookQuery.handler({ organization_filter: 'acme' })).content[0].text;
+    expect(text).toContain('- **Organization**: Acme, Sales');
+  });
+
   test('a malformed vCard is skipped, not fatal', async () => {
     storedCards = [
       { url: `${ADDRESSBOOK_URL}broken.vcf`, etag: '"1"', data: 'BEGIN:VCARD\r\ngarbage' },

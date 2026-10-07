@@ -1,5 +1,6 @@
 import ICAL from 'ical.js';
 import { instantOf } from './ical-dates.js';
+import { readVCard, structuredText, nameComponents, organizationText } from '../../vcard.js';
 
 /**
  * The query tools filter and sort what the server returned on our side. They
@@ -30,14 +31,16 @@ import { instantOf } from './ical-dates.js';
  */
 export function parseObjects(objects, kind) {
   return objects.map((object) => {
-    const root = parseRoot(object.data);
+    const root = parseRoot(object.data, kind);
     return { object, root, main: mainComponent(root, kind) };
   });
 }
 
-function parseRoot(data) {
+function parseRoot(data, kind) {
   if (typeof data !== 'string' || !data.trim()) return null;
   try {
+    // vCards go through the reader the display uses (see vcard.js)
+    if (kind === 'vcard') return readVCard(data);
     const jcal = ICAL.parse(data);
     // a body holding several documents parses to a list of them; a DAV
     // resource is one, so the first is the one
@@ -76,8 +79,8 @@ export function overridesOf(parsed, kind) {
 /**
  * Every value of a property as plain, unescaped text — one string per
  * property instance, so an object with three EMAILs yields three.
- * Structured values (ORG, N, ADR) have their components joined by
- * `separator`; empty components are left out.
+ * Structured values have their non-empty components joined by `separator`
+ * (see structuredText).
  *
  * @param {ICAL.Component|null} component
  * @param {string} name - property name, any case
@@ -87,15 +90,8 @@ export function overridesOf(parsed, kind) {
 export function textValues(component, name, separator = ' ') {
   if (!component) return [];
   return component.getAllProperties(name.toLowerCase())
-    .map((property) => joinText(property.getValues(), separator))
+    .map((property) => structuredText(property.getValues(), separator))
     .filter(Boolean);
-}
-
-function joinText(values, separator) {
-  return values.flat(Infinity)
-    .filter((v) => v !== null && v !== undefined && v !== '')
-    .map(String)
-    .join(separator);
 }
 
 /**
@@ -109,10 +105,22 @@ function joinText(values, separator) {
 export function contactNames(vcard) {
   if (!vcard) return [];
   const structured = vcard.getAllProperties('n').map((property) => {
-    const [family, given, additional, prefix, suffix] = property.getFirstValue() ?? [];
-    return joinText([prefix, given, additional, family, suffix].map((v) => v ?? ''), ' ');
+    const { family, given, additional, prefix, suffix } = nameComponents(property);
+    return structuredText([prefix, given, additional, family, suffix], ' ');
   });
   return [...textValues(vcard, 'fn'), ...structured.filter(Boolean)];
+}
+
+/**
+ * A vCard's organizations, each as the contact display shows it
+ * (see organizationText).
+ *
+ * @param {ICAL.Component|null} vcard
+ * @returns {string[]}
+ */
+export function organizations(vcard) {
+  if (!vcard) return [];
+  return vcard.getAllProperties('org').map(organizationText).filter(Boolean);
 }
 
 /**

@@ -10,6 +10,7 @@
  */
 
 import ICAL from 'ical.js';
+import { readVCard, nameComponents, organizationText } from './vcard.js';
 
 // A CalDAV server answers a time-range query with the master VEVENT of a
 // recurring series, not with the occurrences inside the range, so the series
@@ -142,8 +143,7 @@ function parseICalEvent(icalData, timeRange = null) {
  */
 function parseVCard(vcardData) {
   try {
-    const jcard = ICAL.parse(vcardData);
-    const vcard = new ICAL.Component(jcard);
+    const vcard = readVCard(vcardData);
 
     const contact = {
       fullName: vcard.getFirstPropertyValue('fn') || '',
@@ -153,12 +153,12 @@ function parseVCard(vcardData) {
     // Parse structured name (N property)
     const n = vcard.getFirstProperty('n');
     if (n) {
-      const nameValue = n.getFirstValue();
-      contact.familyName = nameValue[0] || '';
-      contact.givenName = nameValue[1] || '';
-      contact.additionalNames = nameValue[2] || '';
-      contact.honorificPrefixes = nameValue[3] || '';
-      contact.honorificSuffixes = nameValue[4] || '';
+      const name = nameComponents(n);
+      contact.familyName = name.family;
+      contact.givenName = name.given;
+      contact.additionalNames = name.additional;
+      contact.honorificPrefixes = name.prefix;
+      contact.honorificSuffixes = name.suffix;
     }
 
     // Parse all emails
@@ -166,7 +166,7 @@ function parseVCard(vcardData) {
     if (emails && emails.length > 0) {
       contact.emails = emails.map(e => ({
         value: e.getFirstValue(),
-        type: e.getParameter('type') ? [e.getParameter('type')] : [],
+        type: [e.getParameter('type') ?? []].flat(),
       }));
     }
 
@@ -175,7 +175,7 @@ function parseVCard(vcardData) {
     if (tels && tels.length > 0) {
       contact.phones = tels.map(t => ({
         value: t.getFirstValue(),
-        type: t.getParameter('type') ? [t.getParameter('type')] : [],
+        type: [t.getParameter('type') ?? []].flat(),
       }));
     }
 
@@ -192,7 +192,7 @@ function parseVCard(vcardData) {
           region: adrValue[4] || '',
           postalCode: adrValue[5] || '',
           country: adrValue[6] || '',
-          type: a.getParameter('type') ? [a.getParameter('type')] : [],
+          type: [a.getParameter('type') ?? []].flat(),
         };
       });
     }
@@ -200,8 +200,7 @@ function parseVCard(vcardData) {
     // Parse organization
     const org = vcard.getFirstProperty('org');
     if (org) {
-      const orgValue = org.getFirstValue();
-      contact.organization = Array.isArray(orgValue) ? orgValue.join(', ') : orgValue;
+      contact.organization = organizationText(org);
     }
 
     // Parse note

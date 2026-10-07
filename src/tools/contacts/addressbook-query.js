@@ -2,7 +2,7 @@ import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, addressBookQuerySchema } from '../../validation.js';
 import { formatContactList } from '../../formatters.js';
 import { limitResults, DEFAULT_RESULT_LIMIT } from '../shared/helpers.js';
-import { parseObjects, textValues, contactNames, containsText, textKey } from '../shared/query-objects.js';
+import { parseObjects, textValues, contactNames, organizations, containsText, textKey } from '../shared/query-objects.js';
 
 /**
  * Search and filter contacts efficiently
@@ -70,9 +70,9 @@ export const addressbookQuery = {
     }
 
     if (validated.organization_filter) {
-      // ORG is structured (name;unit;...); joined as the contact display shows it
+      // ORG is structured (name;unit;...); matched as the contact display shows it
       parsed = parsed.filter(({ main }) =>
-        containsText(textValues(main, 'org', ', '), validated.organization_filter));
+        containsText(organizations(main), validated.organization_filter));
     }
 
     const addressBookName = addressbooksToSearch.length === 1
