@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **Requests only go to the configured DAV server**
+  ([GHSA-hfg5-7h5r-vgfq](https://github.com/PhilflowIO/dav-mcp/security/advisories/GHSA-hfg5-7h5r-vgfq)).
+  Tools that take a calendar, address book, event, todo or contact URL
+  accepted a URL on any host, and the DAV login (password or OAuth token) was
+  sent along with the request. A URL is now accepted only on the configured
+  server's origin or an origin that server named itself while logging in or
+  listing its collections (for example a per-account host); anything else,
+  plain http for a server configured over https, and URLs carrying a user
+  name or password are refused before a request is made, with an error naming
+  the allowed origins. The check runs in the tool parameters and again on
+  every request the DAV clients make.
+
 ### Added
 - **Claude plugin** (`claude-plugin/`, #99). dav-mcp can be installed as a
   Claude Code plugin and listed in the Claude directory: it asks for the server
