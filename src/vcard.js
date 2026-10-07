@@ -31,32 +31,73 @@ export function readVCard(data) {
 }
 
 function normalizeContentLines(data) {
-  // unfold first: a parameter list or a value can span several lines
-  const lines = [];
-  for (const physical of data.split(/\r?\n/)) {
-    const last = lines.length - 1;
-    const softBreak = last >= 0 ? softLineBreak(lines[last]) : -1;
-    if (softBreak !== -1) {
-      // quoted-printable: `=` ends a line that the next one continues as is
-      lines[last] = lines[last].slice(0, softBreak) + physical;
-    } else if (last >= 0 && /^[ \t]/.test(physical)) {
-      lines[last] += physical.slice(1);
-    } else {
-      lines.push(physical);
-    }
-  }
-  return lines.map(normalizeContentLine).join('\r\n');
+  return unfold(data).map(normalizeContentLine).join('\r\n');
 }
 
 /**
- * Where the soft line break of a quoted-printable line starts, or -1. RFC
- * 2045 allows whitespace after the `=`.
+ * The content lines: folded lines (CRLF + space) and quoted-printable soft
+ * line breaks (`=` at the end, whitespace after it allowed by RFC 2045)
+ * joined. Linear in the size of the card: each physical line is looked at
+ * once, and whether a line is quoted-printable is decided once per line.
  */
-function softLineBreak(line) {
-  const match = /=[ \t]*$/.exec(line);
-  if (!match) return -1;
-  const parsed = parseContentLine(line);
-  return parsed && isQuotedPrintable(parsed.parameters) ? match.index : -1;
+function unfold(data) {
+  const lines = [];
+  let parts = null;
+  let quotedPrintable = null; // unknown until the parameter list has ended
+
+  const isQuotedPrintableLine = () => {
+    if (quotedPrintable === null) {
+      const parsed = parseContentLine(parts.join(''));
+      if (!parsed) return false; // parameters still running on
+      quotedPrintable = isQuotedPrintable(parsed.parameters);
+    }
+    return quotedPrintable;
+  };
+
+  for (const physical of data.split(/\r?\n/)) {
+    if (parts) {
+      const previous = parts[parts.length - 1];
+      const softBreak = /=[ \t]*$/.exec(previous);
+      if (softBreak && !startsContentLine(physical) && isQuotedPrintableLine()) {
+        parts[parts.length - 1] = previous.slice(0, softBreak.index);
+        parts.push(physical);
+        continue;
+      }
+      if (/^[ \t]/.test(physical)) {
+        parts.push(physical.slice(1));
+        continue;
+      }
+      lines.push(parts.join(''));
+    }
+    parts = [physical];
+    quotedPrintable = null;
+  }
+  if (parts) lines.push(parts.join(''));
+  return lines;
+}
+
+const PROPERTY_NAMES = [
+  'ADR', 'AGENT', 'ANNIVERSARY', 'BDAY', 'BEGIN', 'CALADRURI', 'CALURI',
+  'CATEGORIES', 'CLASS', 'CLIENTPIDMAP', 'EMAIL', 'END', 'FBURL', 'FN',
+  'GENDER', 'GEO', 'IMPP', 'KEY', 'KIND', 'LABEL', 'LANG', 'LOGO', 'MAILER',
+  'MEMBER', 'N', 'NAME', 'NICKNAME', 'NOTE', 'ORG', 'PHOTO', 'PRODID',
+  'PROFILE', 'RELATED', 'REV', 'ROLE', 'SORT-STRING', 'SOUND', 'SOURCE', 'TEL',
+  'TITLE', 'TZ', 'UID', 'URL', 'VERSION', 'XML',
+];
+const CONTENT_LINE_START = new RegExp(
+  `^(?:[A-Za-z0-9-]+\\.)?(?:${PROPERTY_NAMES.join('|')}|X-[A-Z0-9-]+)[;:]`);
+
+/**
+ * Whether a physical line starts a property of its own, so a soft line
+ * break before it was a dangling `=` (an exporter bug) and must not swallow
+ * it — `NOTE;ENCODING=QUOTED-PRINTABLE:abc=` before `END:VCARD` would
+ * otherwise leave the card unterminated and the contact gone. The text a
+ * soft break continues can hold a colon ("Note: call back"), so only a vCard
+ * property name as exporters write it, upper case, counts — and END:VCARD in
+ * any case.
+ */
+function startsContentLine(physical) {
+  return /^END:VCARD\s*$/i.test(physical) || CONTENT_LINE_START.test(physical);
 }
 
 /**
@@ -143,6 +184,7 @@ function normalizeContentLine(line) {
 export function decodeQuotedPrintable(value, charset) {
   const decode = byteDecoder(charset);
   return value
+    .replace(/=[ \t]*$/, '')
     .replace(/(?:=[0-9A-Fa-f]{2})+/g, (run) =>
       decode(Uint8Array.from(run.slice(1).split('='), (hex) => parseInt(hex, 16))))
     .replace(/\r\n|\r|\n/g, '\\n');
