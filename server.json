@@ -6,12 +6,12 @@
     "url": "https://github.com/PhilflowIO/dav-mcp",
     "source": "github"
   },
-  "version": "4.2.0",
+  "version": "4.3.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "dav-mcp",
-      "version": "4.2.0",
+      "version": "4.3.0",
       "transport": {
         "type": "stdio"
       },
@@ -81,7 +81,7 @@
         },
         {
           "name": "GOOGLE_TOKEN_URL",
-          "description": "OAuth2 token endpoint; required when AUTH_METHOD=oauth2",
+          "description": "OAuth2 token endpoint for AUTH_METHOD=oauth2 (default: https://oauth2.googleapis.com/token)",
           "isRequired": false,
           "format": "string",
           "isSecret": false

@@ -10,6 +10,10 @@
  */
 
 import { jest } from '@jest/globals';
+import { connectTo } from './support/request-origins.js';
+
+// The URLs below belong to the server these tests stand in for.
+connectTo('http://example.com/');
 
 // --- Mock tsdav-utils ---
 const mockUpdateFields = jest.fn((obj, fields) => 'UPDATED_ICAL_DATA');
