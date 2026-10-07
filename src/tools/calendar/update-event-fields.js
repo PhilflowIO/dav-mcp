@@ -3,7 +3,7 @@ import { validateInput, davFieldMapSchema, dateOrDateTime, refineDateRange } fro
 import { formatSuccess } from '../../formatters.js';
 import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
 import { z } from 'zod';
-import { writeFields, setEventDates } from '../shared/ical-dates.js';
+import { writeEventFields } from '../shared/ical-dates.js';
 
 /**
  * Schema for field-based event updates
@@ -14,7 +14,7 @@ import { writeFields, setEventDates } from '../shared/ical-dates.js';
  *
  * start_date/end_date/all_day sit OUTSIDE the fields map on purpose: start and
  * end move together, and an explicit end has to replace a stored DURATION; see
- * setEventDates in src/tools/shared/ical-dates.js.
+ * writeEventFields in src/tools/shared/ical-dates.js.
  */
 const updateEventFieldsSchema = z.object({
   event_url: z.string().url('Event URL must be a valid URL'),
@@ -141,19 +141,18 @@ export const updateEventFields = {
 
     const calendarObject = currentEvents[0];
 
-    // Step 2: Update fields (field-agnostic; date-typed values such as
-    // EXDATE or RECURRENCE-ID are encoded by tsdav-utils)
-    let updatedData = writeFields(calendarObject, validated.fields || {});
-
-    // Step 2b: start and end move together, replacing a stored DURATION
-    const changedFields = Object.keys(validated.fields || {});
-    if (validated.start_date !== undefined) {
-      updatedData = setEventDates(updatedData, {
-        startDate: validated.start_date,
-        endDate: validated.end_date,
-      });
-      changedFields.push('DTSTART', 'DTEND');
-    }
+    // Step 2: Write the fields and, when moving the event, its dates in one
+    // updateFields call on the series master, so an RRULE UNTIL in fields
+    // follows the new DTSTART (date-typed values such as EXDATE or
+    // RECURRENCE-ID are encoded by tsdav-utils). An explicit end replaces a
+    // stored DURATION.
+    const fields = validated.fields || {};
+    const moving = validated.start_date !== undefined;
+    const updatedData = writeEventFields(calendarObject, fields, moving
+      ? { startDate: validated.start_date, endDate: validated.end_date }
+      : undefined);
+    const changedFields = Object.keys(fields);
+    if (moving) changedFields.push('DTSTART', 'DTEND');
 
     // Step 3: Send the updated event back to server
     const updateResponse = await client.updateCalendarObject({
