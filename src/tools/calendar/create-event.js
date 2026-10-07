@@ -11,6 +11,13 @@ import { generateUID, findCalendarOrThrow, assertDavSuccess, etagAfterWrite } fr
  */
 export const createEvent = {
   name: 'create_event',
+  annotations: {
+    title: 'Create event',
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: true,
+  },
   description: 'Create a new calendar event with title, date, time, optional description and location',
   inputSchema: {
     type: 'object',

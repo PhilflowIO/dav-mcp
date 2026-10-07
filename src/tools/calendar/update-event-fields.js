@@ -73,6 +73,13 @@ const updateEventFieldsSchema = z.object({
  */
 export const updateEventFields = {
   name: 'update_event',
+  annotations: {
+    title: 'Update event fields',
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
   description: 'PREFERRED: Update event fields without iCal formatting. Use start_date/end_date/all_day to move an event or convert it between all-day and timed. Use fields for everything else: SUMMARY (title), DESCRIPTION (details), LOCATION (place), STATUS (TENTATIVE/CONFIRMED/CANCELLED), and any other RFC 5545 property including custom X-* properties (e.g., X-ZOOM-LINK, X-MEETING-ROOM).',
   inputSchema: {
     type: 'object',
@@ -112,7 +119,7 @@ export const updateEventFields = {
       },
       start_date: {
         type: 'string',
-        description: 'New start. A datetime ("2026-05-25T10:00:00Z", or with an offset) makes the event timed; a bare date ("2026-05-25") makes it all-day. A datetime without a zone keeps the event\'s own timezone if it has one, else it is read in the server timezone. Must be given together with end_date.'
+        description: 'New start. A datetime ("2026-05-25T10:00:00Z", or with an offset) makes the event timed; a bare date ("2026-05-25") makes it all-day. A datetime without a zone keeps the event\'s own timezone if it has one, else it is read in the timezone of the computer running dav-mcp. Must be given together with end_date.'
       },
       end_date: {
         type: 'string',

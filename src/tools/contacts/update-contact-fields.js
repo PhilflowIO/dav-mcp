@@ -28,6 +28,13 @@ const updateContactFieldsSchema = z.object({
  */
 export const updateContactFields = {
   name: 'update_contact',
+  annotations: {
+    title: 'Update contact fields',
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
   description: 'PREFERRED: Update contact fields without vCard formatting. Supports: FN (full name), N (structured name), EMAIL, TEL (phone), ORG (organization), TITLE (job title), NOTE, URL, ADR (address), BDAY (birthday), and any RFC 6350 vCard property including custom X-* properties.',
   inputSchema: {
     type: 'object',

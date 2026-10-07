@@ -6,6 +6,13 @@ import { formatAddressBookList } from '../../formatters.js';
  */
 export const listAddressbooks = {
   name: 'list_addressbooks',
+  annotations: {
+    title: 'List address books',
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
   description: 'List all available address books from the CardDAV server. Use this to get address book URLs needed for other contact operations',
   inputSchema: {
     type: 'object',

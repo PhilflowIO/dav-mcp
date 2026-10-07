@@ -55,6 +55,9 @@ describe('stdio transport keeps stdout clean', () => {
     const listed = lines.map(l => JSON.parse(l)).find(m => m.id === 2);
     const { tools } = await import('../src/tools/index.js');
     expect(listed.result.tools).toHaveLength(tools.length);
+    // Claude asks before running a tool unless its annotations say it only reads
+    expect(listed.result.tools.map(t => [t.name, t.annotations]))
+      .toEqual(tools.map(t => [t.name, t.annotations]));
   }, 20000);
 });
 

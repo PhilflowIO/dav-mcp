@@ -8,6 +8,13 @@ import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
  */
 export const updateTodoRaw = {
   name: 'update_todo_raw',
+  annotations: {
+    title: 'Replace to-do iCalendar data',
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
   description: 'ADVANCED: Update todo with raw VTODO iCal data. Requires manual iCal formatting - use update_todo instead for simple field updates (summary, description, status). Only use this if you have complete pre-formatted VTODO data or need to update advanced iCal properties.',
   inputSchema: {
     type: 'object',

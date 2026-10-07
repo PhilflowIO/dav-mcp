@@ -1,28 +1,65 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { writeLogLine } from './log-sink.js';
 
 /**
  * Tool Call Logger - Logs all MCP tool calls to JSON Lines format
  * Enables real-time monitoring of LLM tool selection behavior
+ *
+ * Off unless LOG_TOOL_CALLS=true: every entry carries the full tool
+ * arguments, i.e. event titles, attendees and contact data.
  */
+
+/**
+ * Per-user default for the log file: $XDG_STATE_HOME, else
+ * %LOCALAPPDATA% on Windows, else ~/.local/state. Never a shared
+ * directory such as /tmp, where other local users could read it.
+ */
+export function defaultToolCallLogFile(env = process.env, platform = process.platform) {
+  const stateDir = env.XDG_STATE_HOME
+    || (platform === 'win32' && env.LOCALAPPDATA)
+    || path.join(os.homedir(), '.local', 'state');
+  return path.join(stateDir, 'dav-mcp', 'tool-calls.jsonl');
+}
 
 class ToolCallLogger {
   constructor(options = {}) {
-    this.enabled = options.enabled !== false;
+    this.enabled = options.enabled === true;
     this.outputMode = options.outputMode || 'file'; // 'file' | 'console' | 'both'
-    this.logFile = options.logFile || '/tmp/mcp-tool-calls.jsonl';
+    this.logFile = options.logFile || defaultToolCallLogFile();
 
     if (this.enabled && this.outputMode.includes('file')) {
-      this.ensureLogFileExists();
+      this.ensurePrivateLogFile();
     }
   }
 
-  ensureLogFileExists() {
-    const dir = path.dirname(this.logFile);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+  /**
+   * Create the log file readable by its owner only. A file that already
+   * exists (an older log, or a TOOL_CALL_LOG_FILE the user chose) is
+   * narrowed to the owner too: it is about to receive calendar and
+   * contact data.
+   */
+  ensurePrivateLogFile() {
+    try {
+      const dir = path.dirname(this.logFile);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+      }
+      fs.closeSync(fs.openSync(this.logFile, 'a', 0o600));
+      if (process.platform !== 'win32') {
+        fs.chmodSync(this.logFile, 0o600);
+      }
+    } catch (error) {
+      console.error('Failed to prepare tool call log:', error.message);
     }
+  }
+
+  /** What the startup log reports about this logger. */
+  describe() {
+    return this.enabled
+      ? { enabled: true, mode: this.outputMode, ...(this.outputMode !== 'console' && { file: this.logFile }) }
+      : { enabled: false };
   }
 
   log(entry) {
@@ -37,7 +74,7 @@ class ToolCallLogger {
 
     if (this.outputMode === 'file' || this.outputMode === 'both') {
       try {
-        fs.appendFileSync(this.logFile, line);
+        fs.appendFileSync(this.logFile, line, { mode: 0o600 });
       } catch (error) {
         console.error('Failed to write to tool call log:', error.message);
       }
@@ -128,9 +165,9 @@ class ToolCallLogger {
 let instance = null;
 
 export function initializeToolCallLogger(options = {}) {
-  const enabled = process.env.LOG_TOOL_CALLS !== 'false';
+  const enabled = process.env.LOG_TOOL_CALLS === 'true';
   const outputMode = process.env.TOOL_CALL_LOG_MODE || 'file';
-  const logFile = process.env.TOOL_CALL_LOG_FILE || '/tmp/mcp-tool-calls.jsonl';
+  const logFile = process.env.TOOL_CALL_LOG_FILE || defaultToolCallLogFile();
 
   instance = new ToolCallLogger({
     enabled,

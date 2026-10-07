@@ -9,6 +9,13 @@ import { writeFields } from '../shared/ical-dates.js';
  */
 export const createTodo = {
   name: 'create_todo',
+  annotations: {
+    title: 'Create to-do',
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: true,
+  },
   description: 'Create a new todo/task in a calendar. Use this when user wants to add a task, todo item, or reminder with optional due date, priority, and status.',
   inputSchema: {
     type: 'object',
@@ -27,7 +34,7 @@ export const createTodo = {
       },
       due_date: {
         type: 'string',
-        description: 'Optional due date in ISO 8601: with a zone (2025-12-31T23:59:59+02:00), without one (read in the server timezone), or a date (2025-12-31) for a todo due that day',
+        description: 'Optional due date in ISO 8601: with a zone (2025-12-31T23:59:59+02:00), without one (read in the timezone of the computer running dav-mcp), or a date (2025-12-31) for a todo due that day',
       },
       priority: {
         type: 'number',

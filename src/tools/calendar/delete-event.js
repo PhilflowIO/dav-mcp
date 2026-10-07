@@ -8,6 +8,13 @@ import { assertDeleted } from '../shared/helpers.js';
  */
 export const deleteEvent = {
   name: 'delete_event',
+  annotations: {
+    title: 'Delete event',
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
   description: 'Permanently delete a calendar event. WARNING: This action cannot be undone — the event is removed from the server immediately. Use only when the user explicitly requests deletion. Obtain the event URL and etag from list_events or calendar_query first. The etag ensures no conflicting changes occurred since the event was last retrieved.',
   inputSchema: {
     type: 'object',

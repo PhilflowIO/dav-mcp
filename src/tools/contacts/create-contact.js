@@ -8,6 +8,13 @@ import { findAddressbookOrThrow, assertDavSuccess, etagAfterWrite } from '../sha
  */
 export const createContact = {
   name: 'create_contact',
+  annotations: {
+    title: 'Create contact',
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: true,
+  },
   description: 'Create a new contact (vCard) with name, email, phone, organization, and other details',
   inputSchema: {
     type: 'object',

@@ -21,7 +21,8 @@
     "test:coverage": "NODE_ENV=test NODE_OPTIONS='--experimental-vm-modules' jest --coverage",
     "test:integration": "node tests/integration/mcp-test-runner.js",
     "test:setup-data": "node tests/integration/setup-test-data.js",
-    "mcpb:sync": "node scripts/sync-mcpb-manifest.js"
+    "mcpb:sync": "node scripts/sync-mcpb-manifest.js",
+    "plugin:sync": "node scripts/sync-claude-plugin.js"
   },
   "author": "dav-mcp contributors",
   "license": "MIT",
@@ -59,6 +60,7 @@
     "src/**/*",
     "README.md",
     "LICENSE",
+    "PRIVACY.md",
     "CHANGELOG.md"
   ],
   "dependencies": {

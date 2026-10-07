@@ -1,0 +1,59 @@
+{
+  "name": "dav-mcp",
+  "displayName": "dav-mcp: Calendars, Contacts & Tasks",
+  "version": "4.2.0",
+  "description": "Let Claude read and organize the calendars, contacts and tasks on your own CalDAV/CardDAV server: Nextcloud, iCloud, Baikal, Radicale and more.",
+  "author": {
+    "name": "Philflow",
+    "email": "hello@philflow.io",
+    "url": "https://github.com/PhilflowIO"
+  },
+  "homepage": "https://github.com/PhilflowIO/dav-mcp#readme",
+  "repository": "https://github.com/PhilflowIO/dav-mcp",
+  "license": "MIT",
+  "keywords": [
+    "caldav",
+    "carddav",
+    "calendar",
+    "contacts",
+    "tasks",
+    "nextcloud",
+    "icloud",
+    "baikal",
+    "radicale"
+  ],
+  "documentationUrl": "https://github.com/PhilflowIO/dav-mcp/tree/main/claude-plugin#readme",
+  "supportUrl": "https://github.com/PhilflowIO/dav-mcp/issues",
+  "privacyPolicyUrl": "https://github.com/PhilflowIO/dav-mcp/blob/main/PRIVACY.md",
+  "userConfig": {
+    "server_url": {
+      "type": "string",
+      "title": "Server URL",
+      "description": "Base URL of your CalDAV/CardDAV server, e.g. https://cloud.example.com/remote.php/dav/ (Nextcloud) or https://caldav.icloud.com/",
+      "required": true
+    },
+    "username": {
+      "type": "string",
+      "title": "Username",
+      "description": "Username for your DAV server",
+      "required": true
+    },
+    "password": {
+      "type": "string",
+      "title": "Password",
+      "description": "Password or app-specific password for your DAV server. Stored in your system's secure credential store.",
+      "sensitive": true,
+      "required": true
+    },
+    "auth_method": {
+      "type": "string",
+      "title": "Authentication method",
+      "description": "Basic works for almost every server and switches to Digest by itself when the server only offers Digest. Digest never sends the password.",
+      "options": [
+        "Basic",
+        "Digest"
+      ],
+      "default": "Basic"
+    }
+  }
+}

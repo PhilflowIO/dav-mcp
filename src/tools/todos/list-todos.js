@@ -7,6 +7,13 @@ import { formatTodoList } from '../../formatters.js';
  */
 export const listTodos = {
   name: 'list_todos',
+  annotations: {
+    title: 'List to-dos',
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
   description: 'List ALL todos/tasks from a calendar. WARNING: Returns all todos without filtering - use todo_query for searches with filters by status, summary, or due date.',
   inputSchema: {
     type: 'object',

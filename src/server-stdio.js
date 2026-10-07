@@ -48,22 +48,25 @@ async function startStdioServer() {
   process.env.MCP_TRANSPORT = 'stdio';
 
   const dotenv = await import('dotenv');
+  const { fileURLToPath } = await import('url');
   const { Server } = await import('@modelcontextprotocol/sdk/server/index.js');
   const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js');
   const { ListToolsRequestSchema, CallToolRequestSchema } = await import('@modelcontextprotocol/sdk/types.js');
 
   const { tsdavManager } = await import('./tsdav-client.js');
   const { buildTsdavConfig } = await import('./auth-config.js');
-  const { tools } = await import('./tools/index.js');
+  const { tools, toListedTool } = await import('./tools/index.js');
   const { createToolErrorResponse, MCP_ERROR_CODES } = await import('./error-handler.js');
   const { logger } = await import('./logger.js');
   const { initializeToolCallLogger, getToolCallLogger } = await import('./tool-call-logger.js');
   const { SERVER_NAME, SERVER_VERSION } = await import('./server-info.js');
 
-  // Load environment variables. quiet: true because dotenv otherwise prints a
-  // banner to STDOUT, which under this transport is the JSON-RPC channel — a
-  // strict client fails to parse the first message.
-  dotenv.default.config({ quiet: true });
+  // Load environment variables from dav-mcp's own .env (a clone's root), never
+  // from the working directory: an MCP client starts us inside the user's
+  // project, whose .env is not ours to read. quiet: true because dotenv
+  // otherwise prints a banner to STDOUT, which under this transport is the
+  // JSON-RPC channel — a strict client fails to parse the first message.
+  dotenv.default.config({ path: fileURLToPath(new URL('../.env', import.meta.url)), quiet: true });
 
   /**
    * Initialize tsdav clients based on auth method
@@ -93,11 +96,7 @@ async function startStdioServer() {
     server.setRequestHandler(ListToolsRequestSchema, async () => {
       logger.debug({ count: tools.length }, 'tools/list request received');
       return {
-        tools: tools.map(t => ({
-          name: t.name,
-          description: t.description,
-          inputSchema: t.inputSchema,
-        })),
+        tools: tools.map(toListedTool),
       };
     });
 
@@ -184,8 +183,7 @@ async function startStdioServer() {
     }
 
     // Initialize tool call logger
-    initializeToolCallLogger();
-    logger.info('Tool call logger initialized');
+    logger.info(initializeToolCallLogger().describe(), 'Tool-call log');
 
     // Create MCP server
     const server = createMCPServer(ensureTsdavInitialized);

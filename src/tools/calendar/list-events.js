@@ -8,6 +8,13 @@ import { findCalendarOrThrow, buildTimeRangeOptions } from '../shared/helpers.js
  */
 export const listEvents = {
   name: 'list_events',
+  annotations: {
+    title: 'List events',
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
   description: 'List ALL events from a single calendar without filtering. WARNING: Returns all events which can be many thousands - use calendar_query instead for searching with filters (supports multi-calendar search).',
   inputSchema: {
     type: 'object',

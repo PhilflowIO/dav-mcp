@@ -11,6 +11,13 @@ import { parseObjects, textValues, containsText, dateKey, orNull } from '../shar
  */
 export const todoQuery = {
   name: 'todo_query',
+  annotations: {
+    title: 'Search to-dos',
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
   description: '⭐ PREFERRED: Search and filter todos efficiently. Use instead of list_todos to conserve tokens. Omit calendar_url to search across ALL calendars automatically.',
   inputSchema: {
     type: 'object',

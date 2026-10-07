@@ -22,7 +22,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, relative, resolve, sep } from 'path';
 
-const ALLOWED_TOP_LEVEL = ['LICENSE', 'README.md', 'manifest.json', 'node_modules', 'package.json', 'src'];
+const ALLOWED_TOP_LEVEL = ['LICENSE', 'PRIVACY.md', 'README.md', 'manifest.json', 'node_modules', 'package.json', 'src'];
 const REQUIRED = ['manifest.json', 'package.json', 'LICENSE'];
 const SECRET_FILE = /(^|\/)(\.env($|\.)|\.mcpregistry_)/;
 const BOOT_TIMEOUT_MS = 15000;

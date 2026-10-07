@@ -237,7 +237,14 @@ For Google Calendar, use OAuth2 authentication:
 - **Bearer Auth**: Token authentication for HTTP transport
 - **No Credential Storage**: Pass-through only, never logged or cached
 - **Structured Logging**: Audit trail with request IDs, no PII exposure
+- **Tool-Call Log Off by Default**: `LOG_TOOL_CALLS=true` records every tool call with its arguments, for debugging — to `~/.local/state/dav-mcp/tool-calls.jsonl` (or `$XDG_STATE_HOME`, `%LOCALAPPDATA%` on Windows, or `TOOL_CALL_LOG_FILE`), readable by you only. `TOOL_CALL_LOG_MODE=console` sends it to stderr instead.
 - **CORS Protection**: Whitelist origins, block cross-site attacks
+
+---
+
+## Privacy Policy
+
+dav-mcp runs on your machine (or your own server) and talks only to the DAV server you configure. It has no telemetry and shares nothing with its maintainers or third parties. Tool results go to the AI assistant that called the tool. Credentials and calendar data are not stored by dav-mcp; the optional tool-call log is off by default. Full policy: [PRIVACY.md](PRIVACY.md). Contact: [hello@philflow.io](mailto:hello@philflow.io).
 
 ---
 

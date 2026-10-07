@@ -8,6 +8,13 @@ import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
  */
 export const updateContactRaw = {
   name: 'update_contact_raw',
+  annotations: {
+    title: 'Replace contact vCard data',
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
   description: 'ADVANCED: Update contact with raw vCard data. Requires manual vCard formatting - use update_contact instead for simple field updates (name, email, phone). Only use this if you have complete pre-formatted vCard data or need to update advanced vCard properties.',
   inputSchema: {
     type: 'object',

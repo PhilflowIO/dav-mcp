@@ -23,6 +23,7 @@ import { SERVER_NAME, SERVER_VERSION } from './server-info.js';
 import cors from 'cors';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
 import rateLimit from 'express-rate-limit';
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -32,13 +33,13 @@ import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprot
 import { tsdavManager } from './tsdav-client.js';
 import { isLocalOrPrivateAddress } from './client-address.js';
 import { buildTsdavConfig } from './auth-config.js';
-import { tools } from './tools/index.js';
+import { tools, toListedTool } from './tools/index.js';
 import { createToolErrorResponse, MCP_ERROR_CODES } from './error-handler.js';
 import { logger, createRequestLogger } from './logger.js';
 import { initializeToolCallLogger, getToolCallLogger } from './tool-call-logger.js';
 
-// Load environment variables
-dotenv.config();
+// Load environment variables from dav-mcp's own .env (the clone's root, /app in Docker), not the working directory
+dotenv.config({ path: fileURLToPath(new URL('../.env', import.meta.url)), quiet: true });
 
 // The MCP SDK's Streamable HTTP transport calls the global `crypto`, which
 // Node.js 18 does not have (it arrived in 20). @hono/node-server 1.x sets it as
@@ -169,11 +170,7 @@ function createMCPServer(requestId) {
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     requestLogger.debug({ count: tools.length }, 'tools/list request');
     return {
-      tools: tools.map(t => ({
-        name: t.name,
-        description: t.description,
-        inputSchema: t.inputSchema,
-      })),
+      tools: tools.map(toListedTool),
     };
   });
 
@@ -360,8 +357,7 @@ async function start() {
   await initializeTsdav();
 
   // Initialize tool call logger
-  initializeToolCallLogger();
-  logger.info('Tool call logger initialized');
+  logger.info(initializeToolCallLogger().describe(), 'Tool-call log');
 
   // Start Express server
   httpServer = app.listen(PORT, () => {

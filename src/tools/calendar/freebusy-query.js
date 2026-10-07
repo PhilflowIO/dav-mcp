@@ -15,6 +15,13 @@ import { calculateFreeBusy } from '../shared/freebusy.js';
  */
 export const freeBusyQuery = {
   name: 'freebusy_query',
+  annotations: {
+    title: 'Check free/busy',
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
   description: 'Find free and busy time in a date range — use for "when am I free?", "am I available Tuesday afternoon?" or finding a slot for a new meeting. Searches all calendars unless one is given. Events marked TRANSPARENT (does not block time) and cancelled events are ignored; recurring events are expanded.',
   inputSchema: {
     type: 'object',

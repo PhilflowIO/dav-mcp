@@ -8,6 +8,13 @@ import { multiGetObjects } from '../shared/multiget.js';
  */
 export const todoMultiGet = {
   name: 'todo_multi_get',
+  annotations: {
+    title: 'Get to-dos by URL',
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
   description: 'Batch fetch multiple specific todos by their URLs. More efficient than fetching one by one when you have exact todo URLs.',
   inputSchema: {
     type: 'object',
