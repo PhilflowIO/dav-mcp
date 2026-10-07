@@ -1,3 +1,5 @@
+import { execFileSync } from 'child_process';
+import { fileURLToPath } from 'url';
 import { describe, test, expect, beforeEach, jest } from '@jest/globals';
 
 // Issue #94: the query tools filtered with patterns over the raw text, which
@@ -237,25 +239,25 @@ describe('calendar_query', () => {
       expect(await urls(calendarQuery, { ...OCTOBER, limit: 1 })).toEqual(['weekly.ics']);
     });
 
-    test('a floating series sorts by its host-zone instant, even before the range start', async () => {
-      // a floating 00:30 is read in the host's zone; in Berlin (UTC+2) on
-      // 8 October that is 22:30Z on the 7th — earlier than the range start
-      // and than a UTC event at 23:00Z, so it must win the cap
-      const hostZone = process.env.TZ;
-      process.env.TZ = 'Europe/Berlin';
-      try {
-        storedEvents = [
-          ics('utc2300', vevent('u', 'DTSTART:20261007T230000Z', 'DTEND:20261008T020000Z', 'SUMMARY:Single')),
-          ics('float0030', vevent('f', 'DTSTART:20260101T003000', 'DURATION:PT15M', 'RRULE:FREQ=DAILY', 'SUMMARY:Floating')),
-          ics('late', vevent('l', 'DTSTART:20261008T200000Z', 'DURATION:PT1H', 'SUMMARY:Late')),
-        ];
-        const range = { time_range_start: '2026-10-08T00:00:00Z', time_range_end: '2026-10-09T00:00:00Z' };
-        expect(await urls(calendarQuery, { ...range, limit: 1 })).toEqual(['float0030.ics']);
-        expect(await urls(calendarQuery, { ...range, limit: 2 })).toEqual(['float0030.ics', 'utc2300.ics']);
-      } finally {
-        if (hostZone === undefined) delete process.env.TZ;
-        else process.env.TZ = hostZone;
-      }
+    // A floating 00:30 becomes an instant on the host clock, so the order
+    // depends on the server's zone; setting process.env.TZ inside a running
+    // test does not reliably move it, so each case runs in a child process
+    // with the zone fixed. In Berlin (UTC+2) the 00:30 occurrence on the 8th
+    // is 22:30Z on the 7th — before the range start and before a UTC event at
+    // 23:00Z, so it must win the cap; in New York it is 04:30Z and loses.
+    test.each([
+      ['Europe/Berlin', ['float0030.ics'], ['float0030.ics', 'utc2300.ics']],
+      ['Pacific/Kiritimati', ['float0030.ics'], ['float0030.ics', 'utc2300.ics']],
+      ['America/New_York', ['utc2300.ics'], ['utc2300.ics', 'float0030.ics']],
+      ['UTC', ['utc2300.ics'], ['utc2300.ics', 'float0030.ics']],
+    ])('a floating series sorts by its host-zone instant (host %s)', (zone, limitOne, limitTwo) => {
+      const script = fileURLToPath(new URL('./fixtures/floating-sort.mjs', import.meta.url));
+      const out = execFileSync(process.execPath, [script], {
+        env: { ...process.env, TZ: zone, LOG_LEVEL: 'silent' },
+        encoding: 'utf8',
+      });
+      const line = out.trim().split('\n').pop();
+      expect(JSON.parse(line)).toEqual([limitOne, limitTwo]);
     });
   });
 
