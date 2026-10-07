@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Recurring events and todos are read and edited on their series master**
+  (#96). A server may store the override of a single occurrence before the
+  series itself. `update_todo` and `update_event` then cleaned up and checked
+  the override while the change went to the series, so a todo could be saved
+  with both a due date and a duration, or an event with both an end and a
+  duration, which servers may refuse. The todo list and `todo_query` showed and
+  filtered on the override. All of them now use the series (tsdav-utils 0.4.0).
+  An object holding only single occurrences without their series is shown as
+  its first occurrence, counted occurrence by occurrence in free/busy, and
+  refused by the update tools with an explanation.
+- `update_event` accepts a new recurrence end together with a move to all-day
+  in the same call (`fields: { RRULE: 'FREQ=DAILY;UNTIL=2026-10-20' }` with
+  `start_date: '2026-10-01'`); it was refused because the rule was checked
+  against the old start. Recurrence rules are now validated and written as
+  rules (tsdav-utils 0.4.0).
 - **Dates written through `update_todo` keep their time and zone** (#91).
   `fields.DUE` rejected the iCal form its own description advertised
   (`20261026T180000Z`), and a value with an offset such as
