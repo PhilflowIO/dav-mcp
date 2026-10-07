@@ -15,6 +15,7 @@ const ok = () => ({ ok: true, status: 204, headers: new Headers({ etag: '"2"' })
 const updateTodo = jest.fn(async () => ok());
 const createTodo = jest.fn(async () => ({ ...ok(), status: 201, url: TODO_URL }));
 const updateCalendarObject = jest.fn(async () => ok());
+const createCalendarObject = jest.fn(async () => ({ ...ok(), status: 201, url: EVENT_URL }));
 const updateVCard = jest.fn(async () => ok());
 
 // what the fetch calls hand back; each test sets what it needs
@@ -34,6 +35,7 @@ jest.unstable_mockModule('../src/tsdav-client.js', () => ({
       createTodo,
       fetchCalendarObjects: async () => [{ url: EVENT_URL, etag: '"1"', data: storedEvent }],
       updateCalendarObject,
+      createCalendarObject,
     }),
     getCardDavClient: () => ({
       fetchVCards: async () => [{ url: CARD_URL, etag: '"1"', data: storedCard }],
@@ -45,6 +47,7 @@ jest.unstable_mockModule('../src/tsdav-client.js', () => ({
 const { updateTodoFields } = await import('../src/tools/todos/update-todo-fields.js');
 const { createTodo: createTodoTool } = await import('../src/tools/todos/create-todo.js');
 const { updateEventFields } = await import('../src/tools/calendar/update-event-fields.js');
+const { createEvent } = await import('../src/tools/calendar/create-event.js');
 const { updateContactFields } = await import('../src/tools/contacts/update-contact-fields.js');
 const { todoQuery } = await import('../src/tools/todos/todo-query.js');
 
@@ -84,7 +87,7 @@ const hostLocalAsUtc = (...args) =>
   new Date(...args).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
 
 beforeEach(() => {
-  for (const mock of [updateTodo, createTodo, updateCalendarObject, updateVCard]) mock.mockClear();
+  for (const mock of [updateTodo, createTodo, updateCalendarObject, createCalendarObject, updateVCard]) mock.mockClear();
   storedTodo = vtodo('DUE:20260101T000000Z');
 });
 
@@ -318,6 +321,38 @@ describe('the other field tools get the same encoding', () => {
       start_date: '2026-05-25T10:00:00', end_date: '2026-05-25T12:00:00Z',
     })).rejects.toThrow(/must both name a timezone/);
     expect(updateCalendarObject).not.toHaveBeenCalled();
+  });
+
+  test('create_event: the order of times without a zone is checked as written', async () => {
+    // "10:00:60" is 10:01:00: a zero-length event, whatever the host zone
+    await expect(createEvent.handler({
+      calendar_url: CALENDAR_URL, summary: 'Standup',
+      start_date: '2026-10-26T10:00:60', end_date: '2026-10-26T10:01:00',
+    })).rejects.toThrow(/End date must be after start date/);
+    expect(createCalendarObject).not.toHaveBeenCalled();
+  });
+
+  test('create_event: a pair across a spring-forward gap is checked as written', async () => {
+    // 02:30 does not exist where clocks jump 02:00 -> 03:00; written on such a
+    // host it lands after 03:10. Only meaningful on a host with that gap.
+    const gap = new Date(2026, 2, 29, 2, 30).getHours() !== 2;
+    const attempt = createEvent.handler({
+      calendar_url: CALENDAR_URL, summary: 'Standup',
+      start_date: '2026-03-29T02:30:00', end_date: '2026-03-29T03:10:00',
+    });
+    if (gap) {
+      await expect(attempt).rejects.toThrow(/End date must be after start date/);
+    } else {
+      await expect(attempt).resolves.toBeDefined();
+    }
+  });
+
+  test('create_event: a start without a zone and an end with one are fine, the zone is the server\'s', async () => {
+    await createEvent.handler({
+      calendar_url: CALENDAR_URL, summary: 'Standup',
+      start_date: '2026-10-26T10:00:00', end_date: '2026-10-28T11:00:00Z',
+    });
+    expect(createCalendarObject).toHaveBeenCalled();
   });
 
   test('update_event: basic and extended forms mix freely', async () => {

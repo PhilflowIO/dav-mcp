@@ -42,7 +42,32 @@ export function setEventDates(iCalString, { startDate, endDate }) {
   const written = writeFields(iCalString, { DTSTART: startDate, DTEND: endDate });
   return editComponent(written, 'vevent', (vevent) => {
     vevent.removeAllProperties('duration');
+    assertEndAfterStart(vevent);
   });
+}
+
+/**
+ * Refuse an event whose written DTEND is not after its DTSTART.
+ *
+ * Checked on the written properties, not on the input: a time without a zone
+ * only becomes an instant when it is written — in the event's own zone, or
+ * on the server clock, where a spring-forward gap can turn 02:30 -> 03:10
+ * into an end before the start. Where the two cannot be ordered without
+ * guessing a zone (a TZID without its VTIMEZONE next to UTC) nothing is
+ * claimed; see endsBefore.
+ *
+ * @param {ICAL.Component} vevent
+ * @throws {Error} when DTEND is at or before DTSTART
+ */
+export function assertEndAfterStart(vevent) {
+  const dtstart = vevent.getFirstProperty('dtstart');
+  const dtend = vevent.getFirstProperty('dtend');
+  if (dtstart && dtend && notAfter(dtend, dtstart)) {
+    throw new Error(
+      `End date must be after start date: as written, the event would run from ` +
+      `${dtstart.getFirstValue()} to ${dtend.getFirstValue()}`
+    );
+  }
 }
 
 /**
@@ -57,7 +82,7 @@ export function setEventDates(iCalString, { startDate, endDate }) {
  *  - 3.6.2: DURATION requires DTSTART.
  *  - 3.8.2.3: DUE has the same value type as DTSTART (both dates or both
  *    date-times) and is later than it — checked where the two can be ordered
- *    without guessing a zone (see dueNotAfterStart).
+ *    without guessing a zone (see notAfter).
  *
  * @param {string} iCalString - the todo with its fields already written
  * @param {Iterable<string>} changed - property names written by this update
@@ -92,7 +117,7 @@ export function reconcileTodoDates(iCalString, changed) {
           `but ${dateOne} is a date and ${timeOne} has a time`
         );
       }
-      if (dueNotAfterStart(due, dtstart)) {
+      if (notAfter(due, dtstart)) {
         throw new Error(
           `DUE (${due.getFirstValue()}) must be later than DTSTART (${dtstart.getFirstValue()}) (RFC 5545 3.8.2.3)`
         );
@@ -168,17 +193,17 @@ function absoluteInstant(property) {
 }
 
 /**
- * Is DUE at or before DTSTART? Answered only where it needs no guess: both
- * values resolve to instants (UTC, or a TZID whose VTIMEZONE is in the
- * document), or they are wall-clock times in the same frame. Otherwise the
- * answer depends on a zone that is not known here, and a guessed order must
- * not reject a valid write.
+ * Is `later` at or before `earlier` (an end or DUE against its DTSTART)?
+ * Answered only where it needs no guess: both values resolve to instants
+ * (UTC, or a TZID whose VTIMEZONE is in the document), or they are
+ * wall-clock times in the same frame. Otherwise the answer depends on a zone
+ * that is not known here, and a guessed order must not reject a valid write.
  */
-function dueNotAfterStart(due, dtstart) {
-  const [dueAt, startAt] = [absoluteInstant(due), absoluteInstant(dtstart)];
-  if (dueAt !== null && startAt !== null) return dueAt <= startAt;
-  if (frameOf(due) === frameOf(dtstart)) {
-    return due.getFirstValue().compare(dtstart.getFirstValue()) <= 0;
+function notAfter(later, earlier) {
+  const [laterAt, earlierAt] = [absoluteInstant(later), absoluteInstant(earlier)];
+  if (laterAt !== null && earlierAt !== null) return laterAt <= earlierAt;
+  if (frameOf(later) === frameOf(earlier)) {
+    return later.getFirstValue().compare(earlier.getFirstValue()) <= 0;
   }
   return false;
 }

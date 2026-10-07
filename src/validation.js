@@ -62,11 +62,12 @@ function nextDay(dateOnly) {
  *  - A mixed pair. "2026-05-25" + "2026-05-26T10:00:00Z" is not a coherent
  *    event, and it has to be caught from BOTH sides: keying the check off the
  *    start alone lets a timed start with a date-only end through, which
- *    silently produces an event ending at 00:00 UTC. The same holds for a
- *    time with a zone next to one without: the zoneless one is read in the
- *    event's own timezone, which is not known here, so neither the order nor
- *    the length of such a pair can be checked — and a Los Angeles event given
- *    "10:00" + "12:00Z" would end before it starts.
+ *    silently produces an event ending at 00:00 UTC. With mixedZones
+ *    "refuse" the same holds for a time with a zone next to one without: on
+ *    an existing event the zoneless one is read in the event's own timezone,
+ *    which is not known here — a Los Angeles event given "10:00" + "12:00Z"
+ *    would end before it starts. A new event has no zone of its own, so
+ *    create_event allows the pair.
  *  - all_day inferred with `||`. `all_day || isDateOnly(start)` makes an
  *    explicit `all_day: false` unreachable, so the flag has ?? semantics here
  *    and a contradiction between flag and format is reported as such.
@@ -74,7 +75,7 @@ function nextDay(dateOnly) {
  *    written as end = start + 1. `end === start` is the phrasing a caller
  *    reaches for first, so the error has to say how to spell it instead.
  */
-export function refineDateRange(data, ctx, { startKey, endKey }) {
+export function refineDateRange(data, ctx, { startKey, endKey, mixedZones = 'allow' }) {
   const start = data[startKey];
   const end = data[endKey];
   if (start === undefined || end === undefined) return;
@@ -97,7 +98,8 @@ export function refineDateRange(data, ctx, { startKey, endKey }) {
     return;
   }
 
-  if (!startIsDate && (startParsed.kind === 'floating') !== (endParsed.kind === 'floating')) {
+  if (mixedZones === 'refuse' && !startIsDate &&
+      (startParsed.kind === 'floating') !== (endParsed.kind === 'floating')) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: [endParsed.kind === 'floating' ? endKey : startKey],
@@ -143,10 +145,13 @@ export function refineDateRange(data, ctx, { startKey, endKey }) {
     return;
   }
 
-  // Same kind on both sides by now: two dates, two UTC instants, or two wall
-  // clock times in the same (event's or server's) zone. Their jCal forms
-  // order correctly as strings, without a zone that is not known here.
-  if (endParsed.jcal <= startParsed.jcal) {
+  // Ordered here only where the input fixes the answer: two dates, or two
+  // values that both name their zone (UTC jCal strings order as instants).
+  // A time without a zone becomes an instant only when it is written — in
+  // the event's or the server's zone, across DST gaps — so that order is
+  // checked on what was written (assertEndAfterStart in ical-dates.js).
+  const comparable = allDay || (startParsed.kind === 'utc' && endParsed.kind === 'utc');
+  if (comparable && endParsed.jcal <= startParsed.jcal) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: [endKey],

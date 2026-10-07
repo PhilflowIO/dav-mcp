@@ -57,7 +57,7 @@ const updateEventFieldsSchema = z.object({
     }
   }
 
-  refineDateRange(data, ctx, { startKey: 'start_date', endKey: 'end_date' });
+  refineDateRange(data, ctx, { startKey: 'start_date', endKey: 'end_date', mixedZones: 'refuse' });
 });
 
 /**
