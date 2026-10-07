@@ -164,6 +164,7 @@ function byteDecoder(charset) {
   } catch {
     // unknown label: decode as if none were given
   }
+  if (declared?.encoding === 'windows-1252') return windows1252;
   if (declared && declared.encoding !== 'utf-8') return (bytes) => declared.decode(bytes);
   return (bytes) => {
     try {
@@ -174,13 +175,24 @@ function byteDecoder(charset) {
   };
 }
 
+// 0x80-0x9F in windows-1252, by WHATWG Encoding; the five unassigned
+// bytes keep their code point
+const WINDOWS_1252_HIGH = [
+  0x20AC, 0x81, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021,
+  0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0x8D, 0x017D, 0x8F,
+  0x90, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014,
+  0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0x9D, 0x017E, 0x0178,
+];
+
+/**
+ * windows-1252, which WHATWG also uses for the ISO-8859-1 and Latin-1
+ * labels. Decoded here rather than by TextDecoder: before Node 22 its
+ * windows-1252 is plain Latin-1 and turns 0x80 into a control character
+ * instead of "€".
+ */
 function windows1252(bytes) {
-  try {
-    return new TextDecoder('windows-1252').decode(bytes);
-  } catch {
-    // a Node build without ICU: Latin-1 alone
-    return Buffer.from(bytes).toString('latin1');
-  }
+  return Array.from(bytes, (byte) =>
+    String.fromCodePoint(byte >= 0x80 && byte <= 0x9F ? WINDOWS_1252_HIGH[byte - 0x80] : byte)).join('');
 }
 
 /**
