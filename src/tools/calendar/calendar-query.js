@@ -2,6 +2,8 @@ import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, calendarQuerySchema } from '../../validation.js';
 import { formatEventList } from '../../formatters.js';
 import { buildTimeRangeOptions, limitResults, DEFAULT_RESULT_LIMIT } from '../shared/helpers.js';
+import { eventSpan } from '../shared/ical-dates.js';
+import { parseObjects, overridesOf, textValues, containsText, orNull } from '../shared/query-objects.js';
 
 /**
  * Search and filter calendar events efficiently
@@ -70,23 +72,19 @@ export const calendarQuery = {
       allEvents = allEvents.concat(events);
     }
 
-    let filteredEvents = allEvents;
+    // Client-side filtering on parsed values; see query-objects.js
+    let parsed = parseObjects(allEvents, 'vevent');
+    const inRange = occurrenceFilter(timeRangeOptions.timeRange);
 
     if (validated.summary_filter) {
-      const summaryLower = validated.summary_filter.toLowerCase();
-      filteredEvents = filteredEvents.filter(event => {
-        const summary = event.data?.match(/SUMMARY:(.+)/)?.[1] || '';
-        return summary.toLowerCase().includes(summaryLower);
-      });
+      parsed = parsed.filter((p) => eventMatches(p, 'summary', validated.summary_filter, inRange));
     }
 
     if (validated.location_filter) {
-      const locationLower = validated.location_filter.toLowerCase();
-      filteredEvents = filteredEvents.filter(event => {
-        const location = event.data?.match(/LOCATION:(.+)/)?.[1] || '';
-        return location.toLowerCase().includes(locationLower);
-      });
+      parsed = parsed.filter((p) => eventMatches(p, 'location', validated.location_filter, inRange));
     }
+
+    const filteredEvents = parsed.map(({ object }) => object);
 
     // Determine calendar name for display
     const calendarName = calendarsToSearch.length === 1
@@ -102,3 +100,39 @@ export const calendarQuery = {
     return formatEventList(items, calendarName, timeRangeOptions.timeRange, total);
   },
 };
+
+/**
+ * Does an event's SUMMARY or LOCATION contain the text?
+ *
+ * The series' own value (the master's) is what the event is called, so it
+ * decides. A recurring event can also carry RECURRENCE-ID overrides that
+ * rename or move one occurrence — "Standup (Room B)" in a series called
+ * "Standup". Such an override matches too, so that occurrence can be found
+ * at all; but only if it falls inside the queried range, because the server
+ * returned the series for some occurrence in that range and an override
+ * outside it is not what the caller asked about.
+ */
+function eventMatches(parsed, property, needle, inRange) {
+  if (containsText(textValues(parsed.main, property), needle)) return true;
+  return overridesOf(parsed, 'vevent').some((override) =>
+    inRange(override) && containsText(textValues(override, property), needle));
+}
+
+/**
+ * Whether an override occurrence overlaps the queried range (RFC 4791 9.9:
+ * starts before the range ends and ends after it starts; an instant counts
+ * when it lies in the range). Without a range every override counts. An
+ * override whose dates cannot be read does not.
+ */
+function occurrenceFilter(timeRange) {
+  if (!timeRange) return () => true;
+  const start = new Date(timeRange.start).getTime();
+  const end = new Date(timeRange.end).getTime();
+  return (override) => {
+    const span = orNull(() => eventSpan(override));
+    if (!span) return false;
+    return span.end > span.start
+      ? span.start < end && span.end > start
+      : span.start >= start && span.start < end;
+  };
+}

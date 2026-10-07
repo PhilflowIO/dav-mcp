@@ -148,24 +148,47 @@ export function toInstant(icalTime) {
 
 /**
  * The span a todo's DUE covers, for range queries: an instant for a
- * date-time, the whole UTC day for a date (see toInstant). null when the todo
- * has no DUE or does not parse.
+ * date-time, the whole UTC day for a date (see toInstant). null when there is
+ * no todo or it has no DUE.
  *
- * @param {string} iCalString
+ * @param {ICAL.Component|null} vtodo - a parsed VTODO (see query-objects.js)
  * @returns {{start: number, end: number} | null}
  */
-export function dueSpan(iCalString) {
-  // one malformed todo must not fail the query for all the others
-  try {
-    const vtodo = new ICAL.Component(ICAL.parse(iCalString)).getFirstSubcomponent('vtodo');
-    const property = vtodo?.getFirstProperty('due');
-    if (!property) return null;
-    const due = property.getFirstValue();
-    const start = absoluteInstant(property) ?? toInstant(due);
-    return { start, end: due.isDate ? start + 86400000 : start };
-  } catch {
-    return null;
-  }
+export function dueSpan(vtodo) {
+  const property = vtodo?.getFirstProperty('due');
+  if (!property) return null;
+  const start = instantOf(property);
+  return { start, end: property.getFirstValue().isDate ? start + 86400000 : start };
+}
+
+/**
+ * The span one VEVENT covers: DTSTART to DTEND, or DTSTART plus DURATION.
+ * Without either, RFC 5545 3.6.1 makes a date last its day and a date-time
+ * last no time at all. null when there is no DTSTART.
+ *
+ * @param {ICAL.Component|null} vevent
+ * @returns {{start: number, end: number} | null}
+ */
+export function eventSpan(vevent) {
+  const dtstart = vevent?.getFirstProperty('dtstart');
+  if (!dtstart) return null;
+  const start = instantOf(dtstart);
+  const dtend = vevent.getFirstProperty('dtend');
+  if (dtend) return { start, end: instantOf(dtend) };
+  const duration = vevent.getFirstPropertyValue('duration');
+  if (duration) return { start, end: start + duration.toSeconds() * 1000 };
+  return { start, end: dtstart.getFirstValue().isDate ? start + 86400000 : start };
+}
+
+/**
+ * The instant a date or date-time property stands for: resolved against the
+ * document's own VTIMEZONE where it names one, otherwise as toInstant reads it.
+ *
+ * @param {ICAL.Property} property
+ * @returns {number} milliseconds since the epoch
+ */
+export function instantOf(property) {
+  return absoluteInstant(property) ?? toInstant(property.getFirstValue());
 }
 
 /**
