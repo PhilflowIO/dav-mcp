@@ -28,15 +28,23 @@ cp .env.example .env   # fill in your CalDAV/CardDAV server
 
 Run the server locally with `npm run dev` (stdio) or `npm run dev:http` (HTTP).
 
-dav-mcp uses a fork of tsdav (`PhilflowIO/tsdav`), pinned in `package.json` to
-the packed tarball of a fork release. A tarball installs without cloning and
-building the fork; a git reference makes npm do both, and that build step fails
-with the npm that ships with Node 20. To move to a newer fork release, pass the
-URL of its `.tgz` release asset:
+dav-mcp uses two packages of its own from npm: the tsdav fork
+(`PhilflowIO/tsdav`, published as `@philflow/tsdav`) and `PhilflowIO/tsdav-utils`
+(published as `@philflow/tsdav-utils`). `package.json` installs them under npm
+aliases at exact versions, so the code imports `tsdav` and `tsdav-utils`:
+
+```json
+"tsdav": "npm:@philflow/tsdav@2.4.0",
+"tsdav-utils": "npm:@philflow/tsdav-utils@0.4.1"
+```
+
+Both repositories publish a release to npm when a release tag is pushed. Never
+depend on a git URL or a tarball URL: npm 12 refuses both by default, and the
+`npm-12` CI job fails on them. To move to a newer release:
 
 ```bash
-TSDAV_TARBALL='https://github.com/PhilflowIO/tsdav/releases/download/v2.3.5%2Bphilflow.5/tsdav-2.3.5-philflow.5.tgz' \
-  npm run update:tsdav
+TSDAV_VERSION=2.4.0 npm run update:tsdav
+TSDAV_UTILS_VERSION=0.4.1 npm run update:tsdav-utils
 ```
 
 ## Tests
