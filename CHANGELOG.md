@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Updates to a recurring event or todo reach the series, not one
+  occurrence** (#96). A server may store the change to a single occurrence
+  before the series itself. `update_event` and `update_todo` then wrote the
+  new fields into that occurrence, while the event list showed the series, so
+  the update looked lost; `update_todo`'s cleanup (a new due date replacing a
+  duration) and its date checks also ran on the occurrence. The update tools,
+  the todo list and `todo_query`'s due-date filter now all use the series
+  (tsdav-utils 0.4.0).
+- **Recurrence rules are written as rules.** `update_event` with
+  `fields: { RRULE: 'FREQ=DAILY;COUNT=5' }` stored a garbled line
+  (`RRULE:0=F;1=R;2=E;...`) that servers refused with a 500. Rules are now
+  checked and written properly, and a rule end can be set together with a
+  move to all-day in the same call (`RRULE: 'FREQ=DAILY;UNTIL=2026-10-20'`
+  with `start_date: '2026-10-01'`), which used to be refused.
+- `freebusy_query` no longer fails with "cannot relate exception to
+  exceptions" on a calendar holding several occurrences of a series without
+  the series itself (as servers store invitations to single occurrences);
+  each occurrence now counts as busy. `update_event`/`update_todo` refuse
+  such an object with an error that names the route that works:
+  `calendar_multi_get`/`todo_multi_get`, then `update_event_raw`/
+  `update_todo_raw`.
 - **Dates written through `update_todo` keep their time and zone** (#91).
   `fields.DUE` rejected the iCal form its own description advertised
   (`20261026T180000Z`), and a value with an offset such as

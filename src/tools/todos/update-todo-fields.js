@@ -4,6 +4,7 @@ import { formatSuccess } from '../../formatters.js';
 import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
 import { z } from 'zod';
 import { writeFields, reconcileTodoDates } from '../shared/ical-dates.js';
+import { assertFieldUpdatable } from '../../ical-components.js';
 
 /**
  * Schema for field-based todo updates
@@ -117,6 +118,8 @@ export const updateTodoFields = {
     }
 
     const todoObject = currentTodos[0];
+    // a field update edits the series master; refuse one that has none
+    assertFieldUpdatable(todoObject, 'vtodo');
 
     // Step 2: Update fields (field-agnostic; date-typed values such as DUE
     // are encoded by tsdav-utils), then keep DUE/DTSTART/DURATION coherent
