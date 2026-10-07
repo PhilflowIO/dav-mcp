@@ -1,4 +1,8 @@
 import { describe, test, expect, beforeEach, jest } from '@jest/globals';
+import { connectTo } from './support/request-origins.js';
+
+// The URLs below belong to the server these tests stand in for.
+connectTo('https://dav.example.com/');
 import ICAL from 'ical.js';
 
 // The tools build/rewrite their document by hand, so the only way to assert the

@@ -1,5 +1,5 @@
 import { tsdavManager } from '../../tsdav-client.js';
-import { validateInput, davFieldMapSchema } from '../../validation.js';
+import { validateInput, davFieldMapSchema, davUrl } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
 import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
 import { z } from 'zod';
@@ -13,7 +13,7 @@ import { assertFieldUpdatable } from '../../ical-components.js';
  * Custom properties: Any X-* property
  */
 const updateTodoFieldsSchema = z.object({
-  todo_url: z.string().url('Todo URL must be a valid URL'),
+  todo_url: davUrl('Todo URL must be a valid URL'),
   todo_etag: z.string().min(1, 'Todo etag is required'),
   fields: davFieldMapSchema
 }).superRefine((data, ctx) => {

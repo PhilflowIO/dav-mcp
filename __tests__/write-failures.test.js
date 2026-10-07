@@ -1,4 +1,8 @@
 import { describe, test, expect, beforeEach, jest } from '@jest/globals';
+import { connectTo } from './support/request-origins.js';
+
+// The URLs below belong to the server these tests stand in for.
+connectTo('https://dav.example.com/');
 
 // tsdav never rejects on an HTTP error: object writes return the bare fetch
 // Response, XML requests return DAVResponse[] with ok:false. Every write tool

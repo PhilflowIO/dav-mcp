@@ -1,4 +1,8 @@
 import { describe, test, expect } from '@jest/globals';
+import { connectTo } from './support/request-origins.js';
+
+// The URLs below belong to the server these tests stand in for.
+connectTo('https://example.com/');
 import {
   validateInput,
   sanitizeICalString,

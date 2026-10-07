@@ -1,4 +1,8 @@
 import { describe, test, expect, beforeEach, jest } from '@jest/globals';
+import { connectTo } from './support/request-origins.js';
+
+// The URLs below belong to the server these tests stand in for.
+connectTo('https://dav.example.com/');
 
 // The create tools build their document by hand, so the only way to assert the
 // emitted bytes is to drive the handler with a stubbed DAV client.

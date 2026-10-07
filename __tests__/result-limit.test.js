@@ -1,4 +1,8 @@
 import { describe, test, expect, beforeEach, jest } from '@jest/globals';
+import { connectTo } from './support/request-origins.js';
+
+// The URLs below belong to the server these tests stand in for.
+connectTo('https://dav.example.com/');
 import { limitResults, DEFAULT_RESULT_LIMIT } from '../src/tools/shared/helpers.js';
 import ICAL from 'ical.js';
 import { parseObjects, dateKey, textKey } from '../src/tools/shared/query-objects.js';
