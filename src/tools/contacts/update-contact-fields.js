@@ -3,7 +3,7 @@ import { validateInput, davFieldMapSchema } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
 import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
 import { z } from 'zod';
-import { updateFields } from 'tsdav-utils';
+import { writeFields } from '../shared/ical-dates.js';
 
 /**
  * Schema for field-based vCard updates
@@ -111,7 +111,7 @@ export const updateContactFields = {
 
     // Step 2: Update fields using tsdav-utils (field-agnostic)
     // Accepts any RFC 6350 vCard property name (UPPERCASE)
-    const updatedData = updateFields(vCardObject, validated.fields || {});
+    const updatedData = writeFields(vCardObject, validated.fields || {});
 
     // Step 3: Send the updated vCard back to server
     const updateResponse = await client.updateVCard({

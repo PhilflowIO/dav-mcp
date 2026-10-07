@@ -1,4 +1,5 @@
 import ICAL from 'ical.js';
+import { toInstant } from './ical-dates.js';
 
 /**
  * Client-side free/busy calculation.
@@ -74,23 +75,6 @@ function busyIntervalsOf(calendarObject, range) {
   }
 
   return intervals;
-}
-
-/**
- * Absolute instant for an ICAL.Time.
- *
- * A date-only value is floating — "the 25th, wherever you are" — and has no
- * instant of its own. toJSDate() would resolve it against whatever zone the
- * server happens to run in, which makes the same query answer differently in
- * Berlin and in Auckland. Reading the fields as UTC is at least deterministic:
- * an all-day event blocks the UTC day. The alternative would be to guess a
- * zone, and a wrong guess is worse than a stated convention.
- */
-function toInstant(icalTime) {
-  if (icalTime.isDate) {
-    return Date.UTC(icalTime.year, icalTime.month - 1, icalTime.day);
-  }
-  return icalTime.toJSDate().getTime();
 }
 
 /**

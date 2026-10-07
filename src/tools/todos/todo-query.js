@@ -2,6 +2,7 @@ import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, todoQuerySchema } from '../../validation.js';
 import { formatTodoList } from '../../formatters.js';
 import { limitResults, DEFAULT_RESULT_LIMIT } from '../shared/helpers.js';
+import { dueSpan } from '../shared/ical-dates.js';
 
 /**
  * Search and filter todos efficiently
@@ -87,19 +88,11 @@ export const todoQuery = {
       const startTime = new Date(validated.time_range_start).getTime();
       const endTime = new Date(validated.time_range_end).getTime();
 
+      // Parsed, not pattern-matched: a DUE can be a DATE (an all-day todo,
+      // which covers its whole day), carry a TZID, or be folded
       todos = todos.filter(todo => {
-        const dueMatch = todo.data?.match(/DUE:(\d{8}T\d{6}Z?)/);
-        if (!dueMatch) return false;
-
-        const dueStr = dueMatch[1];
-        const year = parseInt(dueStr.substr(0, 4));
-        const month = parseInt(dueStr.substr(4, 2)) - 1;
-        const day = parseInt(dueStr.substr(6, 2));
-        const hour = parseInt(dueStr.substr(9, 2));
-        const minute = parseInt(dueStr.substr(11, 2));
-        const dueTime = new Date(Date.UTC(year, month, day, hour, minute)).getTime();
-
-        return dueTime >= startTime && dueTime <= endTime;
+        const due = todo.data ? dueSpan(todo.data) : null;
+        return Boolean(due) && due.start <= endTime && due.end >= startTime;
       });
     }
 

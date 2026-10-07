@@ -3,7 +3,7 @@ import { validateInput, davFieldMapSchema } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
 import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
 import { z } from 'zod';
-import { updateFields } from 'tsdav-utils';
+import { writeFields, reconcileTodoDates } from '../shared/ical-dates.js';
 
 /**
  * Schema for field-based todo updates
@@ -15,7 +15,24 @@ const updateTodoFieldsSchema = z.object({
   todo_url: z.string().url('Todo URL must be a valid URL'),
   todo_etag: z.string().min(1, 'Todo etag is required'),
   fields: davFieldMapSchema
+}).superRefine((data, ctx) => {
+  // RFC 5545 3.6.2: a todo ends either at DUE or after DURATION, never both.
+  // Setting one replaces the other (see reconcileTodoDates); setting both in
+  // one call has no single meaning.
+  if (data.fields && 'DUE' in data.fields && 'DURATION' in data.fields) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['fields', 'DURATION'],
+      message: 'Set either DUE or DURATION, not both (RFC 5545 3.6.2)',
+    });
+  }
 });
+
+// What DUE and DTSTART accept; tsdav-utils parses exactly these forms
+const DATE_FORMS =
+  'ISO 8601 with a zone ("2026-10-26T18:00:00Z", "2026-10-26T14:00:00-04:00"), ' +
+  'without one (kept in the todo\'s own timezone if it has one, else read in the server timezone), ' +
+  'or a date ("2026-10-26") for an all-day value';
 
 /**
  * Field-agnostic todo update tool powered by tsdav-utils
@@ -65,7 +82,15 @@ export const updateTodoFields = {
           },
           DUE: {
             type: 'string',
-            description: 'Due date (ISO 8601 or iCal format: 20250128T100000Z)'
+            description: `Due date: ${DATE_FORMS}. Must be later than DTSTART and of the same kind (both dates or both with a time). Replaces a DURATION.`
+          },
+          DTSTART: {
+            type: 'string',
+            description: `Start date: ${DATE_FORMS}`
+          },
+          COMPLETED: {
+            type: 'string',
+            description: 'When the todo was completed, with a time: "2026-10-26T18:00:00Z" or with an offset'
           },
           'PERCENT-COMPLETE': {
             type: 'string',
@@ -93,9 +118,12 @@ export const updateTodoFields = {
 
     const todoObject = currentTodos[0];
 
-    // Step 2: Update fields using tsdav-utils (field-agnostic)
-    // Accepts any RFC 5545 VTODO property name (UPPERCASE)
-    const updatedData = updateFields(todoObject, validated.fields || {});
+    // Step 2: Update fields (field-agnostic; date-typed values such as DUE
+    // are encoded by tsdav-utils), then keep DUE/DTSTART/DURATION coherent
+    const updatedData = reconcileTodoDates(
+      writeFields(todoObject, validated.fields || {}),
+      Object.keys(validated.fields || {})
+    );
 
     // Step 3: Send the updated todo back to server
     const updateResponse = await client.updateTodo({

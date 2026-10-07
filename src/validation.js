@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { parseDateValue } from 'tsdav-utils';
 
 /**
  * Validation schemas for all MCP tools
@@ -11,32 +12,46 @@ const dateTimeWithOptionalOffset = z.union([
   z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/, 'Invalid datetime format') // Without timezone
 ]);
 
-// Helper: a date-only value, which RFC 5545 3.3.4 calls a DATE and which is how
-// an all-day event is expressed
-const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+/**
+ * A date or date-time a write tool accepts, parsed with the grammar tsdav-utils
+ * encodes it with — so validation can never accept a form the encoder rejects,
+ * or reject one it writes correctly. null when the value is neither.
+ */
+function parseDate(value) {
+  if (typeof value !== 'string') return null;
+  try {
+    return parseDateValue(value);
+  } catch {
+    return null;
+  }
+}
 
 /**
- * Is this a date-only ("2026-05-25") rather than a datetime value?
+ * Is this a date-only value ("2026-05-25", "20260525"), which RFC 5545 3.3.4
+ * calls a DATE and which is how an all-day event is expressed?
  */
 export function isDateOnly(value) {
-  return typeof value === 'string' && DATE_ONLY.test(value);
+  return parseDate(value)?.kind === 'date';
 }
 
 // Helper: either form. Which one was given decides whether the event is
 // all-day, unless the caller says otherwise with an explicit all_day flag.
-export const dateOrDateTime = z.union([
-  z.string().regex(DATE_ONLY, 'Invalid date format'),
-  dateTimeWithOptionalOffset,
-]);
+export const dateOrDateTime = z.string().superRefine((value, ctx) => {
+  try {
+    parseDateValue(value);
+  } catch (error) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: error.message });
+  }
+});
 
 /**
- * The day after a date-only value, as a date-only value.
+ * The day after a date-only value, as a YYYY-MM-DD value.
  *
  * Date.parse of "YYYY-MM-DD" is UTC midnight by spec, so adding 24h and
  * reading the date back off the ISO string never crosses a DST seam.
  */
 function nextDay(dateOnly) {
-  return new Date(Date.parse(dateOnly) + 86400000).toISOString().slice(0, 10);
+  return new Date(Date.parse(parseDate(dateOnly).jcal) + 86400000).toISOString().slice(0, 10);
 }
 
 /**
@@ -47,7 +62,12 @@ function nextDay(dateOnly) {
  *  - A mixed pair. "2026-05-25" + "2026-05-26T10:00:00Z" is not a coherent
  *    event, and it has to be caught from BOTH sides: keying the check off the
  *    start alone lets a timed start with a date-only end through, which
- *    silently produces an event ending at 00:00 UTC.
+ *    silently produces an event ending at 00:00 UTC. With mixedZones
+ *    "refuse" the same holds for a time with a zone next to one without: on
+ *    an existing event the zoneless one is read in the event's own timezone,
+ *    which is not known here — a Los Angeles event given "10:00" + "12:00Z"
+ *    would end before it starts. A new event has no zone of its own, so
+ *    create_event allows the pair.
  *  - all_day inferred with `||`. `all_day || isDateOnly(start)` makes an
  *    explicit `all_day: false` unreachable, so the flag has ?? semantics here
  *    and a contradiction between flag and format is reported as such.
@@ -55,13 +75,17 @@ function nextDay(dateOnly) {
  *    written as end = start + 1. `end === start` is the phrasing a caller
  *    reaches for first, so the error has to say how to spell it instead.
  */
-export function refineDateRange(data, ctx, { startKey, endKey }) {
+export function refineDateRange(data, ctx, { startKey, endKey, mixedZones = 'allow' }) {
   const start = data[startKey];
   const end = data[endKey];
   if (start === undefined || end === undefined) return;
 
-  const startIsDate = isDateOnly(start);
-  const endIsDate = isDateOnly(end);
+  const startParsed = parseDate(start);
+  const endParsed = parseDate(end);
+  // an unparseable value has its own issue from dateOrDateTime already
+  if (!startParsed || !endParsed) return;
+  const startIsDate = startParsed.kind === 'date';
+  const endIsDate = endParsed.kind === 'date';
 
   if (startIsDate !== endIsDate) {
     ctx.addIssue({
@@ -70,6 +94,18 @@ export function refineDateRange(data, ctx, { startKey, endKey }) {
       message:
         `${startKey} and ${endKey} must both be date-only (YYYY-MM-DD, an all-day event) ` +
         `or must both carry a time; got ${startKey}="${start}" and ${endKey}="${end}"`,
+    });
+    return;
+  }
+
+  if (mixedZones === 'refuse' && !startIsDate &&
+      (startParsed.kind === 'floating') !== (endParsed.kind === 'floating')) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [endParsed.kind === 'floating' ? endKey : startKey],
+      message:
+        `${startKey} and ${endKey} must both name a timezone (Z or an offset) or both leave it out; ` +
+        `got ${startKey}="${start}" and ${endKey}="${end}"`,
     });
     return;
   }
@@ -98,7 +134,7 @@ export function refineDateRange(data, ctx, { startKey, endKey }) {
     return;
   }
 
-  if (allDay && start === end) {
+  if (allDay && startParsed.jcal === endParsed.jcal) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: [endKey],
@@ -109,7 +145,13 @@ export function refineDateRange(data, ctx, { startKey, endKey }) {
     return;
   }
 
-  if (new Date(end) <= new Date(start)) {
+  // Ordered here only where the input fixes the answer: two dates, or two
+  // values that both name their zone (UTC jCal strings order as instants).
+  // A time without a zone becomes an instant only when it is written — in
+  // the event's or the server's zone, across DST gaps — so that order is
+  // checked on what was written (assertEndAfterStart in ical-dates.js).
+  const comparable = allDay || (startParsed.kind === 'utc' && endParsed.kind === 'utc');
+  if (comparable && endParsed.jcal <= startParsed.jcal) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: [endKey],
@@ -134,6 +176,20 @@ const DAV_PROPERTY_NAME = /^[A-Za-z][A-Za-z0-9-]*$/;
 
 export const davFieldMapSchema = z.record(z.string(), z.string())
   .superRefine((fields, ctx) => {
+    // property names are case-insensitive (RFC 5545 3.1, RFC 6350 3.3); two
+    // spellings of one name would write it twice with no defined winner
+    const seen = new Map();
+    for (const key of Object.keys(fields)) {
+      const upper = key.toUpperCase();
+      if (seen.has(upper)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `"${key}" and "${seen.get(upper)}" name the same property; give it once`,
+        });
+      }
+      seen.set(upper, key);
+    }
     for (const [key, value] of Object.entries(fields)) {
       if (!DAV_PROPERTY_NAME.test(key)) {
         ctx.addIssue({
@@ -151,6 +207,10 @@ export const davFieldMapSchema = z.record(z.string(), z.string())
       }
     }
   })
+  // one spelling from here on, so every check after this one can look up
+  // "DTSTART" or "DUE" without missing "dtstart" or "Due"
+  .transform((fields) =>
+    Object.fromEntries(Object.entries(fields).map(([key, value]) => [key.toUpperCase(), value])))
   .optional();
 
 // Helper: Optional URL that gracefully handles LLM placeholder values
@@ -332,7 +392,7 @@ export const createTodoSchema = z.object({
   calendar_url: z.string().url('Invalid calendar URL'),
   summary: z.string().min(1, 'Summary is required').max(500),
   description: z.string().max(5000).optional(),
-  due_date: z.string().optional(), // ISO 8601 with timezone
+  due_date: dateOrDateTime.optional(),
   priority: z.number().int().min(0).max(9).optional(), // 0=undefined, 1=highest, 9=lowest
   status: z.enum(['NEEDS-ACTION', 'IN-PROCESS', 'COMPLETED', 'CANCELLED']).optional(),
   percent_complete: z.number().int().min(0).max(100).optional(),

@@ -1,7 +1,9 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, createEventSchema, sanitizeICalString, isDateOnly } from '../../validation.js';
+import ICAL from 'ical.js';
+import { writeFields, assertEndAfterStart } from '../shared/ical-dates.js';
 import { formatSuccess } from '../../formatters.js';
-import { formatICalDate, formatICalDateOnly, generateUID, findCalendarOrThrow, assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
+import { generateUID, findCalendarOrThrow, assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
 
 /**
  * Create a new calendar event
@@ -49,7 +51,6 @@ export const createEvent = {
     const calendars = await client.fetchCalendars();
     const calendar = findCalendarOrThrow(calendars, validated.calendar_url);
 
-    const now = new Date();
     const uid = generateUID('event');
 
     const summary = sanitizeICalString(validated.summary);
@@ -60,31 +61,30 @@ export const createEvent = {
     // and validation has already rejected the case where the two disagree
     const allDay = validated.all_day ?? isDateOnly(validated.start_date);
 
-    // RFC 5545 3.6.1: an all-day event is a DATE-valued DTSTART/DTEND, and the
-    // DTEND is exclusive. Anything else is a DATE-TIME in UTC.
-    const dtstart = allDay
-      ? `DTSTART;VALUE=DATE:${formatICalDateOnly(validated.start_date)}`
-      : `DTSTART:${formatICalDate(new Date(validated.start_date))}`;
-    const dtend = allDay
-      ? `DTEND;VALUE=DATE:${formatICalDateOnly(validated.end_date)}`
-      : `DTEND:${formatICalDate(new Date(validated.end_date))}`;
-
     // RFC 5545 3.1: content lines are delimited by CRLF, not LF
-    const iCalString = [
+    const skeleton = [
       'BEGIN:VCALENDAR',
       'VERSION:2.0',
       'PRODID:-//tsdav-mcp-server//EN',
       'BEGIN:VEVENT',
       `UID:${uid}`,
-      `DTSTAMP:${formatICalDate(now)}`,
-      dtstart,
-      dtend,
       `SUMMARY:${summary}`,
       description ? `DESCRIPTION:${description}` : null,
       location ? `LOCATION:${location}` : null,
       'END:VEVENT',
       'END:VCALENDAR',
     ].filter(Boolean).join('\r\n');
+
+    // The dates go through the same encoder as every update: a bare date is an
+    // all-day DATE (RFC 5545 3.6.1, DTEND exclusive), anything else a UTC
+    // DATE-TIME.
+    const iCalString = writeFields(skeleton, {
+      DTSTAMP: new Date().toISOString(),
+      DTSTART: validated.start_date,
+      DTEND: validated.end_date,
+    });
+    // the order of times without a zone is only known once they are written
+    assertEndAfterStart(new ICAL.Component(ICAL.parse(iCalString)).getFirstSubcomponent('vevent'));
 
     const response = await client.createCalendarObject({
       calendar,

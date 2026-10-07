@@ -1,7 +1,8 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, createTodoSchema, sanitizeICalString } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
-import { formatICalDate, assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
+import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
+import { writeFields } from '../shared/ical-dates.js';
 
 /**
  * Create a new todo/task in a calendar
@@ -26,7 +27,7 @@ export const createTodo = {
       },
       due_date: {
         type: 'string',
-        description: 'Optional due date in ISO 8601 format (e.g., 2025-12-31T23:59:59+02:00)',
+        description: 'Optional due date in ISO 8601: with a zone (2025-12-31T23:59:59+02:00), without one (read in the server timezone), or a date (2025-12-31) for a todo due that day',
       },
       priority: {
         type: 'number',
@@ -50,14 +51,12 @@ export const createTodo = {
 
     // Build VTODO iCalendar string
     const uid = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}@tsdav-mcp`;
-    const dtstamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
 
     let vtodo = 'BEGIN:VCALENDAR\r\n';
     vtodo += 'VERSION:2.0\r\n';
     vtodo += 'PRODID:-//tsdav-mcp-server//NONSGML v1.2.0//EN\r\n';
     vtodo += 'BEGIN:VTODO\r\n';
     vtodo += `UID:${uid}\r\n`;
-    vtodo += `DTSTAMP:${dtstamp}\r\n`;
     vtodo += `SUMMARY:${sanitizeICalString(validated.summary)}\r\n`;
 
     if (validated.description) {
@@ -74,11 +73,6 @@ export const createTodo = {
       vtodo += `PRIORITY:${validated.priority}\r\n`;
     }
 
-    if (validated.due_date) {
-      const dueDate = new Date(validated.due_date).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
-      vtodo += `DUE:${dueDate}\r\n`;
-    }
-
     if (validated.percent_complete !== undefined) {
       vtodo += `PERCENT-COMPLETE:${validated.percent_complete}\r\n`;
     }
@@ -86,10 +80,17 @@ export const createTodo = {
     vtodo += 'END:VTODO\r\n';
     vtodo += 'END:VCALENDAR\r\n';
 
+    // Dates go through the same encoder as every update
+    const dates = { DTSTAMP: new Date().toISOString() };
+    if (validated.due_date) {
+      dates.DUE = validated.due_date;
+    }
+    const iCalString = writeFields(vtodo, dates);
+
     const result = await client.createTodo({
       calendar: { url: validated.calendar_url },
       filename: `${Date.now()}.ics`,
-      iCalString: vtodo,
+      iCalString,
     });
     await assertDavSuccess(result, 'create todo');
 

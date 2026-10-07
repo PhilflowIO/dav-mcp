@@ -1,10 +1,9 @@
 import { tsdavManager } from '../../tsdav-client.js';
-import { validateInput, davFieldMapSchema, dateOrDateTime, refineDateRange, isDateOnly } from '../../validation.js';
+import { validateInput, davFieldMapSchema, dateOrDateTime, refineDateRange } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
 import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
 import { z } from 'zod';
-import { updateFields } from 'tsdav-utils';
-import { setEventDates } from '../shared/event-dates.js';
+import { writeFields, setEventDates } from '../shared/ical-dates.js';
 
 /**
  * Schema for field-based event updates
@@ -13,10 +12,9 @@ import { setEventDates } from '../shared/event-dates.js';
  * Common fields: SUMMARY, DESCRIPTION, LOCATION, STATUS
  * Custom properties: Any X-* property
  *
- * start_date/end_date/all_day sit OUTSIDE the fields map on purpose. An
- * all-day DTSTART needs a VALUE=DATE parameter, and the fields map cannot
- * carry a parameter without appending a duplicate property; see
- * src/tools/shared/event-dates.js.
+ * start_date/end_date/all_day sit OUTSIDE the fields map on purpose: start and
+ * end move together, and an explicit end has to replace a stored DURATION; see
+ * setEventDates in src/tools/shared/ical-dates.js.
  */
 const updateEventFieldsSchema = z.object({
   event_url: z.string().url('Event URL must be a valid URL'),
@@ -26,11 +24,11 @@ const updateEventFieldsSchema = z.object({
   end_date: dateOrDateTime.optional(),
   all_day: z.boolean().optional(),
 }).superRefine((data, ctx) => {
-  // The dates are the one property family the flat map cannot express
-  // correctly — an all-day value needs a VALUE=DATE parameter, and writing
-  // DTEND on an event stored as DTSTART + DURATION leaves both present, which
-  // RFC 5545 3.6.1 forbids. There is a dedicated parameter for every case, so
-  // the map route is closed rather than half-supported.
+  // The dates are kept out of the map: moving one end alone is how an event
+  // ends up ending before it starts, and writing DTEND on an event stored as
+  // DTSTART + DURATION leaves both present, which RFC 5545 3.6.1 forbids.
+  // There is a dedicated parameter for every case, so the map route is closed
+  // rather than half-supported.
   for (const key of ['DTSTART', 'DTEND', 'DURATION']) {
     if (data.fields && key in data.fields) {
       ctx.addIssue({
@@ -59,7 +57,7 @@ const updateEventFieldsSchema = z.object({
     }
   }
 
-  refineDateRange(data, ctx, { startKey: 'start_date', endKey: 'end_date' });
+  refineDateRange(data, ctx, { startKey: 'start_date', endKey: 'end_date', mixedZones: 'refuse' });
 });
 
 /**
@@ -113,11 +111,11 @@ export const updateEventFields = {
       },
       start_date: {
         type: 'string',
-        description: 'New start. A datetime ("2026-05-25T10:00:00Z") makes the event timed; a bare date ("2026-05-25") makes it all-day. Must be given together with end_date.'
+        description: 'New start. A datetime ("2026-05-25T10:00:00Z", or with an offset) makes the event timed; a bare date ("2026-05-25") makes it all-day. A datetime without a zone keeps the event\'s own timezone if it has one, else it is read in the server timezone. Must be given together with end_date.'
       },
       end_date: {
         type: 'string',
-        description: 'New end, in the same form as start_date. For an all-day event the end is EXCLUSIVE: a single day on 2026-05-25 is start_date "2026-05-25" and end_date "2026-05-26".'
+        description: 'New end, in the same form as start_date (a datetime without a zone is read in the event\'s own timezone, like start_date). For an all-day event the end is EXCLUSIVE: a single day on 2026-05-25 is start_date "2026-05-25" and end_date "2026-05-26".'
       },
       all_day: {
         type: 'boolean',
@@ -143,19 +141,16 @@ export const updateEventFields = {
 
     const calendarObject = currentEvents[0];
 
-    // Step 2: Update fields using tsdav-utils (field-agnostic)
-    // Accepts any RFC 5545 property name (UPPERCASE)
-    let updatedData = updateFields(calendarObject, validated.fields || {});
+    // Step 2: Update fields (field-agnostic; date-typed values such as
+    // EXDATE or RECURRENCE-ID are encoded by tsdav-utils)
+    let updatedData = writeFields(calendarObject, validated.fields || {});
 
-    // Step 2b: dates go through the component API, not the fields map, because
-    // an all-day value needs a VALUE=DATE parameter on the property
+    // Step 2b: start and end move together, replacing a stored DURATION
     const changedFields = Object.keys(validated.fields || {});
     if (validated.start_date !== undefined) {
       updatedData = setEventDates(updatedData, {
         startDate: validated.start_date,
         endDate: validated.end_date,
-        // ?? not ||, so an explicit all_day: false stays reachable
-        allDay: validated.all_day ?? isDateOnly(validated.start_date),
       });
       changedFields.push('DTSTART', 'DTEND');
     }
