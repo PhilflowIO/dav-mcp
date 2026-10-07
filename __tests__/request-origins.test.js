@@ -130,9 +130,22 @@ describe('the policy', () => {
     }
   });
 
-  test('refuses an encoded slash or backslash that a server could decode out of the account', () => {
-    expect(policy().problem('https://dav.example.com/dav/..%2F..%2Fother')).toMatch(/encoded slash/);
-    expect(policy().problem('https://dav.example.com/dav/..%5c..%5cother')).toMatch(/encoded slash/);
+  // what a server that decodes the path, or honours ;parameters, would see
+  test.each([
+    '/dav-evil/', '/DAV/x', '/da%76/x', '/dav%2f../x',
+    '/dav/../x', '/dav/%2e%2e/x', '/dav/.%2E/x', '/dav/..\\x',
+    '/dav/..%2fx', '/dav/..%5cx', '/dav/%2e%2e%2fx', '/dav/a%2F..%2F..%2Fx',
+    '/dav/..;/x', '/dav/..;jsessionid=1/x', '/dav/a/..;/..;/x',
+    '/dav/%252e%252e/x', '/dav/%252fx', '/dav/%255cx', '/dav/%zz/x',
+  ])('refuses %s, which leaves /dav/', (path) => {
+    expect(policy().problem(`https://dav.example.com${path}`)).not.toBeNull();
+  });
+
+  test.each([
+    '/dav', '/dav/', '/dav//../x', '/dav/x?/../../',
+    '/dav/cal/abc%2Fdef.ics', '/dav/cal/a%5Cb.vcf', '/dav/a/..;/b', '/dav/x%00/', '/dav/;p=1/x',
+  ])('accepts %s, which stays below /dav/', (path) => {
+    expect(policy().problem(`https://dav.example.com${path}`)).toBeNull();
   });
 
   test('refuses another host, another port and another scheme, naming what is allowed', () => {
@@ -185,6 +198,17 @@ describe('the policy', () => {
     expect(calls).toBe(1);
   });
 
+  test('the token endpoint does not redirect the token request anywhere else', async () => {
+    const sent = [];
+    const base = async (url) => {
+      sent.push(String(url));
+      return new Response(null, { status: 302, headers: { location: 'https://auth2.example.com/token' } });
+    };
+    await expect(policy().tokenFetch(base)('https://accounts.example.com/o/oauth2/token', { method: 'POST', body: 'a=b' }))
+      .rejects.toThrow(/not the configured OAuth token endpoint/);
+    expect(sent).toEqual(['https://accounts.example.com/o/oauth2/token']);
+  });
+
   test('a server URL with user info or a non-http scheme is a configuration error', () => {
     expect(() => new RequestOrigins({ serverUrl: 'https://u:p@dav.example.com/' }))
       .toThrow(expect.objectContaining({ name: 'ConfigurationError' }));
@@ -226,6 +250,33 @@ describe('the policy', () => {
         expect(net.sent.map(r => r.url)).toEqual(['https://dav.example.com/dav/cal/x.ics']);
         expect(net.sent[0].redirect).toBe('manual');
       }
+    });
+
+    test.each([
+      ['a relative Location climbing out', '../outside'],
+      ['an encoded dot-segment Location', '/dav/%2e%2e/admin'],
+      ['a scheme-relative Location', '//evil.invalid/x'],
+      ['a ;parameter dot-segment Location', '/dav/..;/admin'],
+    ])('%s is refused', async (_name, location) => {
+      const net = network({ 'https://dav.example.com/dav/r': redirect(307, location) });
+      await expect(policy().fetch(net.fetch)('https://dav.example.com/dav/r', { method: 'PUT', body: 'x' }))
+        .rejects.toBeInstanceOf(RequestOriginError);
+      expect(net.sent).toHaveLength(1);
+    });
+
+    test('a chain that ends outside is refused at the hop that leaves', async () => {
+      const net = network({
+        'https://dav.example.com/dav/chain1': redirect(302, '/dav/chain2'),
+        'https://dav.example.com/dav/chain2': redirect(307, 'https://attacker.example/x'),
+      });
+      await expect(policy().fetch(net.fetch)('https://dav.example.com/dav/chain1', { method: 'PUT', body: 'secret' }))
+        .rejects.toThrow(/attacker\.example/);
+      expect(net.sent.map(r => r.url)).toEqual(['https://dav.example.com/dav/chain1', 'https://dav.example.com/dav/chain2']);
+    });
+
+    test('a redirect loop ends in an error', async () => {
+      const net = network({ 'https://dav.example.com/dav/loop': redirect(302, '/dav/loop') });
+      await expect(policy().fetch(net.fetch)('https://dav.example.com/dav/loop')).rejects.toThrow(/more than 20 times/);
     });
 
     test('a redirect to another path on the same host outside the account is refused too', async () => {
@@ -328,12 +379,32 @@ describe('the policy', () => {
         '<d:owner><d:href>https://owner-prop.attacker.test/x</d:href></d:owner>')],
       ['a response that is no collection', '<d:response><d:href>https://plain.attacker.test/</d:href><d:propstat><d:prop>' +
         '<d:resourcetype/></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>'],
+      ['a whole response inside CDATA', calendar('/dav/calendars/user/work/',
+        '<c:calendar-description><![CDATA[<d:response><d:href>https://cdata2.attacker.test/</d:href><d:propstat><d:prop>' +
+        '<d:resourcetype><c:calendar/></d:resourcetype></d:prop></d:propstat></d:response>]]></c:calendar-description>')],
+      ['a response whose propstat is a 404', '<d:response><d:href>https://s404.attacker.test/</d:href><d:propstat><d:prop>' +
+        '<d:resourcetype><c:calendar/></d:resourcetype></d:prop><d:status>HTTP/1.1 404 Not Found</d:status></d:propstat></d:response>'],
+      ['a calendar element in a foreign namespace', '<d:response><d:href>https://wrongns.attacker.test/</d:href><d:propstat><d:prop>' +
+        '<d:resourcetype><x:calendar xmlns:x="urn:evil"/></d:resourcetype></d:prop>' +
+        '<d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>'],
       ['an href in a foreign namespace', '<d:response><x:href xmlns:x="urn:x">https://ns.attacker.test/</x:href>' +
         '<d:propstat><d:prop><d:resourcetype><c:calendar/></d:resourcetype></d:prop>' +
         '<d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>'],
     ])('%s is not learned', async (_name, responses) => {
       const origins = await learnFrom(listing(responses));
       expect(origins.allowedPrefixes().join(' ')).not.toMatch(/attacker/);
+    });
+
+    test('an entity declared in a DOCTYPE is not expanded into an href', async () => {
+      const body = '<?xml version="1.0"?><!DOCTYPE m [<!ENTITY e "https://entity.attacker.test/">]>' +
+        listing(calendar('&e;'));
+      const origins = await learnFrom(body);
+      expect(origins.allowedPrefixes().join(' ')).not.toMatch(/attacker/);
+    });
+
+    test('a listed collection whose name holds an encoded slash is reachable', async () => {
+      const origins = await learnFrom(listing(calendar('https://p42.example.com/123/a%2Fb/')));
+      expect(origins.problem('https://p42.example.com/123/a%2Fb/x.ics')).toBeNull();
     });
 
     test('only the home listing teaches, not any other multistatus', async () => {
