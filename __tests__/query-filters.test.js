@@ -239,6 +239,13 @@ describe('addressbook_query', () => {
     expect(text).toContain('- **Organization**: Acme, Sales');
   });
 
+  test('a capped contact list says it is the first by name', async () => {
+    storedCards = [card('c', 'FN:Cora'), card('a', 'FN:Alo'), card('b', 'FN:Bob')];
+    const text = (await addressbookQuery.handler({ name_filter: 'o', limit: 2 })).content[0].text;
+    expect(text).toContain('Found contacts: **2** of 3 (showing the first 2 by name');
+    expect(text).not.toContain('earliest');
+  });
+
   test('a malformed vCard is skipped, not fatal', async () => {
     storedCards = [
       { url: `${ADDRESSBOOK_URL}broken.vcf`, etag: '"1"', data: 'BEGIN:VCARD\r\ngarbage' },

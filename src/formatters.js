@@ -277,10 +277,12 @@ export function stripBinaryValues(data) {
  *
  * Silent truncation reads as "this is everything", which is exactly the wrong
  * thing to hand a model that is deciding whether it has enough to answer.
+ * `which` names the part shown, after the order the query sorted by: events
+ * and todos by date, contacts by name.
  */
-function foundLine(noun, shown, total) {
+function foundLine(noun, shown, total, which = `the ${shown} earliest`) {
   if (!total || total <= shown) return `Found ${noun}: **${shown}**\n\n`;
-  return `Found ${noun}: **${shown}** of ${total} (showing the ${shown} earliest — raise \`limit\` or narrow the query to see the rest)\n\n`;
+  return `Found ${noun}: **${shown}** of ${total} (showing ${which} — raise \`limit\` or narrow the query to see the rest)\n\n`;
 }
 
 /**
@@ -618,7 +620,7 @@ export function formatContactList(contacts, addressBook = 'Unknown Address Book'
     };
   }
 
-  let output = foundLine('contacts', contacts.length, total);
+  let output = foundLine('contacts', contacts.length, total, `the first ${contacts.length} by name`);
 
   contacts.forEach((contact, index) => {
     output += `### ${index + 1}. `;
