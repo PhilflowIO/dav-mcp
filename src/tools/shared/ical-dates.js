@@ -211,8 +211,37 @@ function absoluteInstant(property) {
   const local = new ICAL.Time({
     year: value.year, month: value.month, day: value.day,
     hour: value.hour, minute: value.minute, second: value.second,
-  }, new ICAL.Timezone(vtimezone));
+  }, timezoneFor(vtimezone));
   return local.toUnixTime() * 1000;
+}
+
+/**
+ * The ICAL.Timezone for a VTIMEZONE, built once per definition.
+ *
+ * A new ICAL.Timezone starts with an empty cache of its UTC-offset changes and
+ * recomputes them from the zone's first DTSTART (1970 for most) on its first
+ * conversion — several milliseconds each. A query over 2000 events in the same
+ * zone did that 2000 times. Every calendar object carries its own copy of the
+ * VTIMEZONE, so the cache is keyed by the definition's text: identical
+ * definitions share one zone, and a different definition under the same TZID
+ * still gets its own. Bounded, since the definitions come from the server.
+ */
+const timezonesByDefinition = new Map();
+const timezonesByComponent = new WeakMap();
+const MAX_CACHED_TIMEZONES = 64;
+
+export function timezoneFor(vtimezone) {
+  let zone = timezonesByComponent.get(vtimezone);
+  if (zone) return zone;
+  const definition = JSON.stringify(vtimezone.toJSON());
+  zone = timezonesByDefinition.get(definition);
+  if (!zone) {
+    if (timezonesByDefinition.size >= MAX_CACHED_TIMEZONES) timezonesByDefinition.clear();
+    zone = new ICAL.Timezone(vtimezone);
+    timezonesByDefinition.set(definition, zone);
+  }
+  timezonesByComponent.set(vtimezone, zone);
+  return zone;
 }
 
 /**

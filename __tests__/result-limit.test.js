@@ -1,6 +1,8 @@
 import { describe, test, expect, beforeEach, jest } from '@jest/globals';
 import { limitResults, DEFAULT_RESULT_LIMIT } from '../src/tools/shared/helpers.js';
+import ICAL from 'ical.js';
 import { parseObjects, dateKey, textKey } from '../src/tools/shared/query-objects.js';
+import { timezoneFor } from '../src/tools/shared/ical-dates.js';
 
 const CALENDAR_URL = 'https://dav.example.com/calendars/user/work/';
 const ADDRESSBOOK_URL = 'https://dav.example.com/addressbooks/user/default/';
@@ -234,5 +236,35 @@ describe('query tools cap their results', () => {
       summary_filter: 'Standup',
       limit: 0,
     })).rejects.toThrow(/limit/);
+  });
+});
+
+describe('timezones are built once per definition', () => {
+  const vtimezoneOf = (object) =>
+    new ICAL.Component(ICAL.parse(object.data)).getFirstSubcomponent('vtimezone');
+
+  test('two objects with the same VTIMEZONE share one ICAL.Timezone', () => {
+    const a = vtimezoneOf(berlinEvent('a', '20260502T090000'));
+    const b = vtimezoneOf(berlinEvent('b', '20260601T090000'));
+    expect(a).not.toBe(b);
+    expect(timezoneFor(a)).toBe(timezoneFor(b));
+  });
+
+  test('a different definition under the same TZID gets its own zone', () => {
+    const berlin = vtimezoneOf(berlinEvent('a', '20260502T090000'));
+    const shifted = vtimezoneOf({
+      data: berlinEvent('b', '20260502T090000').data.replaceAll('+0200', '+0300'),
+    });
+    expect(timezoneFor(shifted)).not.toBe(timezoneFor(berlin));
+  });
+
+  test('capping 2000 zoned events stays fast', () => {
+    // each zone was rebuilt per object: ~2.5 s for this set before
+    const many = Array.from({ length: 2000 }, (_, i) =>
+      berlinEvent(`e${i}`, `2026${String(1 + (i % 12)).padStart(2, '0')}${String(1 + (i % 28)).padStart(2, '0')}T090000`));
+    const started = performance.now();
+    const { urls } = byStart(many, 20);
+    expect(performance.now() - started).toBeLessThan(1000);
+    expect(urls[0]).toBe(`${CALENDAR_URL}e0.ics`);
   });
 });
