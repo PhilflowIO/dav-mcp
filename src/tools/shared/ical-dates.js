@@ -195,6 +195,18 @@ export function instantOf(property, value = property.getFirstValue()) {
 }
 
 /**
+ * Does the property name an instant on its own — UTC, a date (read as its
+ * UTC day), or a TZID whose VTIMEZONE is in the document? If not (a floating
+ * time, a TZID without its VTIMEZONE), instantOf reads it in the host's zone.
+ *
+ * @param {ICAL.Property} property
+ * @returns {boolean}
+ */
+export function hasAbsoluteInstant(property) {
+  return absoluteInstant(property) !== null;
+}
+
+/**
  * The instant a date-time property names, or null when that needs a zone
  * this document does not define: a floating value, or a TZID without its
  * VTIMEZONE. A date is its UTC day start, as in toInstant.

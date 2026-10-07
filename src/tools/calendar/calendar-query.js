@@ -3,7 +3,7 @@ import { validateInput, calendarQuerySchema } from '../../validation.js';
 import { formatEventList } from '../../formatters.js';
 import { buildTimeRangeOptions, limitResults, DEFAULT_RESULT_LIMIT } from '../shared/helpers.js';
 import { shownEvent } from '../../ical-components.js';
-import { instantOf } from '../shared/ical-dates.js';
+import { instantOf, hasAbsoluteInstant } from '../shared/ical-dates.js';
 import { parseObjects, textValues, containsText, dateKey, orNull } from '../shared/query-objects.js';
 
 /**
@@ -182,9 +182,24 @@ function startLowerBound(parsed, rangeStart) {
   return starts.length ? Math.min(...starts) : null;
 }
 
+// The widest gap between a wall-clock time read in the host's zone and UTC:
+// offsets run from UTC-12 to UTC+14.
+const HOST_ZONE_SLACK = 26 * 3600 * 1000;
+
+/**
+ * The bound for a series: no occurrence in the range starts before the range
+ * does — as an instant. A floating DTSTART (or a TZID without its VTIMEZONE)
+ * is compared with the range as wall-clock time but keyed by instantOf in the
+ * host's zone, so its occurrence can key up to a zone offset earlier than the
+ * range start; the bound gives it that slack. Slack only means a few more
+ * candidates are resolved at the boundary.
+ */
 function seriesBound(master, rangeStart) {
   const start = startOf(master);
-  return start === null ? null : Math.max(start, rangeStart);
+  if (start === null) return null;
+  const dtstart = master.getFirstProperty('dtstart');
+  const absolute = orNull(() => hasAbsoluteInstant(dtstart)) === true;
+  return Math.max(start, absolute ? rangeStart : rangeStart - HOST_ZONE_SLACK);
 }
 
 function startOf(vevent, time) {

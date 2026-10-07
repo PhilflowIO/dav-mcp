@@ -236,6 +236,27 @@ describe('calendar_query', () => {
       storedEvents = [ics('oct20', vevent('o20', 'DTSTART:20261020T080000Z', 'DURATION:PT1H', 'SUMMARY:Oct 20')), weekly];
       expect(await urls(calendarQuery, { ...OCTOBER, limit: 1 })).toEqual(['weekly.ics']);
     });
+
+    test('a floating series sorts by its host-zone instant, even before the range start', async () => {
+      // a floating 00:30 is read in the host's zone; in Berlin (UTC+2) on
+      // 8 October that is 22:30Z on the 7th — earlier than the range start
+      // and than a UTC event at 23:00Z, so it must win the cap
+      const hostZone = process.env.TZ;
+      process.env.TZ = 'Europe/Berlin';
+      try {
+        storedEvents = [
+          ics('utc2300', vevent('u', 'DTSTART:20261007T230000Z', 'DTEND:20261008T020000Z', 'SUMMARY:Single')),
+          ics('float0030', vevent('f', 'DTSTART:20260101T003000', 'DURATION:PT15M', 'RRULE:FREQ=DAILY', 'SUMMARY:Floating')),
+          ics('late', vevent('l', 'DTSTART:20261008T200000Z', 'DURATION:PT1H', 'SUMMARY:Late')),
+        ];
+        const range = { time_range_start: '2026-10-08T00:00:00Z', time_range_end: '2026-10-09T00:00:00Z' };
+        expect(await urls(calendarQuery, { ...range, limit: 1 })).toEqual(['float0030.ics']);
+        expect(await urls(calendarQuery, { ...range, limit: 2 })).toEqual(['float0030.ics', 'utc2300.ics']);
+      } finally {
+        if (hostZone === undefined) delete process.env.TZ;
+        else process.env.TZ = hostZone;
+      }
+    });
   });
 
   test('detached instances without a master: the one in range is listed and matched', async () => {
