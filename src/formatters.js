@@ -11,61 +11,7 @@
 
 import ICAL from 'ical.js';
 import { readVCard, nameComponents, organizationText } from './vcard.js';
-import { readSeries } from './ical-components.js';
-
-// A CalDAV server answers a time-range query with the master VEVENT of a
-// recurring series, not with the occurrences inside the range, so the series
-// has to be expanded here. The cost of expansion scales with the distance from
-// DTSTART to the start of the range rather than with the width of the range —
-// a FREQ=MINUTELY series starting in 1970 needs ~29M steps to reach 2026 — so
-// the walk is capped. Server-supplied data must not be able to stall the loop.
-const MAX_RECURRENCE_ITERATIONS = 10000;
-
-/**
- * Convert a queried time range into ICAL.Time bounds.
- *
- * Goes through Date so that every form the schema accepts — with or without
- * milliseconds, "Z" or a "+02:00" offset — lands on the same absolute instant.
- * ICAL.Time.fromDateTimeString would silently treat an offset form as floating.
- */
-function toICALRange(timeRange) {
-  if (!timeRange?.start || !timeRange?.end) return null;
-
-  const start = new Date(timeRange.start);
-  const end = new Date(timeRange.end);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
-
-  return {
-    start: ICAL.Time.fromJSDate(start, true),
-    end: ICAL.Time.fromJSDate(end, true),
-  };
-}
-
-/**
- * Find the first occurrence of a recurring event inside the queried range.
- *
- * Returns null when the series has no occurrence there — the caller must say so
- * rather than fall back to the master DTSTART, which is the wrong-date bug this
- * whole path exists to fix.
- */
-function firstOccurrenceInRange(event, range) {
-  const expand = new ICAL.RecurExpansion({
-    component: event.component,
-    dtstart: event.startDate,
-  });
-
-  for (let step = 0; step < MAX_RECURRENCE_ITERATIONS; step++) {
-    const next = expand.next();
-    if (!next) return { occurrence: null };
-    if (next.compare(range.end) > 0) return { occurrence: null };
-    if (next.compare(range.start) >= 0) {
-      return { occurrence: event.getOccurrenceDetails(next) };
-    }
-  }
-
-  console.error(`Recurrence expansion gave up after ${MAX_RECURRENCE_ITERATIONS} occurrences`);
-  return { occurrence: null, truncated: true };
-}
+import { readSeries, shownEvent, todoStatus } from './ical-components.js';
 
 /**
  * Parse iCal data string to extract event properties (RFC 5545 compliant)
@@ -75,37 +21,13 @@ function firstOccurrenceInRange(event, range) {
  */
 function parseICalEvent(icalData, timeRange = null) {
   try {
-    const jcalData = ICAL.parse(icalData);
-    const comp = new ICAL.Component(jcalData);
-    // Overrides are siblings of the master in the same calendar object; taking
-    // the first VEVENT would pick one of them at the server's whim. readSeries
-    // picks the component update_event writes (see src/ical-components.js).
-    const series = readSeries(comp, 'vevent');
-    if (!series) {
+    const comp = new ICAL.Component(ICAL.parse(icalData));
+    // the occurrence calendar_query's text filters read too (see shownEvent)
+    const shown = shownEvent(comp, timeRange);
+    if (!shown) {
       return {};
     }
-
-    const vevent = series.master;
-    const event = new ICAL.Event(vevent);
-    for (const override of series.overrides) {
-      event.relateException(override);
-    }
-
-    let occurrence = null;
-    let outsideRange = false;
-    let expansionTruncated = false;
-
-    if (event.isRecurring()) {
-      const range = toICALRange(timeRange);
-      if (range) {
-        const result = firstOccurrenceInRange(event, range);
-        occurrence = result.occurrence;
-        expansionTruncated = Boolean(result.truncated);
-        outsideRange = !occurrence && !expansionTruncated;
-      }
-    }
-
-    const item = occurrence ? occurrence.item : event;
+    const { vevent, event, occurrence, item, outsideRange, expansionTruncated } = shown;
 
     return {
       summary: item.summary || '',
@@ -889,7 +811,7 @@ function parseVTodo(icalData) {
       uid: vtodo.getFirstPropertyValue('uid') || '',
       summary: vtodo.getFirstPropertyValue('summary') || '',
       description: vtodo.getFirstPropertyValue('description') || '',
-      status: vtodo.getFirstPropertyValue('status') || 'NEEDS-ACTION',
+      status: todoStatus(vtodo),
       priority: vtodo.getFirstPropertyValue('priority') || 0,
       percentComplete: vtodo.getFirstPropertyValue('percent-complete') || 0,
       due: vtodo.getFirstPropertyValue('due'),

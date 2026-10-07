@@ -57,6 +57,9 @@ const urls = async (tool, args) => {
   return [...text.matchAll(/- \*\*URL\*\*: (\S+)/g)].map((m) => m[1].split('/').pop());
 };
 
+/** the listing a reader sees, without the Raw Data block */
+const shown = (result) => result.content[0].text.split('<details>')[0];
+
 beforeEach(() => {
   storedTodos = [];
   storedEvents = [];
@@ -95,15 +98,25 @@ describe('todo_query', () => {
     expect(await urls(todoQuery, { status_filter: 'NEEDS-ACTION' })).toEqual(['fine.ics']);
   });
 
-  test('a recurring todo is matched on its master, whatever the order', async () => {
+  test('a recurring todo is filtered and listed by its master, whatever the order', async () => {
     storedTodos = [ics('series',
       ['BEGIN:VTODO', 'UID:s@test', 'DTSTAMP:20260101T000000Z', 'RECURRENCE-ID:20260108T090000Z',
-        'SUMMARY:Water plants (skipped)', 'STATUS:CANCELLED', 'END:VTODO'],
+        'SUMMARY:Water plants (done early)', 'STATUS:COMPLETED', 'END:VTODO'],
       ['BEGIN:VTODO', 'UID:s@test', 'DTSTAMP:20260101T000000Z', 'DTSTART:20260101T090000Z',
         'RRULE:FREQ=WEEKLY', 'SUMMARY:Water plants', 'END:VTODO'],
     )];
-    expect(await urls(todoQuery, { status_filter: 'NEEDS-ACTION' })).toEqual(['series.ics']);
-    expect(await urls(todoQuery, { status_filter: 'CANCELLED' })).toEqual([]);
+    const text = shown(await todoQuery.handler({ status_filter: 'NEEDS-ACTION' }));
+    expect(text).toContain('series.ics');
+    expect(text).toContain('- **Status**: NEEDS-ACTION');
+    expect(text).not.toContain('done early');
+    expect(await urls(todoQuery, { status_filter: 'COMPLETED' })).toEqual([]);
+    expect(await urls(todoQuery, { summary_filter: 'done early' })).toEqual([]);
+  });
+
+  test('a lower-case STATUS is filtered and listed as its RFC value', async () => {
+    storedTodos = [todo('lower', 'SUMMARY:Lower', 'STATUS:completed')];
+    const text = (await todoQuery.handler({ status_filter: 'COMPLETED' })).content[0].text;
+    expect(text).toContain('- **Status**: COMPLETED');
   });
 });
 
@@ -124,42 +137,60 @@ describe('calendar_query', () => {
     expect(await urls(calendarQuery, { summary_filter: 'standup' })).toEqual(['ok.ics']);
   });
 
-  describe('a recurring event with a renamed occurrence', () => {
-    // the override comes first, as some servers store it
+  describe('a recurring event with a renamed occurrence: filter reads what is listed', () => {
+    // weekly from Mon 1 June; the 15 June occurrence is renamed and moved.
+    // The override comes first, as some servers store it.
     const series = () => ics('series',
       vevent('s', 'RECURRENCE-ID:20260615T090000Z', 'DTSTART:20260615T140000Z', 'DTEND:20260615T150000Z',
         'SUMMARY:Standup with customer', 'LOCATION:Room B'),
       vevent('s', 'DTSTART:20260601T090000Z', 'DTEND:20260601T091500Z', 'RRULE:FREQ=WEEKLY;COUNT=8',
         'SUMMARY:Standup', 'LOCATION:Room A'),
     );
+    const listed = async (args) => shown(await calendarQuery.handler(args));
+    const JUNE_15 = { time_range_start: '2026-06-15T00:00:00Z', time_range_end: '2026-06-16T00:00:00Z' };
 
     beforeEach(() => { storedEvents = [series()]; });
 
-    test("the master's SUMMARY and LOCATION match", async () => {
+    test('without a range the series is listed, and only its own text matches', async () => {
       expect(await urls(calendarQuery, { summary_filter: 'standup' })).toEqual(['series.ics']);
+      expect(await listed({ summary_filter: 'standup' })).toContain('### 1. Standup\n');
       expect(await urls(calendarQuery, { location_filter: 'room a' })).toEqual(['series.ics']);
+      expect(await urls(calendarQuery, { summary_filter: 'customer' })).toEqual([]);
+      expect(await urls(calendarQuery, { location_filter: 'room b' })).toEqual([]);
     });
 
-    test('the override matches when no range is given', async () => {
-      expect(await urls(calendarQuery, { summary_filter: 'customer' })).toEqual(['series.ics']);
-      expect(await urls(calendarQuery, { location_filter: 'room b' })).toEqual(['series.ics']);
+    test('with the renamed occurrence in range, it is listed and its text matches', async () => {
+      const text = await listed({ summary_filter: 'customer', ...JUNE_15 });
+      expect(text).toContain('### 1. Standup with customer');
+      expect(text).toContain('- **Where**: Room B');
+      expect(await urls(calendarQuery, { location_filter: 'room b', ...JUNE_15 })).toEqual(['series.ics']);
+      // the listed occurrence is not in Room A
+      expect(await urls(calendarQuery, { location_filter: 'room a', ...JUNE_15 })).toEqual([]);
     });
 
-    test('the override matches when its occurrence is in the range', async () => {
-      expect(await urls(calendarQuery, {
-        summary_filter: 'customer',
-        time_range_start: '2026-06-15T00:00:00Z',
-        time_range_end: '2026-06-16T00:00:00Z',
-      })).toEqual(['series.ics']);
+    test('a range whose first occurrence is unchanged lists the series text', async () => {
+      const range = { time_range_start: '2026-06-08T00:00:00Z', time_range_end: '2026-06-16T00:00:00Z' };
+      expect(await urls(calendarQuery, { summary_filter: 'customer', ...range })).toEqual([]);
+      expect(await listed({ summary_filter: 'standup', ...range })).toContain('### 1. Standup\n');
+      expect(await urls(calendarQuery, { summary_filter: 'customer',
+        time_range_start: '2026-06-01T00:00:00Z', time_range_end: '2026-06-02T00:00:00Z' })).toEqual([]);
     });
+  });
 
-    test('the override does not match when its occurrence is outside the range', async () => {
-      expect(await urls(calendarQuery, {
-        summary_filter: 'customer',
-        time_range_start: '2026-06-01T00:00:00Z',
-        time_range_end: '2026-06-02T00:00:00Z',
-      })).toEqual([]);
-    });
+  test('detached instances without a master: the one in range is listed and matched', async () => {
+    storedEvents = [ics('detached',
+      vevent('d', 'RECURRENCE-ID:20261001T090000Z', 'DTSTART:20261001T090000Z', 'DTEND:20261001T100000Z',
+        'SUMMARY:Review (Oct 1)'),
+      vevent('d', 'RECURRENCE-ID:20261008T090000Z', 'DTSTART:20261008T090000Z', 'DTEND:20261008T100000Z',
+        'SUMMARY:Review (Oct 8)'),
+    )];
+    const oct8 = { time_range_start: '2026-10-08T00:00:00Z', time_range_end: '2026-10-09T00:00:00Z' };
+    const text = shown(await calendarQuery.handler({ summary_filter: 'oct 8', ...oct8 }));
+    expect(text).toContain('### 1. Review (Oct 8)');
+    expect(await urls(calendarQuery, { summary_filter: 'oct 1', ...oct8 })).toEqual([]);
+    // without a range the first in document order is listed, as before
+    expect(await urls(calendarQuery, { summary_filter: 'oct 1' })).toEqual(['detached.ics']);
+    expect(await urls(calendarQuery, { summary_filter: 'oct 8' })).toEqual([]);
   });
 });
 

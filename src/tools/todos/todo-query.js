@@ -3,6 +3,7 @@ import { validateInput, todoQuerySchema } from '../../validation.js';
 import { formatTodoList } from '../../formatters.js';
 import { limitResults, DEFAULT_RESULT_LIMIT } from '../shared/helpers.js';
 import { dueSpan } from '../shared/ical-dates.js';
+import { todoStatus } from '../../ical-components.js';
 import { parseObjects, textValues, containsText, dateKey, orNull } from '../shared/query-objects.js';
 
 /**
@@ -79,12 +80,8 @@ export const todoQuery = {
     }
 
     if (validated.status_filter) {
-      parsed = parsed.filter(({ main }) => {
-        if (!main) return false;
-        // RFC 5545 3.8.1.11 gives no default, but a todo nobody marked is pending
-        const status = String(main.getFirstPropertyValue('status') || 'NEEDS-ACTION');
-        return status.toUpperCase() === validated.status_filter;
-      });
+      // the master's status, read as the todo display reads it
+      parsed = parsed.filter(({ main }) => Boolean(main) && todoStatus(main) === validated.status_filter);
     }
 
     if (validated.time_range_start && validated.time_range_end) {

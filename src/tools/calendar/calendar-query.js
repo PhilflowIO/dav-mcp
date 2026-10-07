@@ -2,8 +2,8 @@ import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, calendarQuerySchema } from '../../validation.js';
 import { formatEventList } from '../../formatters.js';
 import { buildTimeRangeOptions, limitResults, DEFAULT_RESULT_LIMIT } from '../shared/helpers.js';
-import { eventSpan } from '../shared/ical-dates.js';
-import { parseObjects, overridesOf, textValues, containsText, dateKey, orNull } from '../shared/query-objects.js';
+import { shownEvent } from '../../ical-components.js';
+import { parseObjects, textValues, containsText, dateKey, orNull } from '../shared/query-objects.js';
 
 /**
  * Search and filter calendar events efficiently
@@ -74,14 +74,14 @@ export const calendarQuery = {
 
     // Client-side filtering on parsed values; see query-objects.js
     let parsed = parseObjects(allEvents, 'vevent');
-    const inRange = occurrenceFilter(timeRangeOptions.timeRange);
+    const { timeRange } = timeRangeOptions;
 
     if (validated.summary_filter) {
-      parsed = parsed.filter((p) => eventMatches(p, 'summary', validated.summary_filter, inRange));
+      parsed = parsed.filter((p) => shownMatches(p, 'summary', validated.summary_filter, timeRange));
     }
 
     if (validated.location_filter) {
-      parsed = parsed.filter((p) => eventMatches(p, 'location', validated.location_filter, inRange));
+      parsed = parsed.filter((p) => shownMatches(p, 'location', validated.location_filter, timeRange));
     }
 
     // Determine calendar name for display
@@ -100,37 +100,24 @@ export const calendarQuery = {
 };
 
 /**
- * Does an event's SUMMARY or LOCATION contain the text?
+ * Does the event as listed contain the text in its SUMMARY or LOCATION?
  *
- * The series' own value (the master's) is what the event is called, so it
- * decides. A recurring event can also carry RECURRENCE-ID overrides that
- * rename or move one occurrence — "Standup (Room B)" in a series called
- * "Standup". Such an override matches too, so that occurrence can be found
- * at all; but only if it falls inside the queried range, because the server
- * returned the series for some occurrence in that range and an override
- * outside it is not what the caller asked about.
+ * The filter reads exactly what formatEventList shows (shownEvent): the
+ * series master without a range, the first occurrence in the range with its
+ * override applied with one. So a listed event always shows the text it was
+ * found by, and an override that renames an occurrence matches exactly when
+ * that occurrence is the one listed.
+ *
+ * Expanding a series is the expensive part, and only needed when the
+ * object's components disagree: if the master and every override (or every
+ * detached instance) all match, or all do not, so does whichever is shown.
  */
-function eventMatches(parsed, property, needle, inRange) {
-  if (containsText(textValues(parsed.main, property), needle)) return true;
-  return overridesOf(parsed, 'vevent').some((override) =>
-    inRange(override) && containsText(textValues(override, property), needle));
-}
-
-/**
- * Whether an override occurrence overlaps the queried range (RFC 4791 9.9:
- * starts before the range ends and ends after it starts; an instant counts
- * when it lies in the range). Without a range every override counts. An
- * override whose dates cannot be read does not.
- */
-function occurrenceFilter(timeRange) {
-  if (!timeRange) return () => true;
-  const start = new Date(timeRange.start).getTime();
-  const end = new Date(timeRange.end).getTime();
-  return (override) => {
-    const span = orNull(() => eventSpan(override));
-    if (!span) return false;
-    return span.end > span.start
-      ? span.start < end && span.end > start
-      : span.start >= start && span.start < end;
-  };
+function shownMatches(parsed, property, needle, timeRange) {
+  if (!parsed.root) return false;
+  const verdicts = parsed.root.getAllSubcomponents('vevent')
+    .map((vevent) => containsText(textValues(vevent, property), needle));
+  if (verdicts.every(Boolean)) return verdicts.length > 0;
+  if (!verdicts.some(Boolean)) return false;
+  const shown = orNull(() => shownEvent(parsed.root, timeRange));
+  return Boolean(shown) && containsText(textValues(shown.item.component, property), needle);
 }

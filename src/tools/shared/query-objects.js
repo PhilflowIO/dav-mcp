@@ -1,5 +1,6 @@
 import ICAL from 'ical.js';
 import { instantOf } from './ical-dates.js';
+import { readSeries } from '../../ical-components.js';
 import { readVCard, structuredText, nameComponents, organizationText } from '../../vcard.js';
 
 /**
@@ -19,7 +20,7 @@ import { readVCard, structuredText, nameComponents, organizationText } from '../
  * @typedef {Object} ParsedObject
  * @property {Object} object - the DAV object as fetched ({ url, etag, data })
  * @property {ICAL.Component|null} root - VCALENDAR or VCARD, null if unparseable
- * @property {ICAL.Component|null} main - the VEVENT/VTODO master, or the VCARD
+ * @property {ICAL.Component|null} main - the VEVENT/VTODO master (readSeries), or the VCARD
  */
 
 /**
@@ -51,29 +52,14 @@ function parseRoot(data, kind) {
 }
 
 /**
- * The component a filter reads. For a recurring event or todo that is the
- * master — the one without RECURRENCE-ID. Overrides are siblings of it in the
- * same object, in whatever order the server stored them, so "the first
- * VEVENT" can be an override.
+ * The component a filter reads: the one the display shows and update tools
+ * write. For an event or todo that is readSeries' master (src/ical-components.js)
+ * — a recurring event's occurrences are resolved per query, see shownEvent.
  */
 function mainComponent(root, kind) {
   if (!root) return null;
   if (kind === 'vcard') return root.name === 'vcard' ? root : null;
-  const all = root.getAllSubcomponents(kind);
-  return all.find((c) => !c.hasProperty('recurrence-id')) ?? all[0] ?? null;
-}
-
-/**
- * The RECURRENCE-ID overrides of a recurring event or todo.
- *
- * @param {ParsedObject} parsed
- * @param {'vevent'|'vtodo'} kind
- * @returns {ICAL.Component[]}
- */
-export function overridesOf(parsed, kind) {
-  if (!parsed.root) return [];
-  return parsed.root.getAllSubcomponents(kind)
-    .filter((c) => c !== parsed.main && c.hasProperty('recurrence-id'));
+  return readSeries(root, kind)?.master ?? null;
 }
 
 /**
