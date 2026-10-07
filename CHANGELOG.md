@@ -35,9 +35,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   first; and `name_filter` no longer matches text from other lines (`vcard`
   matched every contact). A recurring event matches on its series title and
   location, or on an occurrence renamed or moved inside the queried range.
+  `status_filter` compares case-insensitively, so `STATUS:completed` counts
+  as COMPLETED.
+- Contacts exported with unnamed parameters (vCard 2.1 / Outlook / Android:
+  `EMAIL;PREF;INTERNET:`, `TEL;CELL:`) are shown with their name and fields
+  and found by `addressbook_query`; they appeared as "Unnamed Contact". A
+  one-part name (`N:Cher`) shows as "Cher", not "r h e C", and an
+  organization with an empty part reads "Acme, Sales", not "Acme, , Sales".
 - When a query result is capped, the earliest events are kept even if they
   carry a timezone; the zone definition's 1970 start date was sorted on
-  instead, so the kept events were arbitrary.
+  instead, so the kept events were arbitrary. A capped contact list says it
+  shows the first contacts by name, not "the earliest".
 
 ### Changed
 - `create_todo` accepts a bare date for `due_date`, giving a todo due that day;
