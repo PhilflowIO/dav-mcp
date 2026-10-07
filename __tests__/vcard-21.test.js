@@ -1,10 +1,13 @@
-import { describe, test, expect, jest } from '@jest/globals';
+import { describe, test, expect, beforeEach, jest } from '@jest/globals';
+import ICAL from 'ical.js';
 
-// Issue #103: vCard 2.1 cards (Outlook/Android exports) are read as the 3.0
-// card that says the same — quoted-printable decoded, 2.1 escaping kept.
+// Issue #103: vCard 2.1 cards (Outlook/Android exports) are read and edited as
+// the 3.0 card that says the same — quoted-printable decoded, 2.1 escaping
+// kept, one normalizer for reading and for update_contact.
 const ADDRESSBOOK_URL = 'https://dav.example.com/addressbooks/user/default/';
 const CARD_URL = `${ADDRESSBOOK_URL}card.vcf`;
 
+const updateVCard = jest.fn(async () => ({ ok: true, status: 204, headers: new Headers({ etag: '"2"' }) }));
 let storedCard = '';
 
 jest.unstable_mockModule('../src/tsdav-client.js', () => ({
@@ -12,10 +15,12 @@ jest.unstable_mockModule('../src/tsdav-client.js', () => ({
     getCardDavClient: () => ({
       fetchAddressBooks: async () => [{ url: ADDRESSBOOK_URL, displayName: 'Default' }],
       fetchVCards: async () => [{ url: CARD_URL, etag: '"1"', data: storedCard }],
+      updateVCard,
     }),
   },
 }));
 
+const { updateContactFields } = await import('../src/tools/contacts/update-contact-fields.js');
 const { listContacts } = await import('../src/tools/contacts/list-contacts.js');
 const { readVCard } = await import('../src/vcard.js');
 
@@ -23,6 +28,80 @@ const v21 = (...lines) => ['BEGIN:VCARD', 'VERSION:2.1', 'UID:card-1', ...lines,
 
 /** the listing a reader sees, without the Raw Data block */
 const listed = async () => (await listContacts.handler({ addressbook_url: ADDRESSBOOK_URL })).content[0].text.split('<details>')[0];
+
+const update = async (fields) => {
+  updateVCard.mockClear();
+  await updateContactFields.handler({ vcard_url: CARD_URL, vcard_etag: '"1"', fields });
+  return updateVCard.mock.calls[0][0].vCard.data;
+};
+
+const parsed = (data) => new ICAL.Component(ICAL.parse(data));
+
+describe('update_contact on a vCard 2.1 card', () => {
+  beforeEach(() => updateVCard.mockClear());
+
+  test('an edited quoted-printable card is written back decoded, as 3.0', async () => {
+    storedCard = v21(
+      'N;CHARSET=UTF-8;ENCODING=QUOTED-PRINTABLE:M=C3=BCller;Hans',
+      'FN;CHARSET=UTF-8;ENCODING=QUOTED-PRINTABLE:Hans M=C3=BCller',
+      'ORG;CHARSET=UTF-8;ENCODING=QUOTED-PRINTABLE:B=C3=A4ckerei',
+      'NOTE;ENCODING=QUOTED-PRINTABLE:Zeile1=0D=0AZeile2 =',
+      'weiter');
+    const written = await update({ FN: 'Hans Müller-Neu' });
+
+    expect(written).not.toMatch(/ENCODING|CHARSET|=C3/i);
+    const card = parsed(written);
+    expect(card.getFirstPropertyValue('version')).toBe('3.0');
+    expect(card.getFirstPropertyValue('fn')).toBe('Hans Müller-Neu');
+    expect(card.getFirstPropertyValue('n')).toEqual(['Müller', 'Hans']);
+    expect(card.getFirstPropertyValue('org')).toBe('Bäckerei');
+    expect(card.getFirstPropertyValue('note')).toBe('Zeile1\nZeile2 weiter');
+  });
+
+  test('a value that looks like quoted-printable is written as plain text', async () => {
+    // the new value used to keep the line's ENCODING=QUOTED-PRINTABLE and
+    // read back decoded ("=AB" -> "«") or with its "=" eating the next line
+    storedCard = v21('FN;CHARSET=UTF-8;ENCODING=QUOTED-PRINTABLE:Hans M=C3=BCller',
+      'NOTE;ENCODING=QUOTED-PRINTABLE:alt', 'EMAIL:h@x.de');
+    for (const note of ['Rabatt=AB jetzt', 'token abc=']) {
+      storedCard = await update({ NOTE: note });
+      const card = readVCard(storedCard);
+      expect(card.getFirstPropertyValue('note')).toBe(note);
+      expect(card.getFirstPropertyValue('email')).toBe('h@x.de');
+    }
+  });
+
+  test('a card with bare parameters and a soft line break can be edited', async () => {
+    // updateFields used to throw "Missing parameter value" and "invalid line"
+    storedCard = v21('FN;CHARSET=UTF-8;QUOTED-PRINTABLE:Hans M=C3=',
+      '=BCller', 'EMAIL;PREF;INTERNET:h@x.de', 'TEL;CELL:+49 170 1');
+    const card = parsed(await update({ TITLE: 'Chef' }));
+    expect(card.getFirstPropertyValue('fn')).toBe('Hans Müller');
+    expect(card.getFirstPropertyValue('title')).toBe('Chef');
+    expect(card.getFirstProperty('email').getParameter('type')).toEqual(['PREF', 'INTERNET']);
+    expect(card.getFirstProperty('tel').getParameter('type')).toBe('CELL');
+  });
+
+  test('2.1 commas and backslashes survive an edit', async () => {
+    storedCard = v21('N:Mueller, Jr.;Hans', 'NOTE:C:\\new, D:\\old');
+    const card = parsed(await update({ TITLE: 'Chef' }));
+    expect(card.getFirstPropertyValue('n')).toEqual(['Mueller, Jr.', 'Hans']);
+    expect(card.getFirstPropertyValue('note')).toBe('C:\\new, D:\\old');
+  });
+
+  test('a base64 photo becomes the 3.0 ENCODING=b', async () => {
+    storedCard = v21('FN:Pic', 'PHOTO;ENCODING=BASE64;TYPE=JPEG:AAAABBBB', '');
+    const written = await update({ TITLE: 'Chef' });
+    expect(written).toContain('PHOTO;TYPE=JPEG;ENCODING=b:AAAABBBB');
+  });
+
+  test('a 3.0 card keeps its version', async () => {
+    storedCard = ['BEGIN:VCARD', 'VERSION:3.0', 'UID:card-1', 'FN:Ann', 'N:Lee\\, Jr.;Ann', 'END:VCARD'].join('\r\n');
+    const card = parsed(await update({ TITLE: 'Chef' }));
+    expect(card.getFirstPropertyValue('version')).toBe('3.0');
+    expect(card.getFirstPropertyValue('n')).toEqual(['Lee, Jr.', 'Ann']);
+  });
+});
 
 describe('reading a vCard 2.1 card', () => {
   test('list_contacts shows quoted-printable values decoded', async () => {

@@ -1,4 +1,5 @@
 import ICAL from 'ical.js';
+import { writeFields } from './tools/shared/ical-dates.js';
 
 /**
  * The one way dav-mcp reads a vCard — for display and for query filters
@@ -16,7 +17,24 @@ export function readVCard(data) {
 }
 
 /**
- * A vCard as ical.js reads it.
+ * Set fields on a vCard the way readVCard reads it: the card is normalized
+ * first, so an edit to a vCard 2.1 card writes back the 3.0 card it was read
+ * as — decoded, with named parameters — and not a 2.1 card where the new
+ * value carries the old CHARSET and ENCODING=QUOTED-PRINTABLE and the
+ * untouched lines stay encoded. ical.js could not even parse the card as
+ * stored when it has a bare parameter or a soft line break.
+ *
+ * @param {{data: string}} vCard - the card as fetched
+ * @param {Record<string, string>} fields - property name -> value
+ * @returns {string} the card to write
+ */
+export function writeVCardFields(vCard, fields) {
+  return writeFields(normalizeVCard(vCard.data), fields);
+}
+
+/**
+ * A vCard as ical.js reads and writes it: what readVCard parses, and what
+ * update_contact edits and writes back, so a card is written as it was read.
  *
  * Outlook and Android still export vCard 2.1, which ical.js does not know:
  *
