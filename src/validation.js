@@ -332,7 +332,7 @@ export const createTodoSchema = z.object({
   calendar_url: z.string().url('Invalid calendar URL'),
   summary: z.string().min(1, 'Summary is required').max(500),
   description: z.string().max(5000).optional(),
-  due_date: z.string().optional(), // ISO 8601 with timezone
+  due_date: dateOrDateTime.optional(),
   priority: z.number().int().min(0).max(9).optional(), // 0=undefined, 1=highest, 9=lowest
   status: z.enum(['NEEDS-ACTION', 'IN-PROCESS', 'COMPLETED', 'CANCELLED']).optional(),
   percent_complete: z.number().int().min(0).max(100).optional(),
