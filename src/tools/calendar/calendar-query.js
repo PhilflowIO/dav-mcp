@@ -2,6 +2,9 @@ import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, calendarQuerySchema } from '../../validation.js';
 import { formatEventList } from '../../formatters.js';
 import { buildTimeRangeOptions, limitResults, DEFAULT_RESULT_LIMIT } from '../shared/helpers.js';
+import { shownEvent } from '../../ical-components.js';
+import { instantOf, hasAbsoluteInstant } from '../shared/ical-dates.js';
+import { parseObjects, textValues, containsText, dateKey, orNull } from '../shared/query-objects.js';
 
 /**
  * Search and filter calendar events efficiently
@@ -70,22 +73,13 @@ export const calendarQuery = {
       allEvents = allEvents.concat(events);
     }
 
-    let filteredEvents = allEvents;
+    // Client-side filtering on parsed values; see query-objects.js
+    let parsed = parseObjects(allEvents, 'vevent');
+    const { timeRange } = timeRangeOptions;
+    const matches = searchOf(validated);
 
-    if (validated.summary_filter) {
-      const summaryLower = validated.summary_filter.toLowerCase();
-      filteredEvents = filteredEvents.filter(event => {
-        const summary = event.data?.match(/SUMMARY:(.+)/)?.[1] || '';
-        return summary.toLowerCase().includes(summaryLower);
-      });
-    }
-
-    if (validated.location_filter) {
-      const locationLower = validated.location_filter.toLowerCase();
-      filteredEvents = filteredEvents.filter(event => {
-        const location = event.data?.match(/LOCATION:(.+)/)?.[1] || '';
-        return location.toLowerCase().includes(locationLower);
-      });
+    if (matches) {
+      parsed = parsed.filter((p) => isFound(p, matches, timeRange));
     }
 
     // Determine calendar name for display
@@ -93,12 +87,124 @@ export const calendarQuery = {
       ? calendarsToSearch[0]
       : `All Calendars (${calendarsToSearch.length})`;
 
-    const { items, total } = limitResults(
-      filteredEvents,
-      validated.limit ?? DEFAULT_RESULT_LIMIT,
-      'DTSTART'
-    );
+    const rangeStart = timeRange ? new Date(timeRange.start).getTime() : null;
+    const { items, total } = timeRange
+      ? limitResults(
+        parsed,
+        validated.limit ?? DEFAULT_RESULT_LIMIT,
+        (p) => startLowerBound(p, rangeStart),
+        (p) => listedStart(shownOf(p, matches, timeRange), rangeStart)
+      )
+      : limitResults(parsed, validated.limit ?? DEFAULT_RESULT_LIMIT, (p) => dateKey(p, 'dtstart'));
 
-    return formatEventList(items, calendarName, timeRangeOptions.timeRange, total);
+    // the occurrence each listed event is shown as, resolved once for the
+    // filter, the sort and the display alike
+    const shown = new Map();
+    for (const p of items) {
+      const listed = shownOf(p, matches, timeRange);
+      if (listed) shown.set(p.object, listed);
+    }
+
+    return formatEventList(items.map(({ object }) => object), calendarName, timeRange, total, matches, shown);
   },
 };
+
+/**
+ * The search as one test on a VEVENT: every given text filter must hold on
+ * the same component, so one occurrence has to carry both the title and the
+ * place. null without a text filter.
+ */
+function searchOf({ summary_filter: summary, location_filter: location }) {
+  if (!summary && !location) return null;
+  return (vevent) =>
+    (!summary || containsText(textValues(vevent, 'summary'), summary))
+    && (!location || containsText(textValues(vevent, 'location'), location));
+}
+
+/**
+ * Is the event found — does the occurrence it is listed as (shownEvent, with
+ * the search) pass the search? Without a range that is the series master;
+ * with one, the first occurrence in the range the search accepts, an override
+ * judged by its own text. formatEventList lists the same occurrence, so an
+ * event always shows the text it was found by.
+ *
+ * Expanding a series is the expensive part — bounded by the range for
+ * daily and weekly rules (see expansionStart), but still the bulk of the
+ * work — so it only happens when the object's components disagree: if none
+ * passes, no occurrence can; if all pass, every occurrence does, and the
+ * server returned the object for one inside the range.
+ */
+function isFound(parsed, matches, timeRange) {
+  if (!parsed.root) return false;
+  const verdicts = parsed.root.getAllSubcomponents('vevent').map(matches);
+  if (!verdicts.some(Boolean)) return false;
+  if (verdicts.every(Boolean)) return true;
+  const shown = shownOf(parsed, matches, timeRange);
+  return Boolean(shown) && !shown.outsideRange && matches(shown.item.component);
+}
+
+/** shownEvent for a parsed object, computed once per query */
+function shownOf(parsed, matches, timeRange) {
+  if (!('shown' in parsed)) {
+    parsed.shown = parsed.root ? orNull(() => shownEvent(parsed.root, timeRange, matches)) : null;
+  }
+  return parsed.shown;
+}
+
+/**
+ * With a range, the start of what is listed: the occurrence in the range
+ * (an override at its own, possibly moved, start), or for a single event or
+ * detached instance its DTSTART. A series with no occurrence to list sorts
+ * where its lower bound puts it (see startLowerBound). null sorts last.
+ */
+function listedStart(shown, rangeStart) {
+  if (!shown) return null;
+  if (!shown.occurrence && shown.event.isRecurring()) {
+    return seriesBound(shown.vevent, rangeStart);
+  }
+  return startOf(shown.item.component, shown.occurrence?.startDate);
+}
+
+/**
+ * A cheap key never later than listedStart, so limitResults only has to
+ * resolve the occurrences that can still make the cut. A series' occurrence
+ * in the range starts no earlier than the later of the series start and the
+ * range start — unless an override moved it earlier, so its overrides' own
+ * starts count too. Detached instances: the earliest of them.
+ */
+function startLowerBound(parsed, rangeStart) {
+  if (!parsed.root || !parsed.main) return null;
+  const all = parsed.root.getAllSubcomponents('vevent');
+  const recurring = parsed.main.hasProperty('rrule') || parsed.main.hasProperty('rdate');
+  const starts = all
+    .map((vevent) => (recurring && vevent === parsed.main ? seriesBound(vevent, rangeStart) : startOf(vevent)))
+    .filter((start) => start !== null);
+  return starts.length ? Math.min(...starts) : null;
+}
+
+// The widest gap between a wall-clock time read in the host's zone and UTC:
+// offsets run from UTC-12 to UTC+14.
+const HOST_ZONE_SLACK = 26 * 3600 * 1000;
+
+/**
+ * The bound for a series: no occurrence in the range starts before the range
+ * does — as an instant. A floating DTSTART (or a TZID without its VTIMEZONE)
+ * is compared with the range as wall-clock time but keyed by instantOf in the
+ * host's zone, so its occurrence can key up to a zone offset earlier than the
+ * range start; the bound gives it that slack. Slack only means a few more
+ * candidates are resolved at the boundary.
+ */
+function seriesBound(master, rangeStart) {
+  const start = startOf(master);
+  if (start === null) return null;
+  const dtstart = master.getFirstProperty('dtstart');
+  const absolute = orNull(() => hasAbsoluteInstant(dtstart)) === true;
+  return Math.max(start, absolute ? rangeStart : rangeStart - HOST_ZONE_SLACK);
+}
+
+function startOf(vevent, time) {
+  const dtstart = vevent.getFirstProperty('dtstart');
+  if (!dtstart) return null;
+  const instant = orNull(() => instantOf(dtstart, time ?? dtstart.getFirstValue()));
+  return Number.isFinite(instant) ? instant : null;
+}

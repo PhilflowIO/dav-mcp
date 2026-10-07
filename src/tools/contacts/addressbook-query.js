@@ -2,6 +2,7 @@ import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, addressBookQuerySchema } from '../../validation.js';
 import { formatContactList } from '../../formatters.js';
 import { limitResults, DEFAULT_RESULT_LIMIT } from '../shared/helpers.js';
+import { parseObjects, textValues, contactNames, organizations, containsText, textKey } from '../shared/query-objects.js';
 
 /**
  * Search and filter contacts efficiently
@@ -56,31 +57,22 @@ export const addressbookQuery = {
       allVCards = allVCards.concat(vcards);
     }
 
-    let filteredContacts = allVCards;
+    // Client-side filtering on parsed values; see query-objects.js
+    let parsed = parseObjects(allVCards, 'vcard');
 
     if (validated.name_filter) {
-      const nameLower = validated.name_filter.toLowerCase();
-      filteredContacts = filteredContacts.filter(vcard => {
-        const fn = vcard.data?.match(/FN:(.+)/)?.[1] || '';
-        const n = vcard.data?.match(/N:(.+)/)?.[1] || '';
-        return fn.toLowerCase().includes(nameLower) || n.toLowerCase().includes(nameLower);
-      });
+      parsed = parsed.filter(({ main }) => containsText(contactNames(main), validated.name_filter));
     }
 
     if (validated.email_filter) {
-      const emailLower = validated.email_filter.toLowerCase();
-      filteredContacts = filteredContacts.filter(vcard => {
-        const email = vcard.data?.match(/EMAIL[^:]*:(.+)/)?.[1] || '';
-        return email.toLowerCase().includes(emailLower);
-      });
+      // a contact with several addresses matches on any of them
+      parsed = parsed.filter(({ main }) => containsText(textValues(main, 'email'), validated.email_filter));
     }
 
     if (validated.organization_filter) {
-      const orgLower = validated.organization_filter.toLowerCase();
-      filteredContacts = filteredContacts.filter(vcard => {
-        const org = vcard.data?.match(/ORG:(.+)/)?.[1] || '';
-        return org.toLowerCase().includes(orgLower);
-      });
+      // ORG is structured (name;unit;...); matched as the contact display shows it
+      parsed = parsed.filter(({ main }) =>
+        containsText(organizations(main), validated.organization_filter));
     }
 
     const addressBookName = addressbooksToSearch.length === 1
@@ -88,12 +80,11 @@ export const addressbookQuery = {
       : `All Address Books (${addressbooksToSearch.length})`;
 
     const { items, total } = limitResults(
-      filteredContacts,
+      parsed,
       validated.limit ?? DEFAULT_RESULT_LIMIT,
-      'FN',
-      'text'
+      (p) => textKey(p, 'fn')
     );
 
-    return formatContactList(items, addressBookName, total);
+    return formatContactList(items.map(({ object }) => object), addressBookName, total);
   },
 };

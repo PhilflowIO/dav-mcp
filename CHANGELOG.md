@@ -49,6 +49,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `update_todo` keeps a todo's dates coherent: setting DUE replaces a DURATION
   and the other way round, and a DUE that is not later than DTSTART, or not of
   the same kind (date vs. date-time), is rejected before anything is written.
+- `todo_query`, `calendar_query` and `addressbook_query` filter on parsed
+  values (#94). A summary, location, name or organization with a parameter
+  (`SUMMARY;LANGUAGE=de:`), folded across lines or containing an escaped
+  comma now matches; every EMAIL of a contact is searched, not just the
+  first; and `name_filter` no longer matches text from other lines (`vcard`
+  matched every contact). The filters read exactly what the list shows, so
+  an event is always listed with the text it was found by. With a time range,
+  `calendar_query` finds a recurring event by any occurrence inside the range
+  — one renamed or moved included — and lists the first occurrence that
+  matches, with its own title, place and date; summary and location must
+  match the same occurrence. Without a range only the series itself is
+  searched. A recurring todo is found and listed by its series, not by a
+  completed single occurrence. `status_filter` compares
+  case-insensitively, and the list shows `STATUS:completed` as COMPLETED.
+- Contacts exported with unnamed parameters (vCard 2.1 / Outlook / Android:
+  `EMAIL;PREF;INTERNET:`, `TEL;CELL:`) are shown with their name and fields
+  and found by `addressbook_query`; they appeared as "Unnamed Contact". A
+  one-part name (`N:Cher`) shows as "Cher", not "r h e C", and an
+  organization with an empty part reads "Acme, Sales", not "Acme, , Sales".
+- When a query result is capped, the earliest events are kept even if they
+  carry a timezone; the zone definition's 1970 start date was sorted on
+  instead, so the kept events were arbitrary. With a time range, a recurring
+  event is sorted by the occurrence it is listed as, not by when the series
+  began. A capped contact list says it shows the first contacts by name, not
+  "the earliest".
+- Range queries over long-running daily or weekly series no longer walk
+  every occurrence since the series began: 500 daily series since 2020 are
+  listed about five times faster than before.
 
 ### Changed
 - `create_todo` accepts a bare date for `due_date`, giving a todo due that day;

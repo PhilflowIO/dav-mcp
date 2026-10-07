@@ -34,6 +34,7 @@ const { updateTodoFields } = await import('../src/tools/todos/update-todo-fields
 const { updateEventFields } = await import('../src/tools/calendar/update-event-fields.js');
 const { calculateFreeBusy } = await import('../src/tools/shared/freebusy.js');
 const { dueSpan } = await import('../src/tools/shared/ical-dates.js');
+const { parseObjects } = await import('../src/tools/shared/query-objects.js');
 const { formatTodo, formatEvent } = await import('../src/formatters.js');
 const { readSeries } = await import('../src/ical-components.js');
 const { createToolErrorResponse, MCP_ERROR_CODES } = await import('../src/error-handler.js');
@@ -176,7 +177,9 @@ describe('readers show the master of an override-first object (#96)', () => {
 
   test('todo_query filters on the master DUE', () => {
     const data = calendar('VTODO', TODO_OVERRIDE, [...TODO_MASTER.filter((l) => !l.startsWith('DURATION')), 'DUE:20260928T090000Z']);
-    expect(dueSpan(data)).toEqual({
+    // the todo todo_query parses and filters on
+    const [{ main }] = parseObjects([{ data }], 'vtodo');
+    expect(dueSpan(main)).toEqual({
       start: Date.UTC(2026, 8, 28, 9), end: Date.UTC(2026, 8, 28, 9),
     });
   });
@@ -211,7 +214,8 @@ describe('several instances without a master (#96)', () => {
   test('reading does not throw: display, DUE filter and free/busy', () => {
     expect(formatTodo({ url: TODO_URL, data: todos })).toContain('Review (Oct 1)');
     expect(formatEvent({ url: EVENT_URL, data: events })).toContain('Review (Oct 1)');
-    expect(dueSpan(todos)?.start).toBe(Date.UTC(2026, 9, 1, 10));
+    const [{ main }] = parseObjects([{ data: todos }], 'vtodo');
+    expect(dueSpan(main)?.start).toBe(Date.UTC(2026, 9, 1, 10));
 
     // each detached instance is busy on its own
     const { busy } = calculateFreeBusy(

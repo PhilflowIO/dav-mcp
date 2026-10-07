@@ -10,61 +10,9 @@
  */
 
 import ICAL from 'ical.js';
-import { readSeries } from './ical-components.js';
-
-// A CalDAV server answers a time-range query with the master VEVENT of a
-// recurring series, not with the occurrences inside the range, so the series
-// has to be expanded here. The cost of expansion scales with the distance from
-// DTSTART to the start of the range rather than with the width of the range —
-// a FREQ=MINUTELY series starting in 1970 needs ~29M steps to reach 2026 — so
-// the walk is capped. Server-supplied data must not be able to stall the loop.
-const MAX_RECURRENCE_ITERATIONS = 10000;
-
-/**
- * Convert a queried time range into ICAL.Time bounds.
- *
- * Goes through Date so that every form the schema accepts — with or without
- * milliseconds, "Z" or a "+02:00" offset — lands on the same absolute instant.
- * ICAL.Time.fromDateTimeString would silently treat an offset form as floating.
- */
-function toICALRange(timeRange) {
-  if (!timeRange?.start || !timeRange?.end) return null;
-
-  const start = new Date(timeRange.start);
-  const end = new Date(timeRange.end);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
-
-  return {
-    start: ICAL.Time.fromJSDate(start, true),
-    end: ICAL.Time.fromJSDate(end, true),
-  };
-}
-
-/**
- * Find the first occurrence of a recurring event inside the queried range.
- *
- * Returns null when the series has no occurrence there — the caller must say so
- * rather than fall back to the master DTSTART, which is the wrong-date bug this
- * whole path exists to fix.
- */
-function firstOccurrenceInRange(event, range) {
-  const expand = new ICAL.RecurExpansion({
-    component: event.component,
-    dtstart: event.startDate,
-  });
-
-  for (let step = 0; step < MAX_RECURRENCE_ITERATIONS; step++) {
-    const next = expand.next();
-    if (!next) return { occurrence: null };
-    if (next.compare(range.end) > 0) return { occurrence: null };
-    if (next.compare(range.start) >= 0) {
-      return { occurrence: event.getOccurrenceDetails(next) };
-    }
-  }
-
-  console.error(`Recurrence expansion gave up after ${MAX_RECURRENCE_ITERATIONS} occurrences`);
-  return { occurrence: null, truncated: true };
-}
+import { readVCard, nameComponents, organizationText } from './vcard.js';
+import { readSeries, shownEvent, todoStatus } from './ical-components.js';
+import { shareTimezones } from './tools/shared/ical-dates.js';
 
 /**
  * Parse iCal data string to extract event properties (RFC 5545 compliant)
@@ -72,39 +20,15 @@ function firstOccurrenceInRange(event, range) {
  * When a time range is given, a recurring series resolves to the occurrence
  * inside that range, including any RECURRENCE-ID override of it.
  */
-function parseICalEvent(icalData, timeRange = null) {
+function parseICalEvent(icalData, timeRange = null, matches = null, resolved = null) {
   try {
-    const jcalData = ICAL.parse(icalData);
-    const comp = new ICAL.Component(jcalData);
-    // Overrides are siblings of the master in the same calendar object; taking
-    // the first VEVENT would pick one of them at the server's whim. readSeries
-    // picks the component update_event writes (see src/ical-components.js).
-    const series = readSeries(comp, 'vevent');
-    if (!series) {
+    // the occurrence calendar_query's text filters read too (see shownEvent);
+    // resolved there already for a listed event
+    const shown = resolved ?? shownEvent(shareTimezones(new ICAL.Component(ICAL.parse(icalData))), timeRange, matches);
+    if (!shown) {
       return {};
     }
-
-    const vevent = series.master;
-    const event = new ICAL.Event(vevent);
-    for (const override of series.overrides) {
-      event.relateException(override);
-    }
-
-    let occurrence = null;
-    let outsideRange = false;
-    let expansionTruncated = false;
-
-    if (event.isRecurring()) {
-      const range = toICALRange(timeRange);
-      if (range) {
-        const result = firstOccurrenceInRange(event, range);
-        occurrence = result.occurrence;
-        expansionTruncated = Boolean(result.truncated);
-        outsideRange = !occurrence && !expansionTruncated;
-      }
-    }
-
-    const item = occurrence ? occurrence.item : event;
+    const { vevent, event, occurrence, item, outsideRange, expansionTruncated } = shown;
 
     return {
       summary: item.summary || '',
@@ -141,8 +65,7 @@ function parseICalEvent(icalData, timeRange = null) {
  */
 function parseVCard(vcardData) {
   try {
-    const jcard = ICAL.parse(vcardData);
-    const vcard = new ICAL.Component(jcard);
+    const vcard = readVCard(vcardData);
 
     const contact = {
       fullName: vcard.getFirstPropertyValue('fn') || '',
@@ -152,12 +75,12 @@ function parseVCard(vcardData) {
     // Parse structured name (N property)
     const n = vcard.getFirstProperty('n');
     if (n) {
-      const nameValue = n.getFirstValue();
-      contact.familyName = nameValue[0] || '';
-      contact.givenName = nameValue[1] || '';
-      contact.additionalNames = nameValue[2] || '';
-      contact.honorificPrefixes = nameValue[3] || '';
-      contact.honorificSuffixes = nameValue[4] || '';
+      const name = nameComponents(n);
+      contact.familyName = name.family;
+      contact.givenName = name.given;
+      contact.additionalNames = name.additional;
+      contact.honorificPrefixes = name.prefix;
+      contact.honorificSuffixes = name.suffix;
     }
 
     // Parse all emails
@@ -165,7 +88,7 @@ function parseVCard(vcardData) {
     if (emails && emails.length > 0) {
       contact.emails = emails.map(e => ({
         value: e.getFirstValue(),
-        type: e.getParameter('type') ? [e.getParameter('type')] : [],
+        type: [e.getParameter('type') ?? []].flat(),
       }));
     }
 
@@ -174,7 +97,7 @@ function parseVCard(vcardData) {
     if (tels && tels.length > 0) {
       contact.phones = tels.map(t => ({
         value: t.getFirstValue(),
-        type: t.getParameter('type') ? [t.getParameter('type')] : [],
+        type: [t.getParameter('type') ?? []].flat(),
       }));
     }
 
@@ -191,7 +114,7 @@ function parseVCard(vcardData) {
           region: adrValue[4] || '',
           postalCode: adrValue[5] || '',
           country: adrValue[6] || '',
-          type: a.getParameter('type') ? [a.getParameter('type')] : [],
+          type: [a.getParameter('type') ?? []].flat(),
         };
       });
     }
@@ -199,8 +122,7 @@ function parseVCard(vcardData) {
     // Parse organization
     const org = vcard.getFirstProperty('org');
     if (org) {
-      const orgValue = org.getFirstValue();
-      contact.organization = Array.isArray(orgValue) ? orgValue.join(', ') : orgValue;
+      contact.organization = organizationText(org);
     }
 
     // Parse note
@@ -277,10 +199,12 @@ export function stripBinaryValues(data) {
  *
  * Silent truncation reads as "this is everything", which is exactly the wrong
  * thing to hand a model that is deciding whether it has enough to answer.
+ * `which` names the part shown, after the order the query sorted by: events
+ * and todos by date, contacts by name.
  */
-function foundLine(noun, shown, total) {
+function foundLine(noun, shown, total, which = `the ${shown} earliest`) {
   if (!total || total <= shown) return `Found ${noun}: **${shown}**\n\n`;
-  return `Found ${noun}: **${shown}** of ${total} (showing the ${shown} earliest — raise \`limit\` or narrow the query to see the rest)\n\n`;
+  return `Found ${noun}: **${shown}** of ${total} (showing ${which} — raise \`limit\` or narrow the query to see the rest)\n\n`;
 }
 
 /**
@@ -415,9 +339,9 @@ function formatDateTime(icalTime) {
 /**
  * Format a single calendar event to Markdown
  */
-export function formatEvent(event, calendar = 'Unknown Calendar', timeRange = null) {
+export function formatEvent(event, calendar = 'Unknown Calendar', timeRange = null, matches = null, shown = null) {
   const calendarName = collectionName(calendar, 'Unknown Calendar');
-  const parsed = parseICalEvent(event.data, timeRange);
+  const parsed = parseICalEvent(event.data, timeRange, matches, shown);
 
   const startDate = formatDateTime(parsed.dtstart);
   const endDate = formatDateTime(parsed.dtend);
@@ -483,8 +407,13 @@ export function formatEvent(event, calendar = 'Unknown Calendar', timeRange = nu
 
 /**
  * Format a list of calendar events to LLM-friendly Markdown
+ *
+ * `matches` is calendar_query's search: with a time range, each recurring
+ * event is listed as the first occurrence in the range that the search
+ * found (see shownEvent). `shown` hands over what the query already
+ * resolved per event (a Map from the event object to shownEvent's result).
  */
-export function formatEventList(events, calendar = 'Unknown Calendar', timeRange = null, total = null) {
+export function formatEventList(events, calendar = 'Unknown Calendar', timeRange = null, total = null, matches = null, shown = null) {
   const calendarName = collectionName(calendar, 'Unknown Calendar');
 
   if (!events || events.length === 0) {
@@ -500,7 +429,7 @@ export function formatEventList(events, calendar = 'Unknown Calendar', timeRange
 
   events.forEach((event, index) => {
     output += `### ${index + 1}. `;
-    output += formatEvent(event, calendarName, timeRange).replace(/^## /, '') + '\n';
+    output += formatEvent(event, calendarName, timeRange, matches, shown?.get(event)).replace(/^## /, '') + '\n';
   });
 
   output += `---\n<details>\n<summary>Raw Data (JSON)</summary>\n\n\`\`\`json\n`;
@@ -618,7 +547,7 @@ export function formatContactList(contacts, addressBook = 'Unknown Address Book'
     };
   }
 
-  let output = foundLine('contacts', contacts.length, total);
+  let output = foundLine('contacts', contacts.length, total, `the first ${contacts.length} by name`);
 
   contacts.forEach((contact, index) => {
     output += `### ${index + 1}. `;
@@ -888,7 +817,7 @@ function parseVTodo(icalData) {
       uid: vtodo.getFirstPropertyValue('uid') || '',
       summary: vtodo.getFirstPropertyValue('summary') || '',
       description: vtodo.getFirstPropertyValue('description') || '',
-      status: vtodo.getFirstPropertyValue('status') || 'NEEDS-ACTION',
+      status: todoStatus(vtodo),
       priority: vtodo.getFirstPropertyValue('priority') || 0,
       percentComplete: vtodo.getFirstPropertyValue('percent-complete') || 0,
       due: vtodo.getFirstPropertyValue('due'),

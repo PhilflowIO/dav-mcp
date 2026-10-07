@@ -1,6 +1,5 @@
 import ICAL from 'ical.js';
 import { updateFields, seriesMaster } from 'tsdav-utils';
-import { readSeries } from '../../ical-components.js';
 
 /**
  * Every property dav-mcp writes onto a calendar object or vCard goes through
@@ -167,25 +166,44 @@ export function toInstant(icalTime) {
 
 /**
  * The span a todo's DUE covers, for range queries: an instant for a
- * date-time, the whole UTC day for a date (see toInstant). null when the todo
- * has no DUE or does not parse.
+ * date-time, the whole UTC day for a date (see toInstant). null when there is
+ * no todo or it has no DUE.
  *
- * @param {string} iCalString
+ * @param {ICAL.Component|null} vtodo - a parsed VTODO (see query-objects.js)
  * @returns {{start: number, end: number} | null}
  */
-export function dueSpan(iCalString) {
-  // one malformed todo must not fail the query for all the others
-  try {
-    // the todo a range query matches is the one shown and edited: the master
-    const vtodo = readSeries(new ICAL.Component(ICAL.parse(iCalString)), 'vtodo')?.master;
-    const property = vtodo?.getFirstProperty('due');
-    if (!property) return null;
-    const due = property.getFirstValue();
-    const start = absoluteInstant(property) ?? toInstant(due);
-    return { start, end: due.isDate ? start + 86400000 : start };
-  } catch {
-    return null;
-  }
+export function dueSpan(vtodo) {
+  const property = vtodo?.getFirstProperty('due');
+  if (!property) return null;
+  const start = instantOf(property);
+  return { start, end: property.getFirstValue().isDate ? start + 86400000 : start };
+}
+
+/**
+ * The instant a date or date-time property stands for: resolved against the
+ * document's own VTIMEZONE where it names one, otherwise as toInstant reads it.
+ *
+ * `value` reads another time in the property's frame — an occurrence of a
+ * recurring DTSTART, which keeps its TZID.
+ *
+ * @param {ICAL.Property} property
+ * @param {ICAL.Time} [value] - defaults to the property's own value
+ * @returns {number} milliseconds since the epoch
+ */
+export function instantOf(property, value = property.getFirstValue()) {
+  return absoluteInstant(property, value) ?? toInstant(value);
+}
+
+/**
+ * Does the property name an instant on its own — UTC, a date (read as its
+ * UTC day), or a TZID whose VTIMEZONE is in the document? If not (a floating
+ * time, a TZID without its VTIMEZONE), instantOf reads it in the host's zone.
+ *
+ * @param {ICAL.Property} property
+ * @returns {boolean}
+ */
+export function hasAbsoluteInstant(property) {
+  return absoluteInstant(property) !== null;
 }
 
 /**
@@ -193,9 +211,8 @@ export function dueSpan(iCalString) {
  * this document does not define: a floating value, or a TZID without its
  * VTIMEZONE. A date is its UTC day start, as in toInstant.
  */
-function absoluteInstant(property) {
-  const value = property.getFirstValue();
-  if (property.type === 'date') return toInstant(value);
+function absoluteInstant(property, value = property.getFirstValue()) {
+  if (property.type === 'date' || value.isDate) return toInstant(value);
   const tzid = property.getParameter('tzid');
   if (!tzid) {
     return /Z$/i.test(String(property.toJSON()[3])) ? value.toUnixTime() * 1000 : null;
@@ -208,8 +225,61 @@ function absoluteInstant(property) {
   const local = new ICAL.Time({
     year: value.year, month: value.month, day: value.day,
     hour: value.hour, minute: value.minute, second: value.second,
-  }, new ICAL.Timezone(vtimezone));
+  }, timezoneFor(vtimezone));
   return local.toUnixTime() * 1000;
+}
+
+/**
+ * Make a parsed VCALENDAR resolve its TZIDs to the shared zones of
+ * timezoneFor.
+ *
+ * ical.js resolves a TZID through the root component's getTimeZoneByID, which
+ * hydrates a new ICAL.Timezone per parsed object — and a new zone recomputes
+ * its offset changes since 1970 on first use (~1 ms). Every time a recurring
+ * event is expanded or compared paid that once per object. Overriding the
+ * lookup on the root makes every date-time in the document use the zone
+ * built once per definition.
+ *
+ * @param {ICAL.Component} root - a freshly parsed VCALENDAR
+ * @returns {ICAL.Component} the same component
+ */
+export function shareTimezones(root) {
+  const zones = root.getAllSubcomponents('vtimezone');
+  if (zones.length === 0) return root;
+  root.getTimeZoneByID = (tzid) => {
+    const vtimezone = zones.find((zone) => zone.getFirstPropertyValue('tzid') === tzid);
+    return vtimezone ? timezoneFor(vtimezone) : null;
+  };
+  return root;
+}
+
+/**
+ * The ICAL.Timezone for a VTIMEZONE, built once per definition.
+ *
+ * A new ICAL.Timezone starts with an empty cache of its UTC-offset changes and
+ * recomputes them from the zone's first DTSTART (1970 for most) on its first
+ * conversion — several milliseconds each. A query over 2000 events in the same
+ * zone did that 2000 times. Every calendar object carries its own copy of the
+ * VTIMEZONE, so the cache is keyed by the definition's text: identical
+ * definitions share one zone, and a different definition under the same TZID
+ * still gets its own. Bounded, since the definitions come from the server.
+ */
+const timezonesByDefinition = new Map();
+const timezonesByComponent = new WeakMap();
+const MAX_CACHED_TIMEZONES = 64;
+
+export function timezoneFor(vtimezone) {
+  let zone = timezonesByComponent.get(vtimezone);
+  if (zone) return zone;
+  const definition = JSON.stringify(vtimezone.toJSON());
+  zone = timezonesByDefinition.get(definition);
+  if (!zone) {
+    if (timezonesByDefinition.size >= MAX_CACHED_TIMEZONES) timezonesByDefinition.clear();
+    zone = new ICAL.Timezone(vtimezone);
+    timezonesByDefinition.set(definition, zone);
+  }
+  timezonesByComponent.set(vtimezone, zone);
+  return zone;
 }
 
 /**

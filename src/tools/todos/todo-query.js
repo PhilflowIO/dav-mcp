@@ -3,6 +3,8 @@ import { validateInput, todoQuerySchema } from '../../validation.js';
 import { formatTodoList } from '../../formatters.js';
 import { limitResults, DEFAULT_RESULT_LIMIT } from '../shared/helpers.js';
 import { dueSpan } from '../shared/ical-dates.js';
+import { todoStatus } from '../../ical-components.js';
+import { parseObjects, textValues, containsText, dateKey, orNull } from '../shared/query-objects.js';
 
 /**
  * Search and filter todos efficiently
@@ -68,30 +70,28 @@ export const todoQuery = {
       todos = todos.concat(calendarTodos);
     }
 
-    // Client-side filtering (tsdav doesn't support server-side VTODO filtering yet)
+    // Client-side filtering (tsdav doesn't support server-side VTODO filtering
+    // yet), on parsed values; see query-objects.js
+    let parsed = parseObjects(todos, 'vtodo');
+
     if (validated.summary_filter) {
-      const summaryLower = validated.summary_filter.toLowerCase();
-      todos = todos.filter(todo => {
-        const summary = todo.data?.match(/SUMMARY:(.+)/)?.[1] || '';
-        return summary.toLowerCase().includes(summaryLower);
-      });
+      parsed = parsed.filter(({ main }) =>
+        containsText(textValues(main, 'summary'), validated.summary_filter));
     }
 
     if (validated.status_filter) {
-      todos = todos.filter(todo => {
-        const status = todo.data?.match(/STATUS:(.+)/)?.[1] || 'NEEDS-ACTION';
-        return status === validated.status_filter;
-      });
+      // the master's status, read as the todo display reads it
+      parsed = parsed.filter(({ main }) => Boolean(main) && todoStatus(main) === validated.status_filter);
     }
 
     if (validated.time_range_start && validated.time_range_end) {
       const startTime = new Date(validated.time_range_start).getTime();
       const endTime = new Date(validated.time_range_end).getTime();
 
-      // Parsed, not pattern-matched: a DUE can be a DATE (an all-day todo,
-      // which covers its whole day), carry a TZID, or be folded
-      todos = todos.filter(todo => {
-        const due = todo.data ? dueSpan(todo.data) : null;
+      // A DUE can be a DATE (an all-day todo, which covers its whole day) or
+      // carry a TZID
+      parsed = parsed.filter(({ main }) => {
+        const due = orNull(() => dueSpan(main));
         return Boolean(due) && due.start <= endTime && due.end >= startTime;
       });
     }
@@ -102,11 +102,11 @@ export const todoQuery = {
       : `All Calendars (${calendarsToSearch.length})`;
 
     const { items, total } = limitResults(
-      todos,
+      parsed,
       validated.limit ?? DEFAULT_RESULT_LIMIT,
-      'DUE'
+      (p) => dateKey(p, 'due')
     );
 
-    return formatTodoList(items, calendarName, total);
+    return formatTodoList(items.map(({ object }) => object), calendarName, total);
   },
 };

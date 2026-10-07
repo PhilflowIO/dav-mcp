@@ -1,5 +1,8 @@
 import { describe, test, expect, beforeEach, jest } from '@jest/globals';
 import { limitResults, DEFAULT_RESULT_LIMIT } from '../src/tools/shared/helpers.js';
+import ICAL from 'ical.js';
+import { parseObjects, dateKey, textKey } from '../src/tools/shared/query-objects.js';
+import { timezoneFor } from '../src/tools/shared/ical-dates.js';
 
 const CALENDAR_URL = 'https://dav.example.com/calendars/user/work/';
 const ADDRESSBOOK_URL = 'https://dav.example.com/addressbooks/user/default/';
@@ -52,10 +55,39 @@ const contact = (name) => ({
   ].join('\r\n'),
 });
 
+// limitResults sorts what the query tools have parsed; these helpers do the
+// same parse and key the tools do
+const byStart = (objects, limit) => {
+  const { items, total } = limitResults(
+    parseObjects(objects, 'vevent'), limit, (p) => dateKey(p, 'dtstart')
+  );
+  return { urls: items.map(({ object }) => object.url), total };
+};
+
+const BERLIN = [
+  'BEGIN:VTIMEZONE', 'TZID:Europe/Berlin',
+  'BEGIN:DAYLIGHT', 'TZOFFSETFROM:+0100', 'TZOFFSETTO:+0200', 'TZNAME:CEST',
+  'DTSTART:19700329T020000', 'RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU', 'END:DAYLIGHT',
+  'BEGIN:STANDARD', 'TZOFFSETFROM:+0200', 'TZOFFSETTO:+0100', 'TZNAME:CET',
+  'DTSTART:19701025T030000', 'RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU', 'END:STANDARD',
+  'END:VTIMEZONE',
+];
+
+const berlinEvent = (name, localStart) => ({
+  url: `${CALENDAR_URL}${name}.ics`,
+  etag: '"1"',
+  data: [
+    'BEGIN:VCALENDAR', 'VERSION:2.0', ...BERLIN,
+    'BEGIN:VEVENT', `UID:${name}@example.com`,
+    `DTSTART;TZID=Europe/Berlin:${localStart}`, 'SUMMARY:Standup',
+    'END:VEVENT', 'END:VCALENDAR',
+  ].join('\r\n'),
+});
+
 describe('limitResults', () => {
   test('returns everything when under the limit', () => {
     const items = [event(3), event(1), event(2)];
-    const { items: result, total } = limitResults(items, 20, 'DTSTART');
+    const { items: result, total } = limitResults(items, 20, () => null);
     expect(total).toBe(3);
     expect(result).toHaveLength(3);
     // untouched, so no needless reordering of a set that fits
@@ -63,9 +95,9 @@ describe('limitResults', () => {
   });
 
   test('sorts by date before truncating', () => {
-    const { items, total } = limitResults([event(9), event(3), event(21), event(1)], 2, 'DTSTART');
+    const { urls, total } = byStart([event(9), event(3), event(21), event(1)], 2);
     expect(total).toBe(4);
-    expect(items.map(i => i.url)).toEqual([`${CALENDAR_URL}1.ics`, `${CALENDAR_URL}3.ics`]);
+    expect(urls).toEqual([`${CALENDAR_URL}1.ics`, `${CALENDAR_URL}3.ics`]);
   });
 
   test('a DATE and a DATE-TIME sort against each other correctly', () => {
@@ -74,26 +106,61 @@ describe('limitResults', () => {
       etag: '"1"',
       data: 'BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART;VALUE=DATE:20260502\r\nEND:VEVENT\r\nEND:VCALENDAR',
     };
-    const { items } = limitResults([event(9), allDay, event(21)], 2, 'DTSTART');
-    expect(items.map(i => i.url)).toEqual([`${CALENDAR_URL}allday.ics`, `${CALENDAR_URL}9.ics`]);
+    const { urls } = byStart([event(9), allDay, event(21)], 2);
+    expect(urls).toEqual([`${CALENDAR_URL}allday.ics`, `${CALENDAR_URL}9.ics`]);
   });
 
-  test('objects missing the property sort last, not first', () => {
+  test("the event's DTSTART is the key, not the VTIMEZONE's that comes first", () => {
+    // every VTIMEZONE starts in 1970; a pattern over the raw text read that,
+    // so all zoned events tied and the cap kept an arbitrary few
+    const { urls } = byStart(
+      [berlinEvent('late', '20260520T090000'), event(9), berlinEvent('early', '20260502T090000')], 2
+    );
+    expect(urls).toEqual([`${CALENDAR_URL}early.ics`, `${CALENDAR_URL}9.ics`]);
+  });
+
+  test('a TZID resolves to its instant before comparing', () => {
+    // 10:30 in Berlin (CEST) is 08:30Z, before 09:00Z on the same day
+    const utcNine = {
+      url: `${CALENDAR_URL}utc.ics`,
+      etag: '"1"',
+      data: 'BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART:20260502T090000Z\r\nEND:VEVENT\r\nEND:VCALENDAR',
+    };
+    const { urls } = byStart([utcNine, berlinEvent('berlin', '20260502T103000')], 1);
+    expect(urls).toEqual([`${CALENDAR_URL}berlin.ics`]);
+  });
+
+  test('objects missing the property, or not parsing, sort last', () => {
     const undated = { url: `${CALENDAR_URL}none.ics`, etag: '"1"', data: 'BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nSUMMARY:No date\r\nEND:VEVENT\r\nEND:VCALENDAR' };
-    const { items } = limitResults([undated, event(9), event(3)], 2, 'DTSTART');
-    expect(items.map(i => i.url)).toEqual([`${CALENDAR_URL}3.ics`, `${CALENDAR_URL}9.ics`]);
+    const broken = { url: `${CALENDAR_URL}broken.ics`, etag: '"1"', data: 'not ical' };
+    const { urls } = byStart([undated, broken, event(9), event(3)], 2);
+    expect(urls).toEqual([`${CALENDAR_URL}3.ics`, `${CALENDAR_URL}9.ics`]);
   });
 
   test('sorts text properties alphabetically, case-insensitively', () => {
     const { items } = limitResults(
-      [contact('Zoe'), contact('ada'), contact('Bob')], 2, 'FN', 'text'
+      parseObjects([contact('Zoe'), contact('ada'), contact('Bob')], 'vcard'), 2, (p) => textKey(p, 'fn')
     );
-    expect(items.map(i => i.url)).toEqual([`${ADDRESSBOOK_URL}ada.vcf`, `${ADDRESSBOOK_URL}Bob.vcf`]);
+    expect(items.map(({ object }) => object.url))
+      .toEqual([`${ADDRESSBOOK_URL}ada.vcf`, `${ADDRESSBOOK_URL}Bob.vcf`]);
+  });
+
+  test('a folded FN sorts by its whole value', () => {
+    const folded = {
+      url: `${ADDRESSBOOK_URL}folded.vcf`,
+      etag: '"1"',
+      data: 'BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Zz\r\n top\r\nEND:VCARD',
+    };
+    const { items } = limitResults(
+      parseObjects([contact('Zzb'), folded], 'vcard'), 1, (p) => textKey(p, 'fn')
+    );
+    // "Zztop" > "Zzb"; the raw first line "Zz" sorted before it
+    expect(items.map(({ object }) => object.url)).toEqual([`${ADDRESSBOOK_URL}Zzb.vcf`]);
   });
 
   test('does not mutate the input', () => {
     const items = [event(9), event(3)];
-    limitResults(items, 1, 'DTSTART');
+    limitResults(parseObjects(items, 'vevent'), 1, (p) => dateKey(p, 'dtstart'));
     expect(items[0].url).toBe(`${CALENDAR_URL}9.ics`);
   });
 });
@@ -169,5 +236,35 @@ describe('query tools cap their results', () => {
       summary_filter: 'Standup',
       limit: 0,
     })).rejects.toThrow(/limit/);
+  });
+});
+
+describe('timezones are built once per definition', () => {
+  const vtimezoneOf = (object) =>
+    new ICAL.Component(ICAL.parse(object.data)).getFirstSubcomponent('vtimezone');
+
+  test('two objects with the same VTIMEZONE share one ICAL.Timezone', () => {
+    const a = vtimezoneOf(berlinEvent('a', '20260502T090000'));
+    const b = vtimezoneOf(berlinEvent('b', '20260601T090000'));
+    expect(a).not.toBe(b);
+    expect(timezoneFor(a)).toBe(timezoneFor(b));
+  });
+
+  test('a different definition under the same TZID gets its own zone', () => {
+    const berlin = vtimezoneOf(berlinEvent('a', '20260502T090000'));
+    const shifted = vtimezoneOf({
+      data: berlinEvent('b', '20260502T090000').data.replaceAll('+0200', '+0300'),
+    });
+    expect(timezoneFor(shifted)).not.toBe(timezoneFor(berlin));
+  });
+
+  test('date-times in parsed objects resolve to the shared zone', () => {
+    // ical.js would hydrate a fresh zone per object, recomputing its offset
+    // changes since 1970 (~1 ms) each time a series is expanded or compared.
+    // Timings are measured in the PR, not asserted: they depend on the host.
+    const [a, b] = parseObjects([berlinEvent('a', '20260502T090000'), berlinEvent('b', '20260601T090000')], 'vevent');
+    const zoneOf = (parsed) => parsed.main.getFirstPropertyValue('dtstart').zone;
+    expect(zoneOf(a)).toBe(zoneOf(b));
+    expect(zoneOf(a)).toBe(timezoneFor(a.root.getFirstSubcomponent('vtimezone')));
   });
 });
