@@ -8,8 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
-- **`npx -y dav-mcp` starts on npm 12** (#100). npm 12 (Node.js 26) refuses
-  git and remote-tarball dependencies by default, and dav-mcp installed tsdav
+- **`npx -y dav-mcp` starts on npm 12** (#100). npm 12 refuses git and
+  remote-tarball dependencies by default, and dav-mcp installed tsdav
   from a GitHub Release tarball and tsdav-utils from git, so `npx` failed with
   `EALLOWREMOTE` before the server started. Both now come from the npm registry
   as `@philflow/tsdav` 2.4.0 and `@philflow/tsdav-utils` 0.4.1, installed under
