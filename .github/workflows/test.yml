@@ -170,7 +170,7 @@ jobs:
         run: npm test
 
       # What a user runs: npx resolves dependencies from package.json, without
-      # our lockfile, in a directory without our .npmrc. The server must
+      # our lockfile. The server must
       # answer initialize and tools/list; the DAV server is unreachable on
       # purpose, the server connects on the first tool call.
       - name: Start the packed package through npx
