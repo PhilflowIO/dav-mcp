@@ -118,6 +118,21 @@ jobs:
           echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
           echo "✅ Tag $GITHUB_REF_NAME matches $NAME@$VERSION (prerelease: $PRERELEASE)"
 
+      # npm runs these around `npm pack`, and npm 10 runs `prepare` even with
+      # --ignore-scripts. The package is shipped as committed, so a script that
+      # could rewrite it before packing is refused, whatever npm would do.
+      - name: Check package.json defines no pack lifecycle scripts
+        run: |
+          SCRIPTS=$(node -p '
+            const s = require("./package.json").scripts ?? {};
+            ["prepare", "prepack", "postpack", "pack"].filter(k => k in s).join(" ")')
+          if [ -n "$SCRIPTS" ]; then
+            echo "❌ ERROR: package.json defines lifecycle scripts that run around npm pack: $SCRIPTS"
+            echo "   The release is packed from the committed files; remove them, or build into the committed tree instead."
+            exit 1
+          fi
+          echo "✅ no prepare, prepack, postpack or pack script"
+
       # Only for `node` and `npm pack`; no dependency is installed in this
       # job, so no dependency code runs before the tarball and its sha256
       # exist.
