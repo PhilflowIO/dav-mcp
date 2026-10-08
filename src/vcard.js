@@ -81,19 +81,19 @@ function isVersion21(lines, begin) {
  * The content lines: folded lines (CRLF + space) and quoted-printable soft
  * line breaks (`=` at the end, whitespace after it allowed by RFC 2045)
  * joined. Linear in the size of the card: each physical line is looked at
- * once, and whether a line is quoted-printable is decided once per line.
+ * once — the parameter list is scanned as its lines arrive, even when it
+ * runs on over thousands of them, and whether a line is quoted-printable is
+ * decided once, when that list has ended.
  */
 function unfold(data) {
   const lines = [];
   let parts = null;
+  let header = null;
   let quotedPrintable = null; // unknown until the parameter list has ended
 
   const isQuotedPrintableLine = () => {
-    if (quotedPrintable === null) {
-      const parsed = parseContentLine(parts.join(''));
-      if (!parsed) return false; // parameters still running on
-      quotedPrintable = isQuotedPrintable(parsed.parameters);
-    }
+    if (!header.ended) return false; // parameters still running on
+    quotedPrintable ??= isQuotedPrintable(header.parameters);
     return quotedPrintable;
   };
 
@@ -108,11 +108,14 @@ function unfold(data) {
       }
       if (/^[ \t]/.test(physical)) {
         parts.push(physical.slice(1));
+        if (!header.ended) header.read(physical.slice(1));
         continue;
       }
       lines.push(parts.join(''));
     }
     parts = [physical];
+    header = new HeaderScan();
+    header.read(physical);
     quotedPrintable = null;
   }
   if (parts) lines.push(parts.join(''));
@@ -144,34 +147,58 @@ function startsContentLine(physical) {
 }
 
 /**
+ * The head of a content line, `NAME;PARAM;…:`, read piece by piece: it ends
+ * at the first colon outside a quoted parameter value. Each character is
+ * read once, however many pieces the head arrives in.
+ */
+class HeaderScan {
+  ended = false;
+  nameLength = 0;
+  parameters = [];
+  #inName = true;
+  #quoted = false;
+  #current = '';
+
+  /**
+   * @param {string} text - the next piece of the line
+   * @returns {number} where in `text` the head ended (its colon), or -1
+   */
+  read(text) {
+    for (let i = 0; i < text.length && !this.ended; i++) {
+      const char = text[i];
+      if (this.#inName) {
+        if (char === ':') this.ended = true;
+        else if (char === ';') this.#inName = false;
+        else this.nameLength++;
+        if (this.ended) return i;
+        continue;
+      }
+      if (char === '"') this.#quoted = !this.#quoted;
+      if (!this.#quoted && (char === ';' || char === ':')) {
+        if (this.#current !== '') this.parameters.push(this.#current);
+        this.#current = '';
+        if (char === ':') {
+          this.ended = true;
+          return i;
+        }
+      } else {
+        this.#current += char;
+      }
+    }
+    return -1;
+  }
+}
+
+/**
  * `NAME;PARAM;…:value` split at the first colon outside a quoted parameter
- * value, or null for a line without a value.
+ * value, or null for a line without a value (not a content line ical.js can
+ * read anyway).
  */
 function parseContentLine(line) {
-  const semicolon = line.indexOf(';');
-  const colon = line.indexOf(':');
-  if (colon === -1 && semicolon === -1) return null;
-  if (semicolon === -1 || (colon !== -1 && colon < semicolon)) {
-    return { name: line.slice(0, colon), parameters: [], value: line.slice(colon + 1) };
-  }
-
-  const parameters = [];
-  let current = '';
-  let quoted = false;
-  for (let i = semicolon + 1; i < line.length; i++) {
-    const char = line[i];
-    if (char === '"') quoted = !quoted;
-    if (!quoted && (char === ';' || char === ':')) {
-      if (current !== '') parameters.push(current);
-      current = '';
-      if (char === ':') {
-        return { name: line.slice(0, semicolon), parameters, value: line.slice(i + 1) };
-      }
-    } else {
-      current += char;
-    }
-  }
-  return null; // no value: not a content line ical.js can read anyway
+  const header = new HeaderScan();
+  const colon = header.read(line);
+  if (colon === -1) return null;
+  return { name: line.slice(0, header.nameLength), parameters: header.parameters, value: line.slice(colon + 1) };
 }
 
 /**

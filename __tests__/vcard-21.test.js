@@ -97,6 +97,17 @@ describe('update_contact on a vCard 2.1 card', () => {
     expect(written).toContain('PHOTO;TYPE=JPEG;ENCODING=b:AAAABBBB');
   });
 
+  test('a 3.0 card with bare parameters and quoted-printable can be edited', async () => {
+    // updateFields used to throw "Missing parameter value" on TEL;CELL;VOICE
+    storedCard = ['BEGIN:VCARD', 'VERSION:3.0', 'UID:card-1',
+      'FN;CHARSET=UTF-8;ENCODING=QUOTED-PRINTABLE:J=C3=BCrgen', 'TEL;CELL;VOICE:+49 1', 'END:VCARD'].join('\r\n');
+    const written = await update({ TITLE: 'Chef' });
+    expect(written).not.toMatch(/ENCODING|CHARSET/);
+    const card = parsed(written);
+    expect(card.getFirstPropertyValue('fn')).toBe('Jürgen');
+    expect(card.getFirstProperty('tel').getParameter('type')).toEqual(['CELL', 'VOICE']);
+  });
+
   test('a 3.0 card keeps its version', async () => {
     storedCard = ['BEGIN:VCARD', 'VERSION:3.0', 'UID:card-1', 'FN:Ann', 'N:Lee\\, Jr.;Ann', 'END:VCARD'].join('\r\n');
     const card = parsed(await update({ TITLE: 'Chef' }));
@@ -147,6 +158,18 @@ describe('reading a vCard 2.1 card', () => {
 
     const started = performance.now();
     expect(readVCard(card).getFirstPropertyValue('fn')).toBe('Big');
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
+  test('a parameter list folded over 8000 lines is read in linear time', () => {
+    // each line used to rescan the whole parameter list so far: 70 s here
+    const lines = ['X-A;' + 'p'.repeat(70) + '='];
+    for (let i = 0; i < 8000; i++) lines.push(' ' + 'q'.repeat(70) + '=');
+    lines.push(' :v');
+    const card = ['BEGIN:VCARD', 'VERSION:3.0', 'FN:Long', ...lines, 'END:VCARD'].join('\r\n');
+
+    const started = performance.now();
+    expect(readVCard(card).getFirstPropertyValue('fn')).toBe('Long');
     expect(performance.now() - started).toBeLessThan(1000);
   });
 });
