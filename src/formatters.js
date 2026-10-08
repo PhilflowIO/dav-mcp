@@ -35,6 +35,7 @@ function parseICalEvent(icalData, timeRange = null, matches = null, resolved = n
       summary: item.summary || '',
       description: item.description || '',
       location: item.location || '',
+      status: String(item.component.getFirstPropertyValue('status') || '').toUpperCase(),
       uid: event.uid || '',
       dtstart: occurrence ? occurrence.startDate : event.startDate,
       dtend: occurrence ? occurrence.endDate : event.endDate,
@@ -359,6 +360,12 @@ export function formatEvent(event, calendar = 'Unknown Calendar', timeRange = nu
 
   if (parsed.location) {
     output += `- **Where**: ${parsed.location}\n`;
+  }
+
+  // the status of what is shown — for a series, of the occurrence listed, so
+  // a cancelled single occurrence does not pass for a meeting that happens
+  if (parsed.status) {
+    output += `- **Status**: ${parsed.status}\n`;
   }
 
   if (parsed.description) {
