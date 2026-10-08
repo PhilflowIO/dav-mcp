@@ -126,6 +126,74 @@ jobs:
           pinned=$(node -p 'require("./claude-plugin/.mcp.json").mcpServers["dav-mcp"].args.at(-1)')
           npm view "$pinned" version >/dev/null || { echo "::error::$pinned is not on npm; publish it before this reaches main"; exit 1; }
 
+  # npm 12 refuses git and remote-tarball dependencies by default
+  # (allow-git=none, allow-remote=none). dav-mcp 4.1.2 depended on both and
+  # `npx -y dav-mcp` failed before the server started (#100). This job runs
+  # with those defaults: a git or tarball dependency in package-lock.json
+  # fails `npm ci`, one in package.json fails the npx install below.
+  npm-12:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '26.x'
+
+      # Node 26 still bundles npm 11, which fetches git and tarball
+      # dependencies; the npm this job is about is installed explicitly.
+      - name: Use npm 12
+        run: npm install --global --ignore-scripts --no-audit --no-fund npm@12.2.0
+
+      # The job only proves something while these are the defaults.
+      - name: Check the npm 12 defaults are in effect
+        run: |
+          echo "node $(node --version), npm $(npm --version)"
+          for key in allow-git allow-remote; do
+            value=$(npm config get "$key")
+            if [ "$value" != none ]; then
+              echo "::error::npm config $key is '$value', expected 'none'"
+              exit 1
+            fi
+          done
+
+      - name: Install from the lockfile
+        run: npm ci --no-audit --no-fund
+
+      - name: Run tests
+        run: npm test
+
+      # What a user runs: npx resolves dependencies from package.json, without
+      # our lockfile. The server must
+      # answer initialize and tools/list; the DAV server is unreachable on
+      # purpose, the server connects on the first tool call.
+      - name: Start the packed package through npx
+        run: |
+          TARBALL="$RUNNER_TEMP/$(npm pack --pack-destination "$RUNNER_TEMP" | tail -1)"
+          WORK=$(mktemp -d)
+          cd "$WORK"
+          INIT='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"npm-12-check","version":"1"}}}'
+          LIST='{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+          ( printf '%s\n' "$INIT"; sleep 3
+            printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/initialized"}' "$LIST"; sleep 3 ) \
+            | CALDAV_SERVER_URL=https://example.invalid/dav/ CALDAV_USERNAME=check CALDAV_PASSWORD=check \
+              timeout 180 npx -y --package="$TARBALL" -- dav-mcp > out.jsonl 2> err.log \
+            || { cat err.log; exit 1; }
+          cat > check.cjs <<'JS'
+          const lines = require('fs').readFileSync('out.jsonl', 'utf8').split('\n').filter(Boolean).map(JSON.parse);
+          const info = lines.find(m => m.id === 1)?.result?.serverInfo;
+          const tools = lines.find(m => m.id === 2)?.result?.tools ?? [];
+          console.log(`initialize: ${info?.name} ${info?.version}, tools/list: ${tools.length} tools`);
+          if (info?.name !== 'dav-mcp' || tools.length === 0) process.exit(1);
+          JS
+          node check.cjs || { cat err.log; exit 1; }
+
   audit:
     runs-on: ubuntu-latest
 
