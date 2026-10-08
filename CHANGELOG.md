@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Free/busy and event queries judge each occurrence as it now stands**
+  (#98). A recurring series was expanded from its original dates, and every
+  occurrence counted with the series' own STATUS and TRANSP. So a single
+  occurrence cancelled (or marked transparent) still showed as busy, one
+  moved from the 20th to the 14th was missing from the 14th and still
+  reported on the 20th, and an opaque occurrence of a transparent series was
+  free. Each occurrence is now taken at its effective time with its own
+  status, in `freebusy_query`, `calendar_query` and the event lists alike;
+  `RANGE=THISANDFUTURE` overrides apply to every later occurrence, and an
+  override of an EXDATEd or non-existent occurrence is ignored. The
+  expansion still starts just before the range, not at the series start.
+  A listed occurrence shows its `STATUS` (e.g. CANCELLED), and
+  `freebusy_query`'s event details list only the events that block time,
+  each as its occurrence in the range. `freebusy_query` also gains that
+  near-the-range start, which it used to lack.
 - **Quoted-printable contacts are decoded** (#103). vCard 2.1 cards from
   Outlook and Android exports encode non-ASCII text as
   `ENCODING=QUOTED-PRINTABLE`; they were shown as "Hans M=C3=BCller" and a
