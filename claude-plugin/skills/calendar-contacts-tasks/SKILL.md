@@ -58,10 +58,14 @@ guide). Never invent entries.
 ## Recurring events
 
 `calendar_query` returns a series once, dated at its first occurrence in the
-range. `delete_event` on a series deletes every occurrence, and
-`STATUS: CANCELLED` on it cancels all of them. To drop one occurrence ("cancel
-Monday's standup"), tell the user it is a recurring series and ask whether they mean
-only that day or the whole series before changing anything.
+range. Changing or deleting it changes every occurrence: `delete_event`
+deletes the whole series, `STATUS: CANCELLED` cancels all of it. dav-mcp
+cannot change a single occurrence safely: do not add an `EXDATE` or rewrite
+the series with `update_event_raw` to drop one day (an `EXDATE` field
+replaces the exclusions already there). When the user means one day
+("cancel Monday's standup"), say it is a recurring series and that one
+occurrence is changed in their calendar app; change the series only when they
+ask for the series ("from now on", "every week").
 
 ## When something fails
 
