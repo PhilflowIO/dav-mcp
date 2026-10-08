@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Cancelling one occurrence no longer brings back the ones cancelled
+  before** (#126). `update_event` wrote `fields.EXDATE` as the complete list of
+  exclusions, so a model that wrote one date to cancel one more occurrence
+  dropped every earlier exclusion and those occurrences came back.
+  `update_event` and `update_todo` now take `cancel_occurrences` and
+  `restore_occurrences`: each names an occurrence by its original start, as
+  the listings show it, and adds to or takes from the exclusions without
+  touching the others (tsdav-utils `cancelOccurrences`/`restoreOccurrences`).
+  Cancelling a changed occurrence removes its changed version too; restoring
+  one occurrence of a day excluded as a whole brings back only that one. A
+  name in the wrong form is refused rather than cancelling another
+  occurrence: a time without a zone on a UTC series is not read in the
+  host's zone. A refused name comes back as a validation error that says to
+  use the occurrence start exactly as listed. Names refer to the series as it
+  is before the call; restores, then cancels, then fields and dates are
+  applied, so a move in the same call takes the new exclusions along.
+
+### Added
+- **Listings name occurrences the way the update tools take them** (#126).
+  For a recurring event or todo, `calendar_query`, `list_events`,
+  `calendar_multi_get` and the todo listings show an **Occurrence ID** (the
+  original start of the occurrence shown, or of the first one), the
+  **Cancelled occurrences** (EXDATE) and the **Changed occurrences**
+  (overrides, by original start, with where each is now), all in the series'
+  own form: the wall-clock time in its zone, UTC with `Z`, or a date. An
+  exclusion stored in another zone is shown in that form too, and a date that
+  excludes a whole day of a timed series is marked "(whole day)". Recurring
+  todos now show their rule.
+- The reply of `update_event`/`update_todo` says which occurrences were
+  cancelled or restored and which changed versions were removed, compared by
+  occurrence, not by the stored text.
+
+### Changed
+- **`fields.EXDATE` and `fields.RDATE` are refused** by `update_event` and
+  `update_todo` (#126), with a validation error naming `cancel_occurrences` /
+  `restore_occurrences`. Written as a field, either list replaced every value
+  already in the series. Extra dates (RDATE) of a series are edited through
+  `update_event_raw`/`update_todo_raw`.
+- tsdav-utils 0.7.0 (`@philflow/tsdav-utils`).
+
 ## [4.3.1] - 2026-10-08
 
 ### Internal
