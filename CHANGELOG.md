@@ -69,11 +69,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **No series can stall a tool call** (#98). ical.js tests rule candidates
   one by one without a bound of its own: `FREQ=SECONDLY;BYHOUR=9` from 1950
   took 27 s, fifty `MINUTELY;BYHOUR=10` series 45 s per call, and
-  `FREQ=DAILY;BYMONTH=2;BYMONTHDAY=30` never returned. Every candidate, and
-  the time spent expanding, is now charged to one budget per tool call, of
-  about 2 s; each calendar object gets a fair share of it, so one heavy
-  series cannot leave the others unexpanded. A year of 100 ordinary series
-  takes about 1.5 s in all. A series that needs more is never reported
+  `FREQ=DAILY;BYMONTH=2;BYMONTHDAY=30` never returned. Each tool call now
+  has one budget of rule candidates (300 000, at most 100 000 per call into
+  the library) and of time (1.5 s of expansion), whichever runs out first;
+  each calendar object gets a fair share of both, so one heavy series cannot
+  leave the others unexpanded. Expansion stays near 1.5 s per tool call
+  (2-2.5 s at worst on slow hardware); a year of 100 ordinary series takes
+  about 1.5 s in all. A series that needs more is never reported
   wrong, only incomplete: `freebusy_query`, which used to answer "Nothing blocks
   this window" for it, names it and says its busy time may be missing, and
   an event list says the series could not be expanded fully.
