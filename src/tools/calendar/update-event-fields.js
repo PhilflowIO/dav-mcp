@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { writeEventFields } from '../shared/ical-dates.js';
 import { assertFieldUpdatable, describeSeriesChange } from '../../ical-components.js';
 import {
-  occurrenceEditSchema, refineOccurrenceEdits, editOccurrences, notChanged,
+  occurrenceEditSchema, refineOccurrenceEdits, editOccurrences, notChanged, nothingWritten,
 } from '../shared/occurrence-edits.js';
 
 /**
@@ -195,9 +195,13 @@ export const updateEventFields = {
     }
     let updatedData = occurrences.data;
     if (writesFields) {
-      updatedData = writeEventFields(occurrences.data, fields, moving
-        ? { startDate: validated.start_date, endDate: validated.end_date }
-        : undefined);
+      try {
+        updatedData = writeEventFields(occurrences.data, fields, moving
+          ? { startDate: validated.start_date, endDate: validated.end_date }
+          : undefined);
+      } catch (error) {
+        throw nothingWritten(error, occurrences.change);
+      }
     }
     const changedFields = Object.keys(fields);
     if (moving) changedFields.push('DTSTART', 'DTEND');

@@ -285,3 +285,19 @@ export function notChanged(noun, why, change = null) {
     ...(change && { occurrences: change }),
   });
 }
+
+/**
+ * A refused field or date write in a call that also cancelled or restored
+ * occurrences: nothing at all was written, so the reply says the occurrence
+ * edits were not applied either — a model reading only the reason could take
+ * them as done.
+ *
+ * @param {Error} error - the refusal
+ * @param {Object|null} change - what editOccurrences did in memory, if anything
+ */
+export function nothingWritten(error, change) {
+  if (!change || !(error instanceof ValidationError)) return error;
+  error.message = `${error.message.replace(/\.?$/, '.')} Nothing was written: the cancel_occurrences and ` +
+    'restore_occurrences of this call were not applied either; give them again with the corrected call.';
+  return error;
+}

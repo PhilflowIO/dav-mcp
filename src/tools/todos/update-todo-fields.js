@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { writeFields, reconcileTodoDates } from '../shared/ical-dates.js';
 import { assertFieldUpdatable, describeSeriesChange } from '../../ical-components.js';
 import {
-  occurrenceEditSchema, refineOccurrenceEdits, editOccurrences, notChanged,
+  occurrenceEditSchema, refineOccurrenceEdits, editOccurrences, notChanged, nothingWritten,
 } from '../shared/occurrence-edits.js';
 
 /**
@@ -167,7 +167,11 @@ export const updateTodoFields = {
     }
     let updatedData = occurrences.data;
     if (writesFields) {
-      updatedData = reconcileTodoDates(writeFields(occurrences.data, fields, 'vtodo'), Object.keys(fields));
+      try {
+        updatedData = reconcileTodoDates(writeFields(occurrences.data, fields, 'vtodo'), Object.keys(fields));
+      } catch (error) {
+        throw nothingWritten(error, occurrences.change);
+      }
     }
 
     // what the fields did to the series, apart from the occurrences
