@@ -13,6 +13,7 @@ import ICAL from 'ical.js';
 import { readVCard, nameComponents, organizationText } from './vcard.js';
 import { readSeries, shownEvent, todoStatus } from './ical-components.js';
 import { shareTimezones } from './tools/shared/ical-dates.js';
+import { budgetPool, zonedInstant } from './occurrences.js';
 
 /**
  * Parse iCal data string to extract event properties (RFC 5545 compliant)
@@ -20,11 +21,11 @@ import { shareTimezones } from './tools/shared/ical-dates.js';
  * When a time range is given, a recurring series resolves to the occurrence
  * inside that range, including any RECURRENCE-ID override of it.
  */
-function parseICalEvent(icalData, timeRange = null, matches = null, resolved = null) {
+function parseICalEvent(icalData, timeRange = null, matches = null, resolved = null, budget = undefined) {
   try {
     // the occurrence calendar_query's text filters read too (see shownEvent);
     // resolved there already for a listed event
-    const shown = resolved ?? shownEvent(shareTimezones(new ICAL.Component(ICAL.parse(icalData))), timeRange, matches);
+    const shown = resolved ?? shownEvent(shareTimezones(new ICAL.Component(ICAL.parse(icalData))), timeRange, matches, budget);
     if (!shown) {
       return {};
     }
@@ -34,11 +35,18 @@ function parseICalEvent(icalData, timeRange = null, matches = null, resolved = n
       summary: item.summary || '',
       description: item.description || '',
       location: item.location || '',
+      status: String(item.component.getFirstPropertyValue('status') || '').toUpperCase(),
       uid: event.uid || '',
       dtstart: occurrence ? occurrence.startDate : event.startDate,
       dtend: occurrence ? occurrence.endDate : event.endDate,
       outsideRange,
       expansionTruncated,
+      expansionReason: shown.expansionReason ?? null,
+      // the instants the expansion computed (exact at a DST change)
+      dtstartAt: occurrence?.startAt ?? null,
+      dtendAt: occurrence?.endAt ?? null,
+      occurrences: shown.occurrences ?? null,
+      occurrenceShown: Boolean(occurrence),
       isRecurring: event.isRecurring(),
       rrule: event.isRecurring() ? vevent.getFirstPropertyValue('rrule') : null,
       organizer: item.component.getFirstPropertyValue('organizer'),
@@ -277,7 +285,7 @@ function displayTimeZone(icalTime) {
  * organiser never chose, and at a large host offset it moves the date.
  */
 function formatWithFixedOffset(icalTime) {
-  const offsetSeconds = icalTime.utcOffset();
+  const offsetSeconds = zonedInstant(icalTime)?.offset ?? icalTime.utcOffset();
   const sign = offsetSeconds < 0 ? '-' : '+';
   const hours = Math.floor(Math.abs(offsetSeconds) / 3600);
   const minutes = Math.floor((Math.abs(offsetSeconds) % 3600) / 60);
@@ -296,7 +304,7 @@ function formatWithFixedOffset(icalTime) {
 /**
  * Format ICAL.Time to human-readable format with proper timezone support
  */
-function formatDateTime(icalTime) {
+function formatDateTime(icalTime, at = null) {
   if (!icalTime) return '';
 
   try {
@@ -315,7 +323,10 @@ function formatDateTime(icalTime) {
       return formatWithFixedOffset(icalTime);
     }
 
-    const jsDate = icalTime.toJSDate();
+    // the instant: the one the expansion computed, else the zone's own
+    // conversion (tsdav-utils; ical.js' toJSDate is up to an hour off near a
+    // DST change), else ical.js for UTC and floating times
+    const jsDate = new Date(at ?? zonedInstant(icalTime)?.at ?? icalTime.toJSDate().getTime());
 
     const dateStr = jsDate.toLocaleDateString('en-US', {
       year: 'numeric',
@@ -341,12 +352,12 @@ function formatDateTime(icalTime) {
 /**
  * Format a single calendar event to Markdown
  */
-export function formatEvent(event, calendar = 'Unknown Calendar', timeRange = null, matches = null, shown = null) {
+export function formatEvent(event, calendar = 'Unknown Calendar', timeRange = null, matches = null, shown = null, budget = undefined) {
   const calendarName = collectionName(calendar, 'Unknown Calendar');
-  const parsed = parseICalEvent(event.data, timeRange, matches, shown);
+  const parsed = parseICalEvent(event.data, timeRange, matches, shown, budget);
 
-  const startDate = formatDateTime(parsed.dtstart);
-  const endDate = formatDateTime(parsed.dtend);
+  const startDate = formatDateTime(parsed.dtstart, parsed.dtstartAt);
+  const endDate = formatDateTime(parsed.dtend, parsed.dtendAt);
 
   let output = `## ${parsed.summary || 'Untitled Event'}\n\n`;
   output += `- **When**: ${startDate}`;
@@ -360,6 +371,12 @@ export function formatEvent(event, calendar = 'Unknown Calendar', timeRange = nu
     output += `- **Where**: ${parsed.location}\n`;
   }
 
+  // the status of what is shown — for a series, of the occurrence listed, so
+  // a cancelled single occurrence does not pass for a meeting that happens
+  if (parsed.status) {
+    output += `- **Status**: ${parsed.status}\n`;
+  }
+
   if (parsed.description) {
     output += `- **Description**: ${parsed.description}\n`;
   }
@@ -369,11 +386,23 @@ export function formatEvent(event, calendar = 'Unknown Calendar', timeRange = nu
     output += `- **Recurring**: ${parsed.rrule.toString()}\n`;
   }
 
+  // several occurrences behind it (free/busy details): each one
+  if (parsed.occurrences && parsed.occurrences.length > 1) {
+    output += `- **Occurrences in the window**: ${parsed.occurrences.length}\n`;
+    parsed.occurrences.forEach((o) => {
+      output += `  - ${formatDateTime(o.startDate, o.startAt)} to ${formatDateTime(o.endDate, o.endAt)}\n`;
+    });
+  }
+
   // Never let a series start date pass for an occurrence in the queried range
   if (parsed.outsideRange) {
     output += `- **Note**: no occurrence of this series falls inside the queried range; the date above is the series start\n`;
+  } else if (parsed.expansionTruncated && parsed.occurrenceShown) {
+    output += `- **Note**: incomplete — this series could not be expanded fully (too many occurrences); an earlier occurrence in the queried range may exist\n`;
+  } else if (parsed.expansionReason) {
+    output += `- **Note**: incomplete — this series cannot be read (${parsed.expansionReason}); the date above is the series start, not an occurrence in the queried range\n`;
   } else if (parsed.expansionTruncated) {
-    output += `- **Note**: this series has too many occurrences to expand; the date above is the series start, not an occurrence in the queried range\n`;
+    output += `- **Note**: incomplete — this series could not be expanded (too many occurrences); the date above is the series start, not an occurrence in the queried range\n`;
   }
 
   // Show organizer if present
@@ -415,7 +444,7 @@ export function formatEvent(event, calendar = 'Unknown Calendar', timeRange = nu
  * found (see shownEvent). `shown` hands over what the query already
  * resolved per event (a Map from the event object to shownEvent's result).
  */
-export function formatEventList(events, calendar = 'Unknown Calendar', timeRange = null, total = null, matches = null, shown = null) {
+export function formatEventList(events, calendar = 'Unknown Calendar', timeRange = null, total = null, matches = null, shown = null, budget = budgetPool(events?.length ?? 0)) {
   const calendarName = collectionName(calendar, 'Unknown Calendar');
 
   if (!events || events.length === 0) {
@@ -431,7 +460,10 @@ export function formatEventList(events, calendar = 'Unknown Calendar', timeRange
 
   events.forEach((event, index) => {
     output += `### ${index + 1}. `;
-    output += formatEvent(event, calendarName, timeRange, matches, shown?.get(event)).replace(/^## /, '') + '\n';
+    // one expansion budget for the whole list (one tool call), shared fairly
+    const share = budget.take();
+    output += formatEvent(event, calendarName, timeRange, matches, shown?.get(event), share).replace(/^## /, '') + '\n';
+    budget.give(share);
   });
 
   output += `---\n<details>\n<summary>Raw Data (JSON)</summary>\n\n\`\`\`json\n`;
@@ -1012,12 +1044,22 @@ export function formatError(error, context = '') {
  * Free slots come first: the question behind this tool is almost always "when
  * can I put something", not "what am I doing".
  */
-export function formatFreeBusy({ busy, free, range, calendarCount = 1, events = null }) {
+export function formatFreeBusy({ busy, free, range, calendarCount = 1, events = null, incomplete = [] }) {
   const scope = calendarCount === 1 ? '1 calendar' : `${calendarCount} calendars`;
 
   let output = `## Free/Busy\n\n`;
   output += `- **Window**: ${formatDateTime(ICAL.Time.fromJSDate(range.start, true))} to ${formatDateTime(ICAL.Time.fromJSDate(range.end, true))}\n`;
   output += `- **Scope**: ${scope}\n\n`;
+
+  // a series too dense to expand fully may hold busy time not counted below,
+  // so neither the free slots nor an empty busy list can be taken as certain
+  if (incomplete.length > 0) {
+    output += `**Warning**: incomplete — ${incomplete.length === 1 ? 'a recurring event' : `${incomplete.length} recurring events`} could not be expanded fully (too many occurrences, or a series that cannot be read), so busy time from ${incomplete.length === 1 ? 'it' : 'them'} may be missing and the free time below is not certain:\n`;
+    incomplete.forEach(({ object, summary, reason }) => {
+      output += `- ${summary || 'Untitled Event'} (${object.url})${reason ? `: cannot be read — ${reason}` : ''}\n`;
+    });
+    output += '\n';
+  }
 
   if (free.length === 0) {
     output += `**No free time** in this window — it is fully booked.\n\n`;
@@ -1030,7 +1072,9 @@ export function formatFreeBusy({ busy, free, range, calendarCount = 1, events = 
   }
 
   if (busy.length === 0) {
-    output += `### Busy (0)\n\nNothing blocks this window.\n`;
+    output += incomplete.length > 0
+      ? `### Busy (0)\n\nNo busy time found, but the events named above could not be fully expanded.\n`
+      : `### Busy (0)\n\nNothing blocks this window.\n`;
   } else {
     output += `### Busy (${busy.length})\n\n`;
     busy.forEach(slot => {
@@ -1040,9 +1084,10 @@ export function formatFreeBusy({ busy, free, range, calendarCount = 1, events = 
 
   if (events) {
     output += `\n### Events behind the busy blocks (${events.length})\n\n`;
-    events.forEach((event, index) => {
+    events.forEach(({ object, shown }, index) => {
       output += `#### ${index + 1}. `;
-      output += formatEvent(event, 'Calendar').replace(/^## /, '') + '\n';
+      // exactly the occurrences that make up the busy time (calculateFreeBusy)
+      output += formatEvent(object, 'Calendar', null, null, shown).replace(/^## /, '') + '\n';
     });
   }
 

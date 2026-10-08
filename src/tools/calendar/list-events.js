@@ -15,7 +15,7 @@ export const listEvents = {
     idempotentHint: true,
     openWorldHint: true,
   },
-  description: 'List ALL events from a single calendar without filtering. WARNING: Returns all events which can be many thousands - use calendar_query instead for searching with filters (supports multi-calendar search).',
+  description: 'List ALL events from a single calendar without filtering. WARNING: Returns all events which can be many thousands - use calendar_query instead for searching with filters (supports multi-calendar search). With a time range, a recurring event is listed as its first occurrence in the range (one already running at the range start counts); a cancelled occurrence is listed too, with its Status.',
   inputSchema: {
     type: 'object',
     properties: {

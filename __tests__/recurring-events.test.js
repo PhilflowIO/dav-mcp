@@ -208,25 +208,35 @@ describe('when nothing falls in the range, the output says so', () => {
 });
 
 describe('expansion is bounded', () => {
-  test('a degenerate series far in the past does not stall the formatter', () => {
-    const everyMinuteSince1970 = calendarObject([
-      [
-        'BEGIN:VEVENT',
-        'UID:minutely@example.com',
-        'SUMMARY:Pathological',
-        'DTSTART:19700101T000000Z',
-        'DTEND:19700101T000100Z',
-        'RRULE:FREQ=MINUTELY',
-        'END:VEVENT',
-      ].join('\r\n'),
-    ]);
-
+  const minutely = (rule) => calendarObject([
+    [
+      'BEGIN:VEVENT',
+      'UID:minutely@example.com',
+      'SUMMARY:Pathological',
+      'DTSTART:19700101T000000Z',
+      'DTEND:19700101T000100Z',
+      `RRULE:${rule}`,
+      'END:VEVENT',
+    ].join('\r\n'),
+  ]);
+  const timed = (object) => {
     const started = process.hrtime.bigint();
-    const output = formatEvent(everyMinuteSince1970, 'Work', range('2026-08-03T00:00:00Z', '2026-08-04T00:00:00Z'));
-    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
+    const output = formatEvent(object, 'Work', range('2026-08-03T00:00:00Z', '2026-08-04T00:00:00Z'));
+    return { output, elapsedMs: Number(process.hrtime.bigint() - started) / 1e6 };
+  };
 
+  test('an every-minute series since 1970 is expanded from just before the range', () => {
+    const { output, elapsedMs } = timed(minutely('FREQ=MINUTELY'));
     expect(elapsedMs).toBeLessThan(2000);
-    expect(output).toContain('too many occurrences to expand');
+    expect(when(output)).toContain('August 3, 2026, 12:00 AM');
+    expect(output).not.toContain('Note');
+  });
+
+  test('a degenerate series that cannot start near the range does not stall the formatter', () => {
+    // COUNT together with BYDAY: the walk has to count from 1970
+    const { output, elapsedMs } = timed(minutely('FREQ=MINUTELY;BYDAY=MO,TU,WE,TH,FR;COUNT=99999999'));
+    expect(elapsedMs).toBeLessThan(2000);
+    expect(output).toContain('could not be expanded (too many occurrences');
     // it must not claim there is no occurrence — it simply did not get there
     expect(output).not.toContain('no occurrence of this series falls inside');
   });

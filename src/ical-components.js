@@ -1,6 +1,7 @@
 import ICAL from 'ical.js';
 import { seriesMaster, isUpdateFieldsError } from 'tsdav-utils';
 import { ValidationError, CalDAVError, CardDAVError, MCP_ERROR_CODES } from './error-handler.js';
+import { relateSeries, seriesOccurrences, spanOf, touchesRange } from './occurrences.js';
 
 /**
  * Which component of a calendar object a reader shows.
@@ -66,103 +67,17 @@ export function readSeries(calendar, type) {
   };
 }
 
-// A CalDAV server answers a time-range query with the master VEVENT of a
-// recurring series, not with the occurrences inside the range, so the series
-// has to be expanded here. The cost of expansion scales with the distance from
-// DTSTART to the start of the range rather than with the width of the range —
-// a FREQ=MINUTELY series starting in 1970 needs ~29M steps to reach 2026 — so
-// the walk is capped. Server-supplied data must not be able to stall the loop.
-const MAX_RECURRENCE_ITERATIONS = 10000;
-
 /**
- * Convert a queried time range into ICAL.Time bounds.
- *
- * Goes through Date so that every form the schema accepts — with or without
- * milliseconds, "Z" or a "+02:00" offset — lands on the same absolute instant.
- * ICAL.Time.fromDateTimeString would silently treat an offset form as floating.
+ * A queried time range as ms instants, or null when there is none. Goes
+ * through Date so every form the schema accepts — with or without
+ * milliseconds, "Z" or a "+02:00" offset — lands on the same instant.
  */
-function toICALRange(timeRange) {
+function msRange(timeRange) {
   if (!timeRange?.start || !timeRange?.end) return null;
-
-  const start = new Date(timeRange.start);
-  const end = new Date(timeRange.end);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
-
-  return {
-    start: ICAL.Time.fromJSDate(start, true),
-    end: ICAL.Time.fromJSDate(end, true),
-  };
-}
-
-/**
- * Find the first occurrence of a recurring event inside the queried range —
- * the first one `matches` accepts, when given (an occurrence is judged by its
- * own component: the override where there is one, else the master).
- *
- * Returns null when the series has no such occurrence there — the caller must
- * say so rather than fall back to the master DTSTART, which is the wrong-date
- * bug this whole path exists to fix.
- */
-function firstOccurrenceInRange(event, range, matches) {
-  const expand = new ICAL.RecurExpansion({
-    component: event.component,
-    dtstart: expansionStart(event, range),
-  });
-
-  for (let step = 0; step < MAX_RECURRENCE_ITERATIONS; step++) {
-    const next = expand.next();
-    if (!next) return { occurrence: null };
-    if (next.compare(range.end) > 0) return { occurrence: null };
-    if (next.compare(range.start) >= 0) {
-      const occurrence = event.getOccurrenceDetails(next);
-      if (!matches || matches(occurrence.item.component)) return { occurrence };
-    }
-  }
-
-  console.error(`Recurrence expansion gave up after ${MAX_RECURRENCE_ITERATIONS} occurrences`);
-  return { occurrence: null, truncated: true };
-}
-
-// Rule parts that keep a DAILY/WEEKLY series periodic in its INTERVAL: the
-// candidates are the same days in every period, so the expansion can start a
-// whole number of periods later without changing which occurrences it yields.
-const PERIODIC_PARTS = new Set(['BYDAY', 'BYMONTH', 'WKST']);
-
-/**
- * Where to start expanding a series to reach the range: the series start, or
- * — for a DAILY/WEEKLY rule without COUNT — a whole number of periods later,
- * just before the range.
- *
- * Walking from DTSTART costs one step per occurrence since the series began:
- * a daily series from 2020 takes ~2400 steps to reach October 2026, and a
- * query over hundreds of such series took seconds. Shifted by k periods, the
- * walk only covers the range. That is exact here: the rule's candidates
- * repeat every period (only BYDAY/BYMONTH restrict them), there is no COUNT to
- * count from the original start, and no RDATE to miss. EXDATEs and overrides
- * are absolute, so they still apply. The shifted start stays at least one
- * period plus a day before the range, so the start itself — which ical.js
- * always yields, even if the rule would not — never lands inside it, and a
- * zone offset cannot push an occurrence across the range start. Other rules
- * (COUNT, MONTHLY, YEARLY, ...) are walked from DTSTART as before; COUNT
- * bounds that walk, and monthly or yearly series have few occurrences.
- */
-function expansionStart(event, range) {
-  const start = event.startDate;
-  const component = event.component;
-  const rules = component.getAllProperties('rrule');
-  if (rules.length !== 1 || component.hasProperty('rdate')) return start;
-  const rule = rules[0].getFirstValue();
-  if (rule.count || !['DAILY', 'WEEKLY'].includes(rule.freq)) return start;
-  if (Object.keys(rule.parts ?? {}).some((part) => !PERIODIC_PARTS.has(part))) return start;
-
-  const periodDays = (rule.interval || 1) * (rule.freq === 'WEEKLY' ? 7 : 1);
-  const daysToRange = Math.floor((range.start.toUnixTime() - start.toUnixTime()) / 86400);
-  const periods = Math.floor((daysToRange - periodDays - 2) / periodDays);
-  if (!(periods > 0)) return start;
-
-  const shifted = start.clone();
-  shifted.adjust(periods * periodDays, 0, 0, 0);
-  return shifted;
+  const start = new Date(timeRange.start).getTime();
+  const end = new Date(timeRange.end).getTime();
+  if (Number.isNaN(start) || Number.isNaN(end)) return null;
+  return { start, end };
 }
 
 /**
@@ -171,62 +86,81 @@ function expansionStart(event, range) {
  *
  *  - No time range: the series master (readSeries). A search without a range
  *    therefore only searches the series, not its renamed occurrences.
- *  - A time range and a recurring series: the first occurrence inside the
- *    range, with its RECURRENCE-ID override applied if it has one — the first
- *    one `matches` accepts, when a search passes it. So a search finds an
- *    occurrence renamed or moved inside the range and lists that occurrence,
- *    with its own title, place and date.
+ *  - A time range and a recurring series: the earliest occurrence that
+ *    touches the range once its overrides apply (src/occurrences.js — the
+ *    same test free/busy uses, so a meeting running into the range is in
+ *    it) — the earliest one `matches` accepts, when a search passes it. An
+ *    occurrence moved into the range from outside it counts, one moved out
+ *    of it does not, and it is listed with its own title, place and date.
+ *    A cancelled occurrence is still an occurrence; the display says so.
  *  - A time range and several detached instances without a master: the
- *    first instance inside the range (that `matches` accepts, if given),
+ *    first instance touching the range (that `matches` accepts, if given),
  *    else the first in document order.
  *
  * @param {ICAL.Component} calendar - the parsed VCALENDAR
  * @param {{start: string, end: string}|null} timeRange
  * @param {((vevent: ICAL.Component) => boolean)|null} [matches] - the search
+ * @param {Object} [budget] - the tool call's expansion budget (requestBudget);
+ *   a fresh one when not given
  * @returns {{
  *   vevent: ICAL.Component, event: ICAL.Event,
  *   occurrence: Object|null, item: ICAL.Event,
  *   outsideRange: boolean, expansionTruncated: boolean,
  * } | null}
  */
-export function shownEvent(calendar, timeRange = null, matches = null) {
+export function shownEvent(calendar, timeRange = null, matches = null, budget = undefined) {
   const series = readSeries(calendar, 'vevent');
   if (!series) return null;
-  const range = toICALRange(timeRange);
+  const range = msRange(timeRange);
 
   let vevent = series.master;
   if (range && series.detached.length > 1) {
-    const inRange = series.detached.filter((instance) => overlaps(new ICAL.Event(instance), range));
+    const inRange = series.detached.filter((instance) => touches(new ICAL.Event(instance), range));
     vevent = inRange.find((instance) => !matches || matches(instance)) ?? inRange[0] ?? vevent;
   }
-  const event = new ICAL.Event(vevent);
-  for (const override of series.overrides) {
-    event.relateException(override);
-  }
+  const related = relateSeries(vevent, series.overrides);
+  const { event } = related;
 
   let occurrence = null;
   let outsideRange = false;
   let expansionTruncated = false;
+  let expansionReason = null;
   if (range && event.isRecurring()) {
-    const result = firstOccurrenceInRange(event, range, matches);
-    occurrence = result.occurrence;
-    expansionTruncated = Boolean(result.truncated);
-    outsideRange = !occurrence && !expansionTruncated;
+    const filter = matches ? (o) => matches(o.item.component) : null;
+    const result = seriesOccurrences(related, range, { filter, first: true, budget });
+    occurrence = result.occurrences[0] ?? null;
+    // capped: the occurrence found may not be the earliest, or none was found
+    expansionTruncated = result.truncated;
+    expansionReason = result.reason ?? null;
+    outsideRange = !occurrence && !result.truncated;
   }
 
   return {
     vevent, event, occurrence,
     item: occurrence ? occurrence.item : event,
-    outsideRange, expansionTruncated,
+    outsideRange, expansionTruncated, expansionReason,
   };
 }
 
-function overlaps(event, range) {
-  const { startDate, endDate } = event;
-  if (!startDate) return false;
-  const end = endDate ?? startDate;
-  return startDate.compare(range.end) < 0
-    && (end.compare(range.start) > 0 || startDate.compare(range.start) >= 0);
+function touches(event, range) {
+  if (!event.startDate) return false;
+  const { start, end } = spanOf({ startDate: event.startDate, endDate: event.endDate });
+  return touchesRange(start, end, range);
+}
+
+/**
+ * Does an event or occurrence occupy time? TRANSP:TRANSPARENT is the RFC 5545
+ * way of saying "this does not block me", and a cancelled one does not
+ * either. Values are case-insensitive. Read on the component itself: an
+ * override is a full component, so one without STATUS of a cancelled series
+ * is not cancelled.
+ *
+ * @param {ICAL.Component} vevent
+ * @returns {boolean}
+ */
+export function blocksTime(vevent) {
+  const value = (name) => String(vevent.getFirstPropertyValue(name) ?? '').toUpperCase();
+  return value('transp') !== 'TRANSPARENT' && value('status') !== 'CANCELLED';
 }
 
 /**
