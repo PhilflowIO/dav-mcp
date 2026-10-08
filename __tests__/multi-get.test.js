@@ -37,6 +37,7 @@ jest.unstable_mockModule('../src/tsdav-client.js', () => ({
 const { calendarMultiGet } = await import('../src/tools/calendar/calendar-multi-get.js');
 const { todoMultiGet } = await import('../src/tools/todos/todo-multi-get.js');
 const { addressbookMultiGet } = await import('../src/tools/contacts/addressbook-multi-get.js');
+const { updateEventRaw } = await import('../src/tools/calendar/update-event-raw.js');
 
 const ics = (uid, summary, component = 'VEVENT') =>
   `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//test//EN\r\nBEGIN:${component}\r\nUID:${uid}\r\n` +
@@ -252,5 +253,43 @@ describe('addressbook_multi_get', () => {
       { url: urls[1], etag: '"e-c2"', data: expect.stringContaining('FN:Alan Turing') },
     ]);
     expect(text(result)).toContain(`- ${urls[2]} — not found`);
+  });
+});
+
+// #107: update_event edits a whole series and refuses RECURRENCE-ID; one
+// occurrence is changed by the route its refusal and the descriptions name —
+// calendar_multi_get, edit the override in the Raw Data block, update_event_raw.
+describe('changing a single occurrence through the raw route (#107)', () => {
+  test('the Raw Data of calendar_multi_get, with one override edited, goes back unchanged otherwise', async () => {
+    const url = `${CALENDAR_URL}weekly.ics`;
+    const series = [
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//test//EN',
+      'BEGIN:VEVENT', 'UID:weekly@test', 'DTSTAMP:20260101T000000Z', 'SUMMARY:Planning',
+      'DTSTART:20261005T090000Z', 'DTEND:20261005T100000Z', 'RRULE:FREQ=WEEKLY;BYDAY=MO', 'END:VEVENT',
+      'BEGIN:VEVENT', 'UID:weekly@test', 'DTSTAMP:20260101T000000Z', 'SUMMARY:Planning (moved)',
+      'RECURRENCE-ID:20261012T090000Z', 'DTSTART:20261012T140000Z', 'DTEND:20261012T150000Z', 'END:VEVENT',
+      'END:VCALENDAR', '',
+    ].join('\r\n');
+    respond = multistatus(found('/calendars/user/work/weekly.ics', 'e-1', 'cal:calendar-data', series));
+
+    const [object] = rawData(await calendarMultiGet.handler({ calendar_url: CALENDAR_URL, event_urls: [url] }));
+    expect(object).toEqual({ url, etag: '"e-1"', data: series });
+
+    // the model edits the override of 12 October only
+    const edited = object.data
+      .replace('DTSTART:20261012T140000Z', 'DTSTART:20261012T160000Z')
+      .replace('DTEND:20261012T150000Z', 'DTEND:20261012T170000Z');
+    respond = () => new Response(null, { status: 204, headers: { etag: '"e-2"' } });
+    const reply = await updateEventRaw.handler({ event_url: object.url, event_etag: object.etag, updated_ical_data: edited });
+
+    const put = requests.at(-1);
+    expect(put.method).toBe('PUT');
+    expect(put.url).toBe(url);
+    expect(put.headers['If-Match'] ?? put.headers['if-match']).toBe('"e-1"');
+    expect(put.body).toBe(edited);
+    // the master and the rule are as they were
+    expect(put.body).toContain('RRULE:FREQ=WEEKLY;BYDAY=MO\r\n');
+    expect(put.body).toContain('DTSTART:20261005T090000Z\r\n');
+    expect(reply.content[0].text).toContain('"e-2"');
   });
 });

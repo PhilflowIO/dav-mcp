@@ -101,11 +101,11 @@
     },
     {
       "name": "update_event",
-      "description": "PREFERRED: Update event fields without iCal formatting. Use start_date/end_date/all_day to move an event or convert it between all-day and timed. Use fields for everything else: SUMMARY (title), DESCRIPTION (details), LOCATION (place), STATUS (TENTATIVE/CONFIRMED/CANCELLED), and any other RFC 5545 property including custom X-* properties (e.g., X-ZOOM-LINK, X-MEETING-ROOM). Recurring events: update_event edits the whole series. Moving the start moves every occurrence, including moved and cancelled ones (overrides, EXDATE) and the end of the series (UNTIL); a weekday or day of month the rule only restates follows the new start (every Monday, moved to a Tuesday, becomes every Tuesday). If the rule cannot follow (e.g. BYDAY=MO,WE moved by one day), the call is refused and says which rule to give: pass it as fields.RRULE in the same call. RECURRENCE-ID cannot be set. To change a single occurrence, fetch the event with calendar_multi_get and send the edited iCalendar with update_event_raw."
+      "description": "PREFERRED: Update event fields without iCal formatting. Use start_date/end_date/all_day to move an event or convert it between all-day and timed. Use fields for everything else: SUMMARY (title), DESCRIPTION (details), LOCATION (place), STATUS (TENTATIVE/CONFIRMED/CANCELLED), and any other RFC 5545 property including custom X-* properties (e.g., X-ZOOM-LINK, X-MEETING-ROOM). Recurring events: update_event edits the whole series. Moving the start moves every occurrence, including moved and cancelled ones (overrides, EXDATE), extra dates (RDATE) and the end of the series (UNTIL); a weekday or day of month the rule only restates follows the new start (every Monday, moved to a Tuesday, becomes every Tuesday). If the rule cannot follow (e.g. BYDAY=MO,WE moved by one day), the call is refused and says what to give instead, such as fields.RRULE in the same call. The reply lists what else moved. RECURRENCE-ID cannot be set. To change a single occurrence, fetch the event with calendar_multi_get and send the edited iCalendar with update_event_raw."
     },
     {
       "name": "update_event_raw",
-      "description": "ADVANCED: Update event with raw iCal data. Requires manual iCal formatting - use update_event instead for simple field updates (summary, description). Only use this if you have complete pre-formatted iCal data or need to update advanced iCal properties."
+      "description": "ADVANCED: Update event with raw iCal data. Requires manual iCal formatting - use update_event instead for simple field updates (summary, description). Use this to change a single occurrence of a recurring event: fetch the event with calendar_multi_get, add or edit the VEVENT with that occurrence's RECURRENCE-ID, and send the whole object. Also for complete pre-formatted iCal data or advanced iCal properties."
     },
     {
       "name": "delete_event",
@@ -177,11 +177,11 @@
     },
     {
       "name": "update_todo",
-      "description": "PREFERRED: Update todo fields without iCal formatting. Supports: SUMMARY (title), DESCRIPTION (details), STATUS (NEEDS-ACTION/IN-PROCESS/COMPLETED/CANCELLED), PRIORITY (0-9), DUE (due date), PERCENT-COMPLETE (0-100), and any RFC 5545 VTODO property including custom X-* properties. Recurring todos: update_todo edits the whole series. Changing DTSTART moves every occurrence, including moved and cancelled ones (overrides, EXDATE) and the end of the series (UNTIL); a weekday or day of month the rule only restates follows the new start. If the rule cannot follow, the call is refused and says which rule to give: pass RRULE in fields of the same call. RECURRENCE-ID cannot be set. To change a single occurrence, fetch the todo with todo_multi_get and send the edited iCalendar with update_todo_raw."
+      "description": "PREFERRED: Update todo fields without iCal formatting. Supports: SUMMARY (title), DESCRIPTION (details), STATUS (NEEDS-ACTION/IN-PROCESS/COMPLETED/CANCELLED), PRIORITY (0-9), DUE (due date), PERCENT-COMPLETE (0-100), and any RFC 5545 VTODO property including custom X-* properties. Recurring todos: update_todo edits the whole series. Changing DTSTART moves every occurrence, including moved and cancelled ones (overrides, EXDATE), extra dates (RDATE) and the end of the series (UNTIL); a weekday or day of month the rule only restates follows the new start. If the rule cannot follow, the call is refused and says what to give instead, such as RRULE in fields of the same call. The reply lists what else moved. RECURRENCE-ID cannot be set. To change a single occurrence, fetch the todo with todo_multi_get and send the edited iCalendar with update_todo_raw."
     },
     {
       "name": "update_todo_raw",
-      "description": "ADVANCED: Update todo with raw VTODO iCal data. Requires manual iCal formatting - use update_todo instead for simple field updates (summary, description, status). Only use this if you have complete pre-formatted VTODO data or need to update advanced iCal properties."
+      "description": "ADVANCED: Update todo with raw VTODO iCal data. Requires manual iCal formatting - use update_todo instead for simple field updates (summary, description, status). Use this to change a single occurrence of a recurring todo: fetch the todo with todo_multi_get, add or edit the VTODO with that occurrence's RECURRENCE-ID, and send the whole object. Also for complete pre-formatted VTODO data or advanced iCal properties."
     },
     {
       "name": "delete_todo",

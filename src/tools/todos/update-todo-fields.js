@@ -53,7 +53,7 @@ export const updateTodoFields = {
     idempotentHint: true,
     openWorldHint: true,
   },
-  description: 'PREFERRED: Update todo fields without iCal formatting. Supports: SUMMARY (title), DESCRIPTION (details), STATUS (NEEDS-ACTION/IN-PROCESS/COMPLETED/CANCELLED), PRIORITY (0-9), DUE (due date), PERCENT-COMPLETE (0-100), and any RFC 5545 VTODO property including custom X-* properties. Recurring todos: update_todo edits the whole series. Changing DTSTART moves every occurrence, including moved and cancelled ones (overrides, EXDATE) and the end of the series (UNTIL); a weekday or day of month the rule only restates follows the new start. If the rule cannot follow, the call is refused and says which rule to give: pass RRULE in fields of the same call. RECURRENCE-ID cannot be set. To change a single occurrence, fetch the todo with todo_multi_get and send the edited iCalendar with update_todo_raw.',
+  description: 'PREFERRED: Update todo fields without iCal formatting. Supports: SUMMARY (title), DESCRIPTION (details), STATUS (NEEDS-ACTION/IN-PROCESS/COMPLETED/CANCELLED), PRIORITY (0-9), DUE (due date), PERCENT-COMPLETE (0-100), and any RFC 5545 VTODO property including custom X-* properties. Recurring todos: update_todo edits the whole series. Changing DTSTART moves every occurrence, including moved and cancelled ones (overrides, EXDATE), extra dates (RDATE) and the end of the series (UNTIL); a weekday or day of month the rule only restates follows the new start. If the rule cannot follow, the call is refused and says what to give instead, such as RRULE in fields of the same call. The reply lists what else moved. RECURRENCE-ID cannot be set. To change a single occurrence, fetch the todo with todo_multi_get and send the edited iCalendar with update_todo_raw.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -90,11 +90,11 @@ export const updateTodoFields = {
           },
           DUE: {
             type: 'string',
-            description: `Due date: ${DATE_FORMS}. Must be later than DTSTART and of the same kind (both dates or both with a time). Replaces a DURATION.`
+            description: `Due date: ${DATE_FORMS}. Must be later than DTSTART and of the same kind (both dates or both with a time). Replaces a DURATION. For a recurring todo this is the due date of its first occurrence.`
           },
           DTSTART: {
             type: 'string',
-            description: `Start date: ${DATE_FORMS}`
+            description: `Start date: ${DATE_FORMS}. Moving it keeps the stored DUE, so to move a todo give DTSTART and DUE together. For a recurring todo this is the start of the SERIES (its first occurrence), not of an occurrence a listing showed: every occurrence moves by the difference. To change one occurrence, use todo_multi_get and update_todo_raw.`
           },
           COMPLETED: {
             type: 'string',

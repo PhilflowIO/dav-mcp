@@ -15,16 +15,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   occurrences they were made for. A weekday or day of month the rule only
   repeats from the start follows it: a series every Monday, moved to a Tuesday,
   becomes every Tuesday. Where the rule cannot follow (every Monday and
-  Wednesday, moved by one day), the update is refused and says which rule to
-  give in the same call. Likewise, a new rule that would leave a moved or
-  cancelled occurrence on a date the series no longer has is refused. This
-  comes with tsdav-utils 0.5.0.
+  Wednesday, moved by one day), the update is refused and says what to give
+  instead in the same call. Likewise, a new rule that would leave a moved or
+  cancelled occurrence on a date the series no longer has is refused. The
+  reply says what else moved: the old and new rule and how many changed,
+  cancelled and extra dates went along. This comes with tsdav-utils 0.5.0.
+- **Starting a series later now moves its exceptions too** (#107). A start
+  several weeks later used to leave cancelled and moved occurrences where
+  they were; it now takes them along, so a cancellation can land on a
+  meeting nobody cancelled. To start a series later without moving it, give
+  `RRULE` and `EXDATE` explicitly, or use the raw tools. The `start_date` and
+  `DTSTART` descriptions now say it is the series' first start, not the
+  occurrence a listing showed.
 - **Single occurrences are changed with the raw tools** (#107). `update_event`
   and `update_todo` edit the whole series and refuse `RECURRENCE-ID`, which
   would have turned the series into one occurrence. To change one occurrence,
   fetch the object with `calendar_multi_get` / `todo_multi_get` and send it
-  back with `update_event_raw` / `update_todo_raw`; the tool descriptions say
-  so.
+  back with `update_event_raw` / `update_todo_raw`; the descriptions of all
+  four tools say so.
 
 ### Fixed
 - **`npx -y dav-mcp` starts on npm 12** (#100). npm 12 refuses git and
@@ -65,6 +73,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   error** (#107). The refusals above reached the client as an internal error
   (-32603). They now come back as a validation error (-32002) that keeps the
   reason and the suggested rule, and names the tools to use instead.
+- **Date-order mistakes are reported as invalid input** (#115). An event
+  ending before it starts, or a todo moved by `DTSTART` alone past its due
+  date, answered with an internal error; it is now a validation error, and the
+  todo case says to give `DTSTART` and `DUE` together.
 
 ## [4.3.0] - 2026-10-07
 
