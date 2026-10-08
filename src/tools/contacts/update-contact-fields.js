@@ -15,7 +15,7 @@ const updateContactFieldsSchema = z.object({
   vcard_url: davUrl('vCard URL must be a valid URL'),
   vcard_etag: z.string().min(1, 'vCard etag is required'),
   fields: davFieldMapSchema
-});
+}).strict();
 
 /**
  * Field-agnostic contact update tool powered by tsdav-utils

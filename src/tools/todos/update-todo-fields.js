@@ -18,7 +18,7 @@ const updateTodoFieldsSchema = z.object({
   todo_etag: z.string().min(1, 'Todo etag is required'),
   fields: davFieldMapSchema,
   ...occurrenceEditSchema,
-}).superRefine((data, ctx) => {
+}).strict().superRefine((data, ctx) => {
   // EXDATE/RDATE are lists: written as a field they replace the whole list
   // (tsdav-utils 0.7.0), so single occurrences go through their own
   // parameters; see src/tools/shared/occurrence-edits.js
