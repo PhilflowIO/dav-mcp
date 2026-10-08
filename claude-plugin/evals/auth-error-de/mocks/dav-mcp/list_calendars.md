@@ -1,20 +1,4 @@
 ---
 error: true
 ---
-❌ **Error in list_calendars**
-
-Authentication failed.
-
-**Possible solutions:**
-- Check username and password
-- Ensure the server is reachable
-- Verify server settings in .env file
-
----
-<details>
-<summary>Technical Details</summary>
-
-```
-Error: 401 Unauthorized
-```
-</details>
+MCP error -32603: Invalid credentials: PROPFIND https://dav.example.com/remote.php/dav/ returned 401 Unauthorized

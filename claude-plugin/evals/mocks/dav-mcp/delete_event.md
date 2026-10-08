@@ -1,3 +1,13 @@
 ✅ **Event deleted successfully**
 
-- **URL**: {{input.event_url}}
+
+---
+<details>
+<summary>Rohdaten (JSON)</summary>
+
+```json
+{
+  "success": true
+}
+```
+</details>

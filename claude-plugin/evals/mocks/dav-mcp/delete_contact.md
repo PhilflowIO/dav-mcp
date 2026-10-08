@@ -1,3 +1,13 @@
 ✅ **Contact deleted successfully**
 
-- **URL**: {{input.vcard_url}}
+
+---
+<details>
+<summary>Rohdaten (JSON)</summary>
+
+```json
+{
+  "success": true
+}
+```
+</details>

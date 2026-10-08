@@ -1,12 +1,13 @@
 ## Free/Busy
 
-- **Window**: {{input.time_range_start}} to {{input.time_range_end}}
+- **Window**: October 15, 2026, 06:00 AM UTC to October 15, 2026, 04:00 PM UTC
 - **Scope**: 2 calendars
 
-### Free (1)
+### Free (2)
 
-- {{input.time_range_start}} → {{input.time_range_end}}
+- October 15, 2026, 06:00 AM UTC → October 15, 2026, 10:30 AM UTC (4h 30m)
+- October 15, 2026, 11:30 AM UTC → October 15, 2026, 04:00 PM UTC (4h 30m)
 
-### Busy (0)
+### Busy (1)
 
-Nothing blocks this window.
+- October 15, 2026, 10:30 AM UTC → October 15, 2026, 11:30 AM UTC (1h)

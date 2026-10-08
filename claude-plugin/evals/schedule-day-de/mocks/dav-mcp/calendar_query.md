@@ -3,7 +3,7 @@ Found events: **1**
 ### 1. Lunch with Sam
 
 - **When**: October 15, 2026, 12:30 PM GMT+2 to October 15, 2026, 01:30 PM GMT+2
-- **Calendar**: Personal
+- **Calendar**: All Calendars (2)
 - **URL**: https://dav.example.com/calendars/alex/personal/lunch-sam.ics
 
 ---

@@ -1,3 +1,13 @@
 ✅ **Todo deleted successfully**
 
-- **URL**: {{input.todo_url}}
+
+---
+<details>
+<summary>Rohdaten (JSON)</summary>
+
+```json
+{
+  "success": true
+}
+```
+</details>

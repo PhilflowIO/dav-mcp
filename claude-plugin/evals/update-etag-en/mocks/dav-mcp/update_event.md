@@ -1,7 +1,7 @@
-✅ **Contact updated successfully**
+✅ **Event updated successfully**
 
 - **ETag**: "etag-after-update"
-- **Message**: Updated 1 field(s): NOTE
+- **Message**: Updated 2 field(s): DTSTART, DTEND
 
 ---
 <details>
@@ -12,9 +12,10 @@
   "success": true,
   "etag": "\"etag-after-update\"",
   "updated_fields": [
-    "NOTE"
+    "DTSTART",
+    "DTEND"
   ],
-  "message": "Updated 1 field(s): NOTE"
+  "message": "Updated 2 field(s): DTSTART, DTEND"
 }
 ```
 </details>
