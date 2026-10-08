@@ -143,7 +143,11 @@ The version lives in `package.json`; four other files repeat it.
    pull request: `npm run plugin:sync`, commit `claude-plugin/`. Until then
    the daily `plugin-pin-current.yml` run fails, because the pin is older
    than npm's `latest`. A prerelease does not move `latest` and needs no
-   pin.
+   pin. GitHub disables scheduled workflows in a public repository after
+   60 days without repository activity
+   ([docs](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule));
+   after a quiet stretch, check that it is still enabled under Actions, or
+   start it by hand.
 
 The npm side is configured once, on npmjs.com under the package's trusted
 publisher: repository `PhilflowIO/dav-mcp`, workflow `release.yml`,
