@@ -94,33 +94,176 @@ function toICALRange(timeRange) {
   };
 }
 
-/**
- * Find the first occurrence of a recurring event inside the queried range —
- * the first one `matches` accepts, when given (an occurrence is judged by its
- * own component: the override where there is one, else the master).
- *
- * Returns null when the series has no such occurrence there — the caller must
- * say so rather than fall back to the master DTSTART, which is the wrong-date
- * bug this whole path exists to fix.
- */
-function firstOccurrenceInRange(event, range, matches) {
-  const expand = new ICAL.RecurExpansion({
-    component: event.component,
-    dtstart: expansionStart(event, range),
-  });
+// Seconds a wall-clock time can sit away from the same digits read as UTC:
+// zone offsets run from UTC-12 to UTC+14. ical.js reads a floating time as
+// UTC, the host clock reads it in its own zone, and an override may name its
+// RECURRENCE-ID in another zone than the master's DTSTART — so every window
+// below is widened by this much and the caller's test decides exactly.
+const ZONE_SLACK = 26 * 3600;
 
-  for (let step = 0; step < MAX_RECURRENCE_ITERATIONS; step++) {
-    const next = expand.next();
-    if (!next) return { occurrence: null };
-    if (next.compare(range.end) > 0) return { occurrence: null };
-    if (next.compare(range.start) >= 0) {
-      const occurrence = event.getOccurrenceDetails(next);
-      if (!matches || matches(occurrence.item.component)) return { occurrence };
+/**
+ * The occurrences of a recurring event that `accept` takes, judged by what
+ * each occurrence is after the overrides apply: its own start, end and
+ * component (ical.js getOccurrenceDetails — an override with the same
+ * RECURRENCE-ID, or a RANGE=THISANDFUTURE override shifting the ones after
+ * it). EXDATEs remove an occurrence and with it any override of it, and an
+ * override whose RECURRENCE-ID is no occurrence of the series is ignored,
+ * both as in a plain expansion from DTSTART.
+ *
+ * Without walking the whole series. An occurrence that is not overridden on
+ * its own sits at its recurrence id, shifted at most by a THISANDFUTURE
+ * override, and lasts at most the longest duration in the series — so only
+ * the recurrence ids in `range`, widened by that shift and duration, are
+ * walked, starting near the range where the rule allows it (expansionStart).
+ * An override moved into the range from anywhere is found from the other
+ * side: the overrides are a finite list, each carries its own start, and for
+ * one whose effective time `accept` takes but the walk did not pass, a short
+ * walk around its RECURRENCE-ID checks that it is an occurrence at all.
+ *
+ * `accept` must only take occurrences that touch `range`; the window is
+ * computed from it.
+ *
+ * @param {ICAL.Event} event - a recurring master with its overrides related
+ * @param {{start: number, end: number}} range - unix seconds
+ * @param {(occurrence: Object) => boolean} accept - an occurrence as
+ *   getOccurrenceDetails returns it ({recurrenceId, startDate, endDate, item})
+ * @param {{first?: boolean}} [options] - first: only the earliest is wanted;
+ *   the walk stops once no later recurrence id can start before it
+ * @returns {{occurrences: Object[], truncated: boolean}} sorted by start
+ *   (then recurrence id); truncated when a walk hit the iteration cap, so an
+ *   occurrence may be missing
+ */
+export function seriesOccurrences(event, range, accept, { first = false } = {}) {
+  const { lead, trail, minShift } = reach(event);
+  const from = range.start - lead;
+  const to = range.end + trail;
+
+  const found = [];
+  const seen = new Set();
+  let best = Infinity;
+  const take = (occurrence) => {
+    found.push(occurrence);
+    best = Math.min(best, occurrence.startDate.toUnixTime());
+  };
+
+  const walk = recurrenceIds(event, from);
+  const covered = { from: walk.shifted ? from + ZONE_SLACK : -Infinity, to: -Infinity };
+  let truncated = false;
+  for (let step = walk.next(); ; step = walk.next()) {
+    if (step.done) {
+      if (step.value === 'truncated') truncated = true;
+      else covered.to = Infinity;
+      break;
     }
+    const id = step.value;
+    const at = id.toUnixTime();
+    if (at > to || (first && at + minShift - ZONE_SLACK > best)) {
+      covered.to = at - ZONE_SLACK;
+      break;
+    }
+    // a shifted walk yields its own start even where the rule would not
+    if (walk.shifted && at < from) continue;
+    const key = exceptionKey(event, id);
+    if (key) seen.add(key);
+    const occurrence = event.getOccurrenceDetails(id);
+    if (accept(occurrence)) take(occurrence);
   }
 
-  console.error(`Recurrence expansion gave up after ${MAX_RECURRENCE_ITERATIONS} occurrences`);
-  return { occurrence: null, truncated: true };
+  for (const [key, exception] of Object.entries(event.exceptions)) {
+    if (seen.has(key)) continue;
+    const occurrence = event.getOccurrenceDetails(exception.recurrenceId);
+    if (first && occurrence.startDate.toUnixTime() > best) continue;
+    if (!accept(occurrence)) continue;
+    const at = exception.recurrenceId.toUnixTime();
+    if (at >= covered.from && at <= covered.to) continue; // walked past it: no occurrence
+    const id = occurrenceId(event, exception.recurrenceId, key);
+    if (id === null) truncated = true;
+    // details for the id as the rule yields it, as a plain expansion has them
+    if (id) take(event.getOccurrenceDetails(id));
+  }
+
+  if (truncated) {
+    console.error(`Recurrence expansion gave up after ${MAX_RECURRENCE_ITERATIONS} occurrences`);
+  }
+  found.sort(byStart);
+  return { occurrences: first ? found.slice(0, 1) : found, truncated };
+}
+
+function byStart(a, b) {
+  return a.startDate.toUnixTime() - b.startDate.toUnixTime()
+    || a.recurrenceId.toUnixTime() - b.recurrenceId.toUnixTime();
+}
+
+/**
+ * How far an occurrence can sit from its recurrence id, in seconds: `lead`
+ * back (it may start before its id and run on into the range), `trail`
+ * forward, and the most negative shift a THISANDFUTURE override applies.
+ */
+function reach(event) {
+  const shifts = [0];
+  const durations = [event.duration?.toSeconds() ?? 0];
+  for (const [, key] of event.rangeExceptions) {
+    const exception = event.exceptions[key];
+    shifts.push(exception.startDate.toUnixTime() - exception.recurrenceId.toUnixTime());
+    durations.push(exception.duration?.toSeconds() ?? 0);
+  }
+  const minShift = Math.min(...shifts);
+  return {
+    lead: Math.max(...shifts) + Math.max(0, ...durations) + ZONE_SLACK,
+    trail: -minShift + ZONE_SLACK,
+    minShift,
+  };
+}
+
+/**
+ * The recurrence ids of a series in order, from `from` on (unix seconds) —
+ * or from DTSTART where expansionStart cannot shift. Returns 'complete' when
+ * the series ends, 'truncated' at the iteration cap. `shifted` tells whether
+ * the walk starts later than DTSTART, in which case its first value is that
+ * start, an occurrence or not.
+ */
+function recurrenceIds(event, from) {
+  const { dtstart, shifted } = expansionStart(event, from);
+  const walk = (function* () {
+    const expansion = new ICAL.RecurExpansion({ component: event.component, dtstart });
+    for (let step = 0; step < MAX_RECURRENCE_ITERATIONS; step++) {
+      const next = expansion.next();
+      if (!next) return 'complete';
+      yield next;
+    }
+    return 'truncated';
+  })();
+  walk.shifted = shifted;
+  return walk;
+}
+
+/** The key getOccurrenceDetails finds an exact override of `id` under, if any */
+function exceptionKey(event, id) {
+  const local = id.toString();
+  if (local in event.exceptions) return local;
+  const utc = id.convertToZone(ICAL.Timezone.utcTimezone).toString();
+  return utc in event.exceptions ? utc : null;
+}
+
+/**
+ * Is the override stored under `key` an occurrence of the series — does the
+ * rule, less its EXDATEs, yield its RECURRENCE-ID? Walks only around that id
+ * (see expansionStart). The id as the rule yields it (in the series' zone,
+ * where the override may have named it in UTC); false if the rule does not
+ * yield it, null when the walk hit the iteration cap first.
+ */
+function occurrenceId(event, recurrenceId, key) {
+  const at = recurrenceId.toUnixTime();
+  const walk = recurrenceIds(event, at - ZONE_SLACK);
+  let step = walk.next();
+  for (; !step.done; step = walk.next()) {
+    const id = step.value;
+    const when = id.toUnixTime();
+    if (when > at + ZONE_SLACK) return false;
+    if (walk.shifted && when < at - ZONE_SLACK) continue;
+    if (exceptionKey(event, id) === key) return id;
+  }
+  return step.value === 'truncated' ? null : false;
 }
 
 // Rule parts that keep a DAILY/WEEKLY series periodic in its INTERVAL: the
@@ -129,9 +272,9 @@ function firstOccurrenceInRange(event, range, matches) {
 const PERIODIC_PARTS = new Set(['BYDAY', 'BYMONTH', 'WKST']);
 
 /**
- * Where to start expanding a series to reach the range: the series start, or
- * — for a DAILY/WEEKLY rule without COUNT — a whole number of periods later,
- * just before the range.
+ * Where to start expanding a series to reach `from` (unix seconds): the
+ * series start, or — for a DAILY/WEEKLY rule without COUNT — a whole number
+ * of periods later, just before it.
  *
  * Walking from DTSTART costs one step per occurrence since the series began:
  * a daily series from 2020 takes ~2400 steps to reach October 2026, and a
@@ -140,29 +283,32 @@ const PERIODIC_PARTS = new Set(['BYDAY', 'BYMONTH', 'WKST']);
  * repeat every period (only BYDAY/BYMONTH restrict them), there is no COUNT to
  * count from the original start, and no RDATE to miss. EXDATEs and overrides
  * are absolute, so they still apply. The shifted start stays at least one
- * period plus a day before the range, so the start itself — which ical.js
- * always yields, even if the rule would not — never lands inside it, and a
- * zone offset cannot push an occurrence across the range start. Other rules
- * (COUNT, MONTHLY, YEARLY, ...) are walked from DTSTART as before; COUNT
- * bounds that walk, and monthly or yearly series have few occurrences.
+ * period plus a day before `from`; ical.js always yields it, even if the rule
+ * would not, so a shifted walk skips what it yields before `from` (see
+ * seriesOccurrences). Other rules (COUNT, MONTHLY, YEARLY, ...) are walked
+ * from DTSTART as before; COUNT bounds that walk, and monthly or yearly
+ * series have few occurrences.
+ *
+ * @returns {{dtstart: ICAL.Time, shifted: boolean}}
  */
-function expansionStart(event, range) {
+function expansionStart(event, from) {
   const start = event.startDate;
+  const unshifted = { dtstart: start, shifted: false };
   const component = event.component;
   const rules = component.getAllProperties('rrule');
-  if (rules.length !== 1 || component.hasProperty('rdate')) return start;
+  if (rules.length !== 1 || component.hasProperty('rdate')) return unshifted;
   const rule = rules[0].getFirstValue();
-  if (rule.count || !['DAILY', 'WEEKLY'].includes(rule.freq)) return start;
-  if (Object.keys(rule.parts ?? {}).some((part) => !PERIODIC_PARTS.has(part))) return start;
+  if (rule.count || !['DAILY', 'WEEKLY'].includes(rule.freq)) return unshifted;
+  if (Object.keys(rule.parts ?? {}).some((part) => !PERIODIC_PARTS.has(part))) return unshifted;
 
   const periodDays = (rule.interval || 1) * (rule.freq === 'WEEKLY' ? 7 : 1);
-  const daysToRange = Math.floor((range.start.toUnixTime() - start.toUnixTime()) / 86400);
+  const daysToRange = Math.floor((from - start.toUnixTime()) / 86400);
   const periods = Math.floor((daysToRange - periodDays - 2) / periodDays);
-  if (!(periods > 0)) return start;
+  if (!(periods > 0)) return unshifted;
 
   const shifted = start.clone();
   shifted.adjust(periods * periodDays, 0, 0, 0);
-  return shifted;
+  return { dtstart: shifted, shifted: true };
 }
 
 /**
@@ -171,11 +317,12 @@ function expansionStart(event, range) {
  *
  *  - No time range: the series master (readSeries). A search without a range
  *    therefore only searches the series, not its renamed occurrences.
- *  - A time range and a recurring series: the first occurrence inside the
- *    range, with its RECURRENCE-ID override applied if it has one — the first
- *    one `matches` accepts, when a search passes it. So a search finds an
- *    occurrence renamed or moved inside the range and lists that occurrence,
- *    with its own title, place and date.
+ *  - A time range and a recurring series: the earliest occurrence that
+ *    starts inside the range once its overrides apply (seriesOccurrences) —
+ *    the earliest one `matches` accepts, when a search passes it. An
+ *    occurrence moved into the range from outside it counts, one moved out
+ *    of it does not, and it is listed with its own title, place and date.
+ *    A cancelled occurrence is still an occurrence; the display says so.
  *  - A time range and several detached instances without a master: the
  *    first instance inside the range (that `matches` accepts, if given),
  *    else the first in document order.
@@ -208,10 +355,14 @@ export function shownEvent(calendar, timeRange = null, matches = null) {
   let outsideRange = false;
   let expansionTruncated = false;
   if (range && event.isRecurring()) {
-    const result = firstOccurrenceInRange(event, range, matches);
-    occurrence = result.occurrence;
-    expansionTruncated = Boolean(result.truncated);
-    outsideRange = !occurrence && !expansionTruncated;
+    // listed when it starts in the range, at its own (possibly moved) start
+    const inRange = (o) => o.startDate.compare(range.start) >= 0 && o.startDate.compare(range.end) <= 0
+      && (!matches || matches(o.item.component));
+    const window = { start: range.start.toUnixTime(), end: range.end.toUnixTime() };
+    const result = seriesOccurrences(event, window, inRange, { first: true });
+    occurrence = result.occurrences[0] ?? null;
+    expansionTruncated = !occurrence && result.truncated;
+    outsideRange = !occurrence && !result.truncated;
   }
 
   return {
