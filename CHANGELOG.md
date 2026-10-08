@@ -20,8 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one occurrence of a day excluded as a whole brings back only that one. A
   name in the wrong form is refused rather than cancelling another
   occurrence: a time without a zone on a UTC series is not read in the
-  host's zone. A refused name comes back as a validation error that says to
-  use the occurrence start exactly as listed. Names refer to the series as it
+  host's zone. A refused name comes back as a validation error naming it,
+  with the occurrences that day (or the cancelled ones) and how the series
+  names occurrences, and saying to use the name exactly as listed. Names refer to the series as it
   is before the call; restores, then cancels, then fields and dates are
   applied, so a move in the same call takes the new exclusions along.
 
@@ -46,6 +47,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `restore_occurrences`. Written as a field, either list replaced every value
   already in the series. Extra dates (RDATE) of a series are edited through
   `update_event_raw`/`update_todo_raw`.
+- **Write tools refuse parameters they do not take** (#126). Unknown keys
+  were dropped silently, so a call with a misspelled or newer parameter
+  reported success for a change it never made (dav-mcp 4.3.1 drops
+  `cancel_occurrences` and answers "Updated 0 field(s)"). The create, update
+  and delete tools now answer such a call with a validation error naming the
+  parameter.
+- **An update that asks for nothing writes nothing.** `update_event` and
+  `update_todo` without fields, dates or occurrence names (empty lists count
+  as none), or whose occurrences are already as asked, reply "not changed"
+  instead of writing the object back with a new etag.
 - tsdav-utils 0.7.0 (`@philflow/tsdav-utils`).
 
 ## [4.3.1] - 2026-10-08
