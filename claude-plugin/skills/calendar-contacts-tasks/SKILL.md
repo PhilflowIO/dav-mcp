@@ -68,6 +68,13 @@ replaces the exclusions already there). When the user means one day
 occurrence is changed in their calendar app; change the series only when they
 ask for the series ("from now on", "every week").
 
+Never move a series (an event with `RRULE`) to another time without asking
+first. Moving it moves every occurrence, past ones included, and each day
+the user took out (an `EXDATE` line in its data) may stay at the old time
+(dav-mcp before 4.4.0 does not move it), so that day comes back. Tell the
+user both, name each excluded day, then ask, or point them to their calendar
+app.
+
 ## When something fails
 
 Tell the user the cause in plain words and what to do, instead of repeating
