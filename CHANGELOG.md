@@ -17,7 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   line breaks included, for the contact list and the filters alike.
 - **vCard 2.1 commas and backslashes are read as text** (#103). Only `\;` is
   an escape in vCard 2.1, but cards were read with 3.0 escaping, so
-  `N:Mueller, Jr.;Hans` showed two family names.
+  `N:Mueller, Jr.;Hans` showed two family names. Quoted-printable text in a
+  3.0 or 4.0 card (where some exporters still write it) is read by the same
+  2.1 rules once decoded, so `C:=5Cnew` stays `C:\new` there too.
 - **`update_contact` writes a vCard 2.1 card back as vCard 3.0** (#103). It
   used to edit the stored 2.1 text: a new value kept the line's
   `ENCODING=QUOTED-PRINTABLE` (and read back altered, or swallowed the next
@@ -25,7 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`TEL;CELL:`) or a soft line break could not be edited at all. The card is
   now edited as it is read and written as the 3.0 card that says the same,
   decoded, which is the version every CardDAV server accepts (sabre/dav,
-  i.e. Baïkal and Nextcloud, refuses 2.1).
+  i.e. Baïkal and Nextcloud, refuses 2.1). Whitespace inside a `BASE64` or
+  `b` value (2.1 lets exporters indent it) is removed when it is written.
 
 ## [4.3.0] - 2026-10-07
 
