@@ -281,3 +281,77 @@ export function assertFieldUpdatable(object, type) {
     `with ${raw}.`
   );
 }
+
+/**
+ * The refusals of tsdav-utils' updateFields that a field update can run into,
+ * recognised by the start of their message.
+ *
+ * tsdav-utils 0.5.0 throws plain Errors, without a class or code to tell a
+ * refusal of the write from a fault, so the message is all there is. Each
+ * pattern is anchored on the opening words of one refusal and is exercised
+ * against the installed library in __tests__/series-master.test.js; a
+ * rewording there fails those tests rather than silently turning the
+ * refusal back into an internal error.
+ */
+const LIBRARY_REFUSALS = [
+  // a DTSTART move the rule, an UNTIL, an EXDATE/RDATE or an override cannot follow
+  /^Moving DTSTART \(/,
+  /^DTSTART changed(?:,| to a date,) and /,
+  // a move or a new RRULE/RDATE that would create a twin of an occurrence
+  /^(?:Moving DTSTART|Writing [A-Z ]+) is refused: /,
+  // a new RRULE/RDATE that leaves overrides or EXDATEs naming no occurrence
+  /^The new [A-Z ]+ leaves /,
+  // a series too sparse or too irregular to verify within the work limit
+  /^Cannot check that /,
+  /^RECURRENCE-ID cannot be written on the series master/,
+  // the object holds no component of the type the tool writes
+  /^No [A-Z, ]+ found in VCALENDAR/,
+];
+
+/**
+ * Turn a refusal of updateFields into a validation error the caller can act
+ * on; leave every other error as it is.
+ *
+ * The library's own text is kept whole: it says why the write is refused and
+ * often what to give instead (an RRULE with the weekday of the new start,
+ * say). What it cannot know is how its two remedies are spelled in this
+ * server, so they are added in the tool's terms:
+ *  - "in the same call" means in `fields` of this same update call;
+ *  - "rewrite the whole iCalendar object" — and changing one occurrence of a
+ *    series, which a field update never does — means fetching the object
+ *    with the multi-get tool and sending it back with the raw update tool.
+ *
+ * @param {Error} error - what updateFields threw
+ * @param {'vevent'|'vtodo'} type - the component the tool writes
+ * @returns {Error} a ValidationError for a refusal, otherwise `error`
+ */
+export function explainWriteRefusal(error, type) {
+  const kind = KINDS[type];
+  const message = error?.message;
+  if (!kind || typeof message !== 'string' || !LIBRARY_REFUSALS.some((p) => p.test(message))) {
+    return error;
+  }
+
+  const { noun, update, raw, fetch } = kind;
+  const hints = [];
+  if (/^No [A-Z, ]+ found in VCALENDAR/.test(message)) {
+    const other = Object.values(KINDS).find((k) => k !== kind);
+    hints.push(
+      `This object holds no ${noun}, so ${update} cannot change it. ` +
+      `If it is ${other.noun === 'event' ? 'an' : 'a'} ${other.noun}, use ${other.update}.`
+    );
+  } else {
+    if (/in the same call/.test(message)) {
+      hints.push(
+        `In ${update}, "in the same call" means in fields of this same call ` +
+        `(e.g. fields.RRULE${type === 'vevent' ? ', next to start_date and end_date' : ''}).`
+      );
+    }
+    hints.push(
+      `To change a single occurrence, or to rewrite the whole object: fetch it with ` +
+      `${fetch} (its Raw Data block holds the full iCalendar text and the etag), edit ` +
+      `the ${type.toUpperCase()} components, and send the whole object with ${raw}.`
+    );
+  }
+  return new ValidationError(`${message.replace(/\.$/, '')}. ${hints.join(' ')}`);
+}

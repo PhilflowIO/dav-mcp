@@ -1,5 +1,6 @@
 import ICAL from 'ical.js';
 import { updateFields, seriesMaster } from 'tsdav-utils';
+import { explainWriteRefusal } from '../../ical-components.js';
 
 /**
  * Every property dav-mcp writes onto a calendar object or vCard goes through
@@ -18,13 +19,22 @@ import { updateFields, seriesMaster } from 'tsdav-utils';
  * component is refused by the library ("No VTODO found in VCALENDAR (it holds:
  * VEVENT)"). A vCard has no component type, so the contact tools pass none.
  *
+ * What the library refuses — a series move the rule cannot follow, a
+ * RECURRENCE-ID on the master, no component of the type — is the caller's
+ * input meeting this object, not a fault: with a type it comes back as a
+ * ValidationError that names the tools to use instead (explainWriteRefusal).
+ *
  * @param {string|{data: string}} object - calendar object or vCard
  * @param {Record<string, string>} fields - bare property name -> value
  * @param {'vevent'|'vtodo'} [type] - the component to write into
  * @returns {string} the rewritten object
  */
 export function writeFields(object, fields, type) {
-  return updateFields(object, fields, { floatingTime: 'local', type });
+  try {
+    return updateFields(object, fields, { floatingTime: 'local', type });
+  } catch (error) {
+    throw type ? explainWriteRefusal(error, type) : error;
+  }
 }
 
 /**

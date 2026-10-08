@@ -40,7 +40,7 @@ const { calculateFreeBusy } = await import('../src/tools/shared/freebusy.js');
 const { dueSpan } = await import('../src/tools/shared/ical-dates.js');
 const { parseObjects } = await import('../src/tools/shared/query-objects.js');
 const { formatTodo, formatEvent } = await import('../src/formatters.js');
-const { readSeries } = await import('../src/ical-components.js');
+const { readSeries, explainWriteRefusal } = await import('../src/ical-components.js');
 const { createToolErrorResponse, MCP_ERROR_CODES } = await import('../src/error-handler.js');
 
 /** what the LLM gets back for a failed call, as the servers build it */
@@ -262,5 +262,99 @@ describe('several instances without a master (#96)', () => {
     storedTodo = calendar('VTODO', first.filter((l) => !l.startsWith('DTEND')));
     await setTodo({ SUMMARY: 'Review (moved)' });
     expect(emittedTodo()).toContain('SUMMARY:Review (moved)');
+  });
+});
+
+// Issue #107: tsdav-utils 0.5.0 moves the whole series with its master's
+// DTSTART, and refuses a move or a rule change the series cannot follow.
+// These run through the real handlers and the installed library, so a
+// rewording of a refusal there shows up here.
+describe('moving a recurring series (#107)', () => {
+  // every Monday 09:00; the 12 Oct occurrence moved to the afternoon, 19 Oct cancelled
+  const weekly = (rule) => calendar('VEVENT', [
+    'UID:weekly@test', 'SUMMARY:Planning', `RRULE:${rule}`,
+    'DTSTART:20261005T090000Z', 'DTEND:20261005T100000Z', 'EXDATE:20261019T090000Z',
+  ], [
+    'UID:weekly@test', 'SUMMARY:Planning (moved)', 'RECURRENCE-ID:20261012T090000Z',
+    'DTSTART:20261012T140000Z', 'DTEND:20261012T150000Z',
+  ]);
+
+  test('Mon -> Tue on an every-Monday series follows with BYDAY=TU, exceptions included', async () => {
+    storedEvent = weekly('FREQ=WEEKLY;BYDAY=MO');
+    await setEvent({ start_date: '2026-10-06T10:00:00Z', end_date: '2026-10-06T11:00:00Z' });
+
+    const { master, overrides } = parts(emittedEvent(), 'vevent');
+    expect(master).toEqual(expect.arrayContaining([
+      'RRULE:FREQ=WEEKLY;BYDAY=TU', 'DTSTART:20261006T100000Z', 'DTEND:20261006T110000Z',
+      'EXDATE:20261020T100000Z',
+    ]));
+    // +1 day +1 hour: the override still names its (moved) occurrence and keeps its own offset
+    expect(overrides[0]).toEqual(expect.arrayContaining([
+      'RECURRENCE-ID:20261013T100000Z', 'DTSTART:20261013T150000Z', 'DTEND:20261013T160000Z',
+    ]));
+  });
+
+  test('a rule pinning two weekdays refuses a one-day move, with the fix spelled in tool terms', async () => {
+    storedEvent = weekly('FREQ=WEEKLY;BYDAY=MO,WE');
+    const reply = await errorReply(setEvent({ start_date: '2026-10-06T09:00:00Z', end_date: '2026-10-06T10:00:00Z' }));
+
+    expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+    // the library's reason and remedy, whole
+    expect(reply.message).toMatch(/^Moving DTSTART \(DTSTART:20261005T090000Z to DTSTART:20261006T090000Z\) does not move the whole series: RRULE:FREQ=WEEKLY;BYDAY=MO,WE has BYDAY, .* Give RRULE in the same call to fit the new start/);
+    // and where those remedies live in dav-mcp
+    expect(reply.message).toContain('In update_event, "in the same call" means in fields of this same call (e.g. fields.RRULE, next to start_date and end_date).');
+    expect(reply.message).toContain('fetch it with calendar_multi_get');
+    expect(reply.message).toContain('send the whole object with update_event_raw.');
+    expect(updateCalendarObject).not.toHaveBeenCalled();
+  });
+
+  test('following the hint — RRULE in fields of the same call — makes that move go through', async () => {
+    storedEvent = weekly('FREQ=WEEKLY;BYDAY=MO,WE');
+    await setEvent({
+      start_date: '2026-10-06T09:00:00Z', end_date: '2026-10-06T10:00:00Z',
+      fields: { RRULE: 'FREQ=WEEKLY;BYDAY=TU,TH' },
+    });
+    const { master, overrides } = parts(emittedEvent(), 'vevent');
+    expect(master).toEqual(expect.arrayContaining(['RRULE:FREQ=WEEKLY;BYDAY=TU,TH', 'EXDATE:20261020T090000Z']));
+    expect(overrides[0]).toContain('RECURRENCE-ID:20261013T090000Z');
+  });
+
+  test('RECURRENCE-ID in fields is refused and points to the single-occurrence route', async () => {
+    for (const stored of [weekly('FREQ=WEEKLY;BYDAY=MO'), calendar('VEVENT', EVENT_MASTER.filter((l) => !l.startsWith('RRULE')))]) {
+      storedEvent = stored;
+      const reply = await errorReply(setEvent({ fields: { 'RECURRENCE-ID': '2026-10-12T09:00:00Z', SUMMARY: 'x' } }));
+      expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+      expect(reply.message).toMatch(/^RECURRENCE-ID cannot be written on the series master: /);
+      expect(reply.message).toMatch(/To change a single occurrence, or to rewrite the whole object: fetch it with calendar_multi_get .* send the whole object with update_event_raw\.$/);
+      expect(reply.message).not.toContain('"in the same call"');
+    }
+    expect(updateCalendarObject).not.toHaveBeenCalled();
+  });
+
+  test('update_todo: a new RRULE that orphans an override is refused with the todo tools named', async () => {
+    storedTodo = calendar('VTODO', TODO_OVERRIDE, TODO_MASTER);
+    const reply = await errorReply(setTodo({ RRULE: 'FREQ=WEEKLY;BYDAY=TU' }));
+    expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+    expect(reply.message).toMatch(/^The new RRULE leaves the override for RECURRENCE-ID:20261005T080000Z naming no occurrence/);
+    expect(reply.message).toContain('In update_todo, "in the same call" means in fields of this same call (e.g. fields.RRULE).');
+    expect(reply.message).toMatch(/todo_multi_get .* update_todo_raw\.$/);
+    expect(updateTodo).not.toHaveBeenCalled();
+  });
+
+  test('update_todo on an object holding only an event names update_event', async () => {
+    storedTodo = calendar('VEVENT', EVENT_MASTER);
+    const reply = await errorReply(setTodo({ SUMMARY: 'x' }));
+    expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+    expect(reply.message).toBe('No VTODO found in VCALENDAR (it holds: VEVENT). ' +
+      'This object holds no todo, so update_todo cannot change it. If it is an event, use update_event.');
+  });
+
+  test('any other error is passed on as it is', () => {
+    const fault = new Error('Failed to parse iCal data: unexpected end');
+    expect(explainWriteRefusal(fault, 'vevent')).toBe(fault);
+    // a vCard write names no component type, so there is no tool to point to
+    const vcard = new Error('No VTODO found in VCALENDAR');
+    expect(explainWriteRefusal(vcard, undefined)).toBe(vcard);
+    expect(explainWriteRefusal(undefined, 'vtodo')).toBeUndefined();
   });
 });
