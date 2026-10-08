@@ -429,11 +429,17 @@ jobs:
               {
                 echo "### dav-mcp@$VERSION is on npm"
                 echo ""
-                echo "Next: pin the Claude plugin to it in a pull request (CONTRIBUTING.md, Releases):"
-                echo ""
-                echo '```bash'
-                echo "npm run plugin:sync"
-                echo '```'
+                # A prerelease is published under `next`; the plugin stays on
+                # the latest stable version.
+                if [ "$PRERELEASE" = true ]; then
+                  echo "Prerelease, published under the dist-tag \`next\`. The Claude plugin pin stays as it is."
+                else
+                  echo "Next: pin the Claude plugin to it in a pull request (CONTRIBUTING.md, Releases):"
+                  echo ""
+                  echo '```bash'
+                  echo "npm run plugin:sync"
+                  echo '```'
+                fi
               } >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
