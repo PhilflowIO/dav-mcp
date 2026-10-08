@@ -40,9 +40,10 @@ guide). Never invent entries.
 
 ## Changing data
 
-- Read the item first and pass its `url` and `etag` to the update or delete.
-  Use `update_event`/`update_contact`/`update_todo`; the `*_raw` tools only for
-  a complete object the user supplies.
+- Read the item first and pass its `url` and `etag` to the update or delete,
+  the etag exactly as returned, quotes included. Use
+  `update_event`/`update_contact`/`update_todo`; the `*_raw` tools only for a
+  complete object the user supplies.
 - On a conflict (412, "modified in the meantime"), do not retry with the
   same etag. Read the item again, tell the user what changed, and ask before
   applying the change to the new version.
