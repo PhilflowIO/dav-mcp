@@ -28,15 +28,23 @@ cp .env.example .env   # fill in your CalDAV/CardDAV server
 
 Run the server locally with `npm run dev` (stdio) or `npm run dev:http` (HTTP).
 
-dav-mcp uses a fork of tsdav (`PhilflowIO/tsdav`), pinned in `package.json` to
-the packed tarball of a fork release. A tarball installs without cloning and
-building the fork; a git reference makes npm do both, and that build step fails
-with the npm that ships with Node 20. To move to a newer fork release, pass the
-URL of its `.tgz` release asset:
+dav-mcp uses two packages of its own from npm: the tsdav fork
+(`PhilflowIO/tsdav`, published as `@philflow/tsdav`) and `PhilflowIO/tsdav-utils`
+(published as `@philflow/tsdav-utils`). `package.json` installs them under npm
+aliases at exact versions, so the code imports `tsdav` and `tsdav-utils`:
+
+```json
+"tsdav": "npm:@philflow/tsdav@2.4.0",
+"tsdav-utils": "npm:@philflow/tsdav-utils@0.4.1"
+```
+
+Both repositories publish a release to npm when a release tag is pushed. Never
+depend on a git URL or a tarball URL: npm 12 refuses both by default, and the
+`npm-12` CI job fails on them. To move to a newer release:
 
 ```bash
-TSDAV_TARBALL='https://github.com/PhilflowIO/tsdav/releases/download/v2.3.5%2Bphilflow.5/tsdav-2.3.5-philflow.5.tgz' \
-  npm run update:tsdav
+TSDAV_VERSION=2.4.0 npm run update:tsdav
+TSDAV_UTILS_VERSION=0.4.1 npm run update:tsdav-utils
 ```
 
 ## Tests
@@ -96,19 +104,64 @@ docker inspect -f '{{.State.Health.Status}}' dav-mcp   # "healthy" within a minu
 
 ## Releases
 
+Releases are published from CI by `.github/workflows/release.yml`, never from
+a local checkout. Pushing a tag `v<version>` on a commit of `main` packs the
+package once, installs and starts that tarball on Node 18 to 26 (Node 26 with
+npm 12, which refuses git and tarball-URL dependencies), publishes it to npm
+with a provenance attestation, creates the GitHub release from the CHANGELOG,
+and then builds the MCP Bundle, the MCP Registry entry and the container image
+from the same tag. npm authenticates the publish job through trusted
+publishing (GitHub OIDC); there is no npm token, and the job runs in the
+`npm-publish` environment, which needs a maintainer's approval.
+
 The version lives in `package.json`; four other files repeat it.
 
-1. Set the new version in `package.json` and `server.json` (top level and the
-   npm package entry).
-2. Run `npm run mcpb:sync` and `npm run plugin:sync`. They write the version
-   into `manifest.json` and `claude-plugin/`; the tests fail until they match.
-3. Publish to npm **before** the version bump reaches `main`. The Claude
-   directory follows `main` and the plugin there starts
-   `npx -y dav-mcp@<version>`, so a version that isn't on npm yet breaks it
-   for everyone who has the plugin. CI (`plugin-pin` in `test.yml`) fails
-   while the pinned version is missing from npm.
-4. Tag `v<version>` and publish the GitHub release; the bundle and registry
-   workflows run from it.
+1. In a release pull request, set the new version in `package.json` and
+   `server.json` (top level and the npm package entry), run
+   `npm run mcpb:sync` (writes it into `manifest.json`), and turn
+   `## [Unreleased]` in `CHANGELOG.md` into `## [<version>] - <date>`; that
+   section becomes the release notes. Do **not** run `npm run plugin:sync`
+   yet: the Claude directory follows `main` and the plugin there starts
+   `npx -y dav-mcp@<version>`, so it may only point at a version that is
+   already on npm. CI (`plugin-pin` in `test.yml`) fails while it doesn't.
+2. Merge the pull request, then tag the merge commit on `main` and push the
+   tag:
+
+   ```bash
+   git fetch origin
+   git tag v<version> origin/main
+   git push origin v<version>
+   ```
+
+   The workflow refuses a tag that differs from the version in `package.json`,
+   `server.json` or `manifest.json`, a commit that is not on `main`, a version
+   with `+build` metadata, and a version without a CHANGELOG section. A
+   prerelease (`-rc.1`) goes to the npm dist-tag `next` and does not move the
+   image's `latest`.
+3. Approve the `npm-publish` deployment when the run asks for it.
+4. Once the run is green, pin the Claude plugin to the new version in a
+   pull request: `npm run plugin:sync`, commit `claude-plugin/`. Until then
+   the daily `plugin-pin-current.yml` run fails, because the pin is older
+   than npm's `latest`. A prerelease does not move `latest` and needs no
+   pin. GitHub disables scheduled workflows in a public repository after
+   60 days without repository activity
+   ([docs](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule));
+   after a quiet stretch, check that it is still enabled under Actions, or
+   start it by hand.
+
+The npm side is configured once, on npmjs.com under the package's trusted
+publisher: repository `PhilflowIO/dav-mcp`, workflow `release.yml`,
+environment `npm-publish`, and publishing access "require two-factor
+authentication and disallow tokens". **The environment field is mandatory;
+never clear it.** The MCP Registry job, called from `release.yml`, holds a
+GitHub OIDC token as well, and for a called workflow npm checks the name of
+the calling workflow, so without the environment that token would be
+accepted for an npm publish too.
+
+A failed run is re-run with "Re-run failed jobs", which keeps the tarball that
+was already packed. A version that is on npm is never replaced. The bundle,
+registry and image workflows can also be started by hand for an existing
+release tag (Actions, "Run workflow").
 
 ## Security issues
 

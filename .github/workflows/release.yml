@@ -1,0 +1,591 @@
+name: Release
+
+# Publishes dav-mcp to npm, then everything that is built from a release: the
+# GitHub release, the MCP Bundle, the MCP Registry entry and the container
+# image. Pushing a tag `v<version>` on a commit of main starts it; nothing
+# else does.
+#
+# Authentication is npm trusted publishing (GitHub OIDC): the publish job
+# runs in the `npm-publish` environment, which the trusted publisher on
+# npmjs.com is bound to and which only release tags may deploy to (set in
+# the repository settings, not here: a check in this file can be removed by
+# whoever pushes a tag with an edited copy of it). The job requests a
+# short-lived token for this workflow file; there is no npm token in the
+# repository secrets. npm then attaches a provenance attestation that links
+# the published version to this run and commit.
+#
+# Order: pack, and in parallel test -> verify -> publish to npm -> GitHub
+# release -> bundle, registry, image. The pack job runs no code from any
+# dependency: it checks out the tag and packs it before anything is
+# installed, so no install script or test can change what goes into the
+# tarball. The tarball travels between jobs as an artifact, so npm receives
+# the exact file that installed and started on every supported Node version.
+#
+# The bundle, registry and image workflows are called from here
+# (workflow_call) instead of reacting to the release: a release created with
+# this run's GITHUB_TOKEN does not trigger `release: published` in other
+# workflows, and the registry entry points at the npm package, so it must
+# not be published before npm has the version.
+#
+# Re-running: use "Re-run failed jobs"; that keeps the tarball the pack job
+# already packed. A version already on npm is never replaced: same bytes ->
+# the publish step does nothing, different bytes -> it fails and asks for a
+# new version. npm does not allow re-publishing a version anyway.
+#
+# Actions are pinned to commit SHAs: a tag can be moved, and the later jobs
+# hold tokens that can publish.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+# One run per tag at a time; a second push or a re-run waits instead of racing
+# the first one to the registry.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  pack:
+    name: Check and pack
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      asset: ${{ steps.pack.outputs.asset }}
+      sha256: ${{ steps.pack.outputs.sha256 }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0 # full history, for the ancestry check below
+
+      # A matching tag can be pushed on any commit. Only code that went
+      # through review into main may become a release.
+      - name: Check the tagged commit is on main
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "❌ ERROR: $GITHUB_REF_NAME ($GITHUB_SHA) is not on main"
+            exit 1
+          fi
+          echo "✅ $GITHUB_SHA is on main"
+
+      # The tag is what a release is cut from and the version is what
+      # consumers pin; they have to name the same thing. npm would silently
+      # drop `+build` metadata, so a version carrying it is refused here
+      # instead of being published under a shorter, different version.
+      # manifest.json (bundle) and server.json (registry) repeat the version;
+      # the jobs that publish them run after npm, so a mismatch has to fail
+      # here, before anything is public.
+      - name: Check tag matches the version in package.json, server.json and manifest.json
+        id: version
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          if [ "$NAME" != "dav-mcp" ]; then
+            echo "❌ ERROR: package.json name is $NAME, expected dav-mcp"
+            exit 1
+          fi
+          case "$VERSION" in
+            *+*)
+              echo "❌ ERROR: version $VERSION carries build metadata; npm would publish it as ${VERSION%%+*}"
+              exit 1
+              ;;
+          esac
+          if [ "$GITHUB_REF_NAME" != "v$VERSION" ]; then
+            echo "❌ ERROR: tag $GITHUB_REF_NAME does not match package.json version $VERSION (expected v$VERSION)"
+            exit 1
+          fi
+          for pair in \
+            "server.json:$(node -p "require('./server.json').version")" \
+            "server.json packages[0]:$(node -p "require('./server.json').packages[0].version")" \
+            "manifest.json:$(node -p "require('./manifest.json').version")"; do
+            if [ "${pair##*:}" != "$VERSION" ]; then
+              echo "❌ ERROR: ${pair%:*} has version ${pair##*:}, package.json has $VERSION"
+              exit 1
+            fi
+          done
+          case "$VERSION" in
+            *-*) PRERELEASE=true ;;
+            *) PRERELEASE=false ;;
+          esac
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "✅ Tag $GITHUB_REF_NAME matches $NAME@$VERSION (prerelease: $PRERELEASE)"
+
+      # npm runs these around `npm pack`, and npm 10 runs `prepare` even with
+      # --ignore-scripts. The package is shipped as committed, so a script that
+      # could rewrite it before packing is refused, whatever npm would do.
+      - name: Check package.json defines no pack lifecycle scripts
+        run: |
+          SCRIPTS=$(node -p '
+            const s = require("./package.json").scripts ?? {};
+            ["prepare", "prepack", "postpack", "pack"].filter(k => k in s).join(" ")')
+          if [ -n "$SCRIPTS" ]; then
+            echo "❌ ERROR: package.json defines lifecycle scripts that run around npm pack: $SCRIPTS"
+            echo "   The release is packed from the committed files; remove them, or build into the committed tree instead."
+            exit 1
+          fi
+          echo "✅ no prepare, prepack, postpack or pack script"
+
+      # Only for `node` and `npm pack`; no dependency is installed in this
+      # job, so no dependency code runs before the tarball and its sha256
+      # exist.
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+
+      # npm 10 runs a `prepare` script on `npm pack` even with
+      # --ignore-scripts; npm 12 runs none. The same pinned npm as the
+      # publish job.
+      - name: Use npm 12.2.0
+        run: |
+          npm install --global --ignore-scripts --no-audit --no-fund npm@12.2.0
+          echo "node $(node --version), npm $(npm --version)"
+          [ "$(npm --version)" = 12.2.0 ] || { echo "❌ ERROR: expected npm 12.2.0"; exit 1; }
+
+      # The tarball must hold the files committed under the tag. In a fresh
+      # checkout with nothing installed nothing should differ; --ignored also
+      # catches gitignored files, which `npm pack` would include as well.
+      - name: Check the packed files are the tagged ones
+        run: |
+          DRIFT=$(git status --porcelain --untracked-files=all --ignored -- package.json src README.md LICENSE PRIVACY.md CHANGELOG.md)
+          if [ -n "$DRIFT" ]; then
+            echo "❌ ERROR: files that go into the package differ from $GITHUB_REF_NAME:"
+            echo "$DRIFT"
+            exit 1
+          fi
+          echo "✅ the packed files are the ones committed under $GITHUB_REF_NAME"
+
+      - name: Pack
+        id: pack
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # --ignore-scripts: nothing has to run to produce the package.
+          npm --version
+          npm pack --ignore-scripts
+          ASSET="dav-mcp-$VERSION.tgz"
+          mkdir -p "$RUNNER_TEMP/release"
+          mv "$ASSET" "$RUNNER_TEMP/release/$ASSET"
+          tar -tzf "$RUNNER_TEMP/release/$ASSET"
+          # The entry points are what users run; a tarball without them would
+          # install and then fail to start.
+          for f in package/package.json package/src/server-stdio.js package/src/server-http.js; do
+            tar -tzf "$RUNNER_TEMP/release/$ASSET" | grep -qx "$f" || { echo "❌ ERROR: $f missing from $ASSET"; exit 1; }
+          done
+          SHA256=$(sha256sum "$RUNNER_TEMP/release/$ASSET" | cut -d' ' -f1)
+          echo "asset=$ASSET" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+          echo "📦 $ASSET sha256 $SHA256"
+
+      # Fails here, before any install job starts, when the CHANGELOG has no
+      # section for this version.
+      - name: Release notes from the CHANGELOG
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          awk -v heading="## [$VERSION]" '
+            index($0, heading) == 1 { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > "$RUNNER_TEMP/release/notes.md"
+          if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/release/notes.md"; then
+            echo "❌ ERROR: CHANGELOG.md has no section '## [$VERSION]', or it is empty"
+            exit 1
+          fi
+
+      # The one file every later job uses: verify installs it, publish sends
+      # it to npm. Nothing is rebuilt or repacked after this point.
+      - name: Hand the tarball to the next jobs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release
+          path: ${{ runner.temp }}/release/
+          if-no-files-found: error
+          retention-days: 7
+
+  # The unit tests of the tagged commit. A job of its own, because it installs
+  # the dependencies with their lifecycle scripts and runs third-party code;
+  # it never sees the tarball, and the publish waits for it.
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      # No dependency cache, as everywhere in this workflow.
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.x'
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Run tests
+        run: npm test
+
+  # Installs the file users will install, on the Node versions they run, and
+  # starts the server from it, before it is public. A failure here publishes
+  # nothing.
+  verify:
+    name: Install and start packed tarball (Node ${{ matrix.node-version }})
+    needs: pack
+    runs-on: ubuntu-latest
+    permissions: {}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [18, 20, 22, 24, 26]
+        # Node 26 still bundles npm 11; the 26 leg runs npm 12, whose
+        # defaults (allow-git=none, allow-remote=none) users hit: a git or
+        # tarball-URL dependency fails the install there.
+
+    steps:
+      # No checkout: a user has nothing but the package.
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Use npm 12
+        if: matrix.node-version == 26
+        run: |
+          npm install --global --ignore-scripts --no-audit --no-fund npm@12.2.0
+          for key in allow-git allow-remote; do
+            value=$(npm config get "$key")
+            if [ "$value" != none ]; then
+              echo "❌ ERROR: npm $(npm --version) has $key=$value, expected none"
+              exit 1
+            fi
+          done
+
+      - name: Fetch the tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release
+          path: release
+
+      # Resolved from package.json without our lockfile, the way
+      # `npx -y dav-mcp@<version>` resolves it.
+      - name: Install the tarball
+        env:
+          ASSET: ${{ needs.pack.outputs.asset }}
+          SHA256: ${{ needs.pack.outputs.sha256 }}
+        run: |
+          node --version && npm --version
+          echo "$SHA256  release/$ASSET" | sha256sum --check
+          mkdir consumer && cd consumer
+          echo '{ "name": "consumer", "version": "0.0.0", "private": true }' > package.json
+          npm install --no-audit --no-fund "../release/$ASSET"
+
+      # The server has to answer initialize and tools/list. The DAV server is
+      # unreachable on purpose: the server connects on the first tool call.
+      - name: Start the installed server over stdio
+        working-directory: consumer
+        env:
+          VERSION: ${{ needs.pack.outputs.version }}
+          CALDAV_SERVER_URL: https://example.invalid/dav/
+          CALDAV_USERNAME: check
+          CALDAV_PASSWORD: check
+        run: |
+          cat > smoke.mjs <<'JS'
+          import { spawn } from 'node:child_process';
+          import { createInterface } from 'node:readline';
+          import { readFileSync } from 'node:fs';
+
+          const installed = JSON.parse(readFileSync('node_modules/dav-mcp/package.json', 'utf8'));
+          if (installed.version !== process.env.VERSION) {
+            console.error(`installed dav-mcp ${installed.version}, expected ${process.env.VERSION}`);
+            process.exit(1);
+          }
+
+          const server = spawn('node_modules/.bin/dav-mcp', [], { stdio: ['pipe', 'pipe', 'inherit'] });
+          const timer = setTimeout(() => { console.error('no answer within 60 s'); server.kill(); process.exit(1); }, 60_000);
+          const send = (message) => server.stdin.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\n');
+          const waiting = new Map();
+          const request = (id, method, params) => new Promise((resolve) => { waiting.set(id, resolve); send({ id, method, params }); });
+          createInterface({ input: server.stdout }).on('line', (line) => {
+            let message;
+            try { message = JSON.parse(line); } catch { return; }
+            waiting.get(message.id)?.(message);
+          });
+
+          const init = await request(1, 'initialize', {
+            protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'release-check', version: '1' },
+          });
+          send({ method: 'notifications/initialized' });
+          const list = await request(2, 'tools/list', {});
+          clearTimeout(timer);
+          server.kill();
+
+          const info = init.result?.serverInfo;
+          const tools = list.result?.tools ?? [];
+          console.log(`initialize: ${info?.name} ${info?.version}, tools/list: ${tools.length} tools`);
+          if (info?.name !== 'dav-mcp' || tools.length === 0) process.exit(1);
+          JS
+          node smoke.mjs
+
+  # The only job that can publish to npm. It runs no code from the repository
+  # and installs no dependencies: it sends the verified file.
+  publish-npm:
+    name: Publish to npm
+    needs: [pack, test, verify]
+    runs-on: ubuntu-latest
+    # Required reviewer and a release-tag-only deployment rule are set on this
+    # environment in the repository settings; the npm trusted publisher only
+    # accepts tokens issued for it.
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write # OIDC token for npm trusted publishing and provenance
+
+    env:
+      ASSET: ${{ needs.pack.outputs.asset }}
+      SHA256: ${{ needs.pack.outputs.sha256 }}
+      VERSION: ${{ needs.pack.outputs.version }}
+      PRERELEASE: ${{ needs.pack.outputs.prerelease }}
+
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          registry-url: 'https://registry.npmjs.org'
+
+      # Trusted publishing needs npm >= 11.5.1. Pinned, not "whatever the
+      # runner image bundles", because this npm runs with the OIDC token.
+      - name: Use npm 12.2.0
+        run: npm install --global --ignore-scripts --no-audit --no-fund npm@12.2.0
+
+      - name: Fetch the tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release
+          path: release
+
+      - name: Check the tarball is the one that was verified
+        run: |
+          npm --version
+          echo "$SHA256  release/$ASSET" | sha256sum --check
+
+      # Safe to run again for a version that is already on npm: same bytes ->
+      # nothing to do, different bytes -> fail and ask for a new version.
+      # The registry is asked anonymously over its JSON API, so the answer
+      # does not depend on the token setup-node writes into .npmrc, and past
+      # its CDN cache (no-cache header, unique query), so a re-run right after
+      # a publish does not see a stale 404 and try to publish again.
+      - name: Publish with provenance
+        env:
+          npm_config_allow_git: none
+          npm_config_allow_remote: none
+        run: |
+          LOCAL="sha512-$(openssl dgst -sha512 -binary "release/$ASSET" | base64 -w0)"
+          URL="https://registry.npmjs.org/dav-mcp/$VERSION"
+          STATUS=$(curl --silent --show-error --header 'Cache-Control: no-cache' \
+            --output "$RUNNER_TEMP/existing.json" --write-out '%{http_code}' "$URL?nocache=$(date +%s%N)")
+          case "$STATUS" in
+            404)
+              echo "ℹ️  dav-mcp@$VERSION is not on npm yet"
+              ;;
+            200)
+              PUBLISHED=$(jq -r '.dist.integrity' "$RUNNER_TEMP/existing.json")
+              if [ "$PUBLISHED" = "$LOCAL" ]; then
+                echo "✅ dav-mcp@$VERSION is already published with these bytes"
+                exit 0
+              fi
+              echo "❌ ERROR: dav-mcp@$VERSION is already published with different content"
+              echo "   published: $PUBLISHED"
+              echo "   this run:  $LOCAL"
+              echo "   A published version is never replaced. Bump the version and tag again."
+              exit 1
+              ;;
+            *)
+              echo "❌ ERROR: registry answered $STATUS for $URL"
+              exit 1
+              ;;
+          esac
+          # A bare "release/<file>.tgz" is GitHub shorthand to npm
+          # (github:release/<file>.tgz), and would make npm clone a stranger's
+          # repository in a job holding a publish token. The spec is a ./ path,
+          # npm's own parser has to read it as a file, and git is refused
+          # outright for this step.
+          SPEC="./release/$ASSET"
+          TYPE=$(node -e 'console.log(require(process.argv[1])(process.argv[2]).type)' \
+            "$(npm root --global)/npm/node_modules/npm-package-arg" "$SPEC")
+          if [ "$TYPE" != file ]; then
+            echo "❌ ERROR: npm reads $SPEC as a $TYPE spec, expected file"
+            exit 1
+          fi
+          # A prerelease must not become what `npx dav-mcp` installs.
+          DIST_TAG=latest
+          if [ "$PRERELEASE" = true ]; then DIST_TAG=next; fi
+          npm publish "$SPEC" --provenance --access public --ignore-scripts --tag "$DIST_TAG"
+
+      # The registry's CDN can serve a stale answer for minutes after a
+      # publish (a 12 x 10 s wait failed a release whose bytes npm served a
+      # few minutes later). Each request bypasses the cache (no-cache header,
+      # unique query), and the wait backs off up to about 10 minutes. Not yet
+      # there means wait; different bytes mean fail at once.
+      - name: Check the registry serves the verified tarball
+        run: |
+          LOCAL="sha512-$(openssl dgst -sha512 -binary "release/$ASSET" | base64 -w0)"
+          URL="https://registry.npmjs.org/dav-mcp/$VERSION"
+          WAITED=0
+          DELAY=5
+          while :; do
+            PUBLISHED=$(curl --silent --fail --header 'Cache-Control: no-cache' "$URL?nocache=$(date +%s%N)" \
+              | jq -r '.dist.integrity // empty' || true)
+            if [ "$PUBLISHED" = "$LOCAL" ]; then
+              echo "✅ registry serves dav-mcp@$VERSION ($LOCAL) after ${WAITED}s"
+              {
+                echo "### dav-mcp@$VERSION is on npm"
+                echo ""
+                # A prerelease is published under `next`; the plugin stays on
+                # the latest stable version.
+                if [ "$PRERELEASE" = true ]; then
+                  echo "Prerelease, published under the dist-tag \`next\`. The Claude plugin pin stays as it is."
+                else
+                  echo "Next: pin the Claude plugin to it in a pull request (CONTRIBUTING.md, Releases):"
+                  echo ""
+                  echo '```bash'
+                  echo "npm run plugin:sync"
+                  echo '```'
+                fi
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            case "$PUBLISHED" in
+              sha512-*)
+                echo "❌ ERROR: registry serves different bytes for dav-mcp@$VERSION"
+                echo "   served:   $PUBLISHED"
+                echo "   verified: $LOCAL"
+                exit 1
+                ;;
+            esac
+            if [ "$WAITED" -ge 600 ]; then
+              echo "❌ ERROR: registry did not serve dav-mcp@$VERSION within ${WAITED}s"
+              echo "   verified: $LOCAL"
+              exit 1
+            fi
+            echo "ℹ️  not served yet after ${WAITED}s, next check in ${DELAY}s"
+            sleep "$DELAY"
+            WAITED=$((WAITED + DELAY))
+            DELAY=$((DELAY * 2))
+            if [ "$DELAY" -gt 60 ]; then DELAY=60; fi
+          done
+
+  # Release notes and the tarball on GitHub, after npm has the version. Kept
+  # separate so the npm job never holds a token that writes to the repo.
+  github-release:
+    name: Publish GitHub release
+    needs: [pack, publish-npm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    env:
+      GH_TOKEN: ${{ github.token }}
+      # No checkout in this job, so gh has to be told which repository.
+      GH_REPO: ${{ github.repository }}
+      ASSET: ${{ needs.pack.outputs.asset }}
+      SHA256: ${{ needs.pack.outputs.sha256 }}
+      PRERELEASE: ${{ needs.pack.outputs.prerelease }}
+
+    steps:
+      - name: Fetch the tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release
+          path: release
+
+      - name: Check the tarball is the one that was verified
+        run: echo "$SHA256  release/$ASSET" | sha256sum --check
+
+      # A published release is left as it is: its title and notes may have
+      # been edited by hand. A draft (for example one prepared with a title)
+      # is published with the CHANGELOG notes and keeps its title; a missing
+      # asset is attached either way.
+      - name: Create or complete the GitHub release
+        run: |
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            echo "ℹ️  Release $GITHUB_REF_NAME already exists"
+            # The name goes to jq as data (--arg), never into the program.
+            HAS_ASSET=$(gh release view "$GITHUB_REF_NAME" --json assets \
+              | jq -r --arg name "$ASSET" '[.assets[] | select(.name == $name)] | length')
+            if [ "$HAS_ASSET" = "0" ]; then
+              gh release upload "$GITHUB_REF_NAME" "release/$ASSET"
+              echo "✅ Attached the missing asset $ASSET"
+            fi
+            IS_DRAFT=$(gh release view "$GITHUB_REF_NAME" --json isDraft | jq -r '.isDraft')
+            if [ "$IS_DRAFT" = "true" ]; then
+              gh release edit "$GITHUB_REF_NAME" \
+                --draft=false \
+                --prerelease="$PRERELEASE" \
+                --notes-file release/notes.md
+              echo "✅ Published the draft release"
+            fi
+          else
+            gh release create "$GITHUB_REF_NAME" "release/$ASSET" \
+              --verify-tag \
+              --title "$GITHUB_REF_NAME" \
+              --prerelease="$PRERELEASE" \
+              --notes-file release/notes.md
+          fi
+
+  # Attaches the .mcpb to the release created above.
+  bundle:
+    name: MCP Bundle
+    needs: github-release
+    permissions:
+      contents: write
+    uses: ./.github/workflows/publish-mcpb.yml
+    with:
+      tag: ${{ github.ref_name }}
+
+  # The registry entry names the npm package and version; the registry
+  # checks that npm serves it, so this runs only after the publish.
+  #
+  # This job also holds `id-token: write`, for its GitHub OIDC login to the
+  # MCP Registry. For a called workflow npm validates the *calling* workflow
+  # (docs.npmjs.com/trusted-publishers, Troubleshooting), so this token
+  # presents as release.yml, the file the trusted publisher names. What keeps
+  # it from publishing to npm is the trusted publisher's environment field,
+  # `npm-publish`, which this job does not run in. That field must stay set
+  # on npmjs.com (CONTRIBUTING.md, Releases).
+  registry:
+    name: MCP Registry
+    needs: publish-npm
+    permissions:
+      contents: read
+      id-token: write # GitHub OIDC login to the MCP Registry, not to npm
+    uses: ./.github/workflows/publish-registry.yml
+    with:
+      tag: ${{ github.ref_name }}
+
+  # After the GitHub release, as when the image workflow reacted to it, so no
+  # image of a version appears before npm has that version.
+  image:
+    name: Container image
+    needs: [pack, github-release]
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/publish-image.yml
+    with:
+      tag: ${{ github.ref_name }}
+      latest: ${{ needs.pack.outputs.prerelease != 'true' }}

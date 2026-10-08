@@ -45,6 +45,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Listed events show their STATUS** (e.g. CANCELLED; for a series, the
   occurrence listed), and `freebusy_query`'s event details list exactly the
   occurrences that make up the busy time.
+
+## [4.3.1] - 2026-10-08
+
+### Internal
+- **Releases are published to npm from CI with provenance** (#112), via trusted publishing from a `v<version>` tag on `main`.
+
+### Fixed
+- **`npx -y dav-mcp` starts on npm 12** (#100). npm 12 refuses git and
+  remote-tarball dependencies by default, and dav-mcp installed tsdav
+  from a GitHub Release tarball and tsdav-utils from git, so `npx` failed with
+  `EALLOWREMOTE` before the server started. Both now come from the npm registry
+  as `@philflow/tsdav` 2.4.0 and `@philflow/tsdav-utils` 0.4.1, installed under
+  their old names. CI installs and starts the packed package with npm 12
+  defaults.
 - **Quoted-printable contacts are decoded** (#103). vCard 2.1 cards from
   Outlook and Android exports encode non-ASCII text as
   `ENCODING=QUOTED-PRINTABLE`; they were shown as "Hans M=C3=BCller" and a

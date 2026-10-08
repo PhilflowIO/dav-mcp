@@ -1,6 +1,6 @@
 {
   "name": "dav-mcp",
-  "version": "4.3.0",
+  "version": "4.3.1",
   "mcpName": "io.github.PhilflowIO/dav-mcp",
   "description": "Complete DAV integration for AI - Calendar (CalDAV), Contacts (CardDAV), and Tasks (VTODO) management via MCP protocol",
   "type": "module",
@@ -15,7 +15,8 @@
     "dev": "MCP_TRANSPORT=stdio node --watch src/server-stdio.js",
     "dev:http": "node --watch src/server-http.js",
     "install:fresh": "rm -rf node_modules package-lock.json && npm cache clean --force && npm install",
-    "update:tsdav": "npm install tsdav@${TSDAV_TARBALL:?set TSDAV_TARBALL to the .tgz URL of a PhilflowIO/tsdav release, see CONTRIBUTING.md}",
+    "update:tsdav": "npm install --save-exact tsdav@npm:@philflow/tsdav@${TSDAV_VERSION:?set TSDAV_VERSION to a published @philflow/tsdav version, see CONTRIBUTING.md}",
+    "update:tsdav-utils": "npm install --save-exact tsdav-utils@npm:@philflow/tsdav-utils@${TSDAV_UTILS_VERSION:?set TSDAV_UTILS_VERSION to a published @philflow/tsdav-utils version, see CONTRIBUTING.md}",
     "test": "NODE_ENV=test NODE_OPTIONS='--experimental-vm-modules' jest",
     "test:watch": "NODE_ENV=test NODE_OPTIONS='--experimental-vm-modules' jest --watch",
     "test:coverage": "NODE_ENV=test NODE_OPTIONS='--experimental-vm-modules' jest --coverage",
@@ -70,8 +71,8 @@
     "express": "^5.2.1",
     "express-rate-limit": "^8.7.0",
     "ical.js": "^2.2.1",
-    "tsdav": "https://github.com/PhilflowIO/tsdav/releases/download/v2.3.5%2Bphilflow.5/tsdav-2.3.5-philflow.5.tgz",
-    "tsdav-utils": "github:PhilflowIO/tsdav-utils#v0.4.0",
+    "tsdav": "npm:@philflow/tsdav@2.4.0",
+    "tsdav-utils": "npm:@philflow/tsdav-utils@0.4.1",
     "xml-js": "1.6.11",
     "zod": "^3.25.76"
   },
