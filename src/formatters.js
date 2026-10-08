@@ -712,6 +712,12 @@ export function formatSuccess(operation, details = {}) {
     output += `- **Message**: ${details.message}\n`;
   }
 
+  // A write to a recurring series can change more than was named: what else
+  // moved is shown, so the model can tell the user.
+  if (details.series?.summary) {
+    output += `- **Series**: ${details.series.summary}\n`;
+  }
+
   output += `\n---\n<details>\n<summary>Rohdaten (JSON)</summary>\n\n\`\`\`json\n`;
   output += JSON.stringify({ success: true, ...details }, null, 2);
   output += '\n```\n</details>';

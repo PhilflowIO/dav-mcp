@@ -4,7 +4,7 @@ import { formatSuccess } from '../../formatters.js';
 import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
 import { z } from 'zod';
 import { writeEventFields } from '../shared/ical-dates.js';
-import { assertFieldUpdatable } from '../../ical-components.js';
+import { assertFieldUpdatable, describeSeriesChange } from '../../ical-components.js';
 
 /**
  * Schema for field-based event updates
@@ -175,10 +175,12 @@ export const updateEventFields = {
     });
     await assertDavSuccess(updateResponse, `update event ${validated.event_url}`);
 
+    const series = describeSeriesChange(calendarObject, updatedData, 'vevent');
     return formatSuccess('Event updated successfully', {
       ...etagAfterWrite(updateResponse),
       updated_fields: changedFields,
-      message: `Updated ${changedFields.length} field(s): ${changedFields.join(', ')}`
+      message: `Updated ${changedFields.length} field(s): ${changedFields.join(', ')}`,
+      ...(series && { series }),
     });
   }
 };

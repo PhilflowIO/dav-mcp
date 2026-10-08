@@ -371,3 +371,72 @@ export function explainWriteRefusal(error, type) {
   }
   return new ValidationError(`${message.replace(/\.$/, '')}. ${hints.join(' ')}`);
 }
+
+/**
+ * What a field update did to a recurring series, for the reply.
+ *
+ * A new start moves the whole series: tsdav-utils rewrites a weekday the rule
+ * restates and shifts every override, EXDATE and RDATE by the same distance.
+ * The caller named one date; the model has to be able to tell the user what
+ * else changed, so the reply lists it.
+ *
+ * @param {string|{data: string}} before - the object as fetched
+ * @param {string} after - the object as written
+ * @param {'vevent'|'vtodo'} type
+ * @returns {null | {
+ *   summary: string,
+ *   dtstart?: {from: string, to: string},
+ *   rrule?: {from: string|null, to: string|null},
+ *   overrides_moved: number, exdates_moved: number, rdates_moved: number,
+ * }} null when the object is no series or the write left its shape alone
+ */
+export function describeSeriesChange(before, after, type) {
+  const read = (object) => {
+    try {
+      const calendar = new ICAL.Component(ICAL.parse(typeof object === 'string' ? object : object.data));
+      return readSeries(calendar, type);
+    } catch {
+      return null;
+    }
+  };
+  const [old, now] = [read(before), read(after)];
+  if (!old || !now || old.detached.length || now.detached.length) return null;
+
+  const isSeries = (series) => ['rrule', 'rdate'].some((name) => series.master.hasProperty(name));
+  if (!isSeries(old) && !isSeries(now)) return null;
+
+  const line = (component, name) => component.getFirstProperty(name)?.toICALString() ?? null;
+  const values = (component, name) => component.getAllProperties(name)
+    .flatMap((property) => property.getValues().map(String));
+  const changedValues = (name) => {
+    const kept = new Set(values(now.master, name));
+    return values(old.master, name).filter((value) => !kept.has(value)).length;
+  };
+
+  const change = {
+    overrides_moved: old.overrides.filter((override, i) =>
+      line(override, 'recurrence-id') !== (now.overrides[i] && line(now.overrides[i], 'recurrence-id'))).length,
+    exdates_moved: changedValues('exdate'),
+    rdates_moved: changedValues('rdate'),
+  };
+  const parts = [];
+  const [startFrom, startTo] = [line(old.master, 'dtstart'), line(now.master, 'dtstart')];
+  if (startFrom !== startTo) {
+    change.dtstart = { from: startFrom, to: startTo };
+    parts.push(`series start ${startFrom} -> ${startTo}`);
+  }
+  const [ruleFrom, ruleTo] = [line(old.master, 'rrule'), line(now.master, 'rrule')];
+  if (ruleFrom !== ruleTo) {
+    change.rrule = { from: ruleFrom, to: ruleTo };
+    parts.push(`rule ${ruleFrom ?? '(none)'} -> ${ruleTo ?? '(none)'}`);
+  }
+  const moved = [
+    [change.overrides_moved, 'changed occurrence (override)', 'changed occurrences (overrides)'],
+    [change.exdates_moved, 'cancelled date (EXDATE)', 'cancelled dates (EXDATE)'],
+    [change.rdates_moved, 'extra date (RDATE)', 'extra dates (RDATE)'],
+  ].filter(([count]) => count > 0).map(([count, one, many]) => `${count} ${count === 1 ? one : many}`);
+  if (moved.length) parts.push(`moved along: ${moved.join(', ')}`);
+
+  if (!parts.length) return null;
+  return { summary: parts.join('; '), ...change };
+}

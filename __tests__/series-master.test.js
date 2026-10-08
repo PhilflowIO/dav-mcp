@@ -281,7 +281,12 @@ describe('moving a recurring series (#107)', () => {
 
   test('Mon -> Tue on an every-Monday series follows with BYDAY=TU, exceptions included', async () => {
     storedEvent = weekly('FREQ=WEEKLY;BYDAY=MO');
-    await setEvent({ start_date: '2026-10-06T10:00:00Z', end_date: '2026-10-06T11:00:00Z' });
+    const reply = await setEvent({ start_date: '2026-10-06T10:00:00Z', end_date: '2026-10-06T11:00:00Z' });
+
+    // the reply tells what else moved, so the model can tell the user
+    expect(reply.content[0].text).toContain('- **Series**: series start DTSTART:20261005T090000Z -> ' +
+      'DTSTART:20261006T100000Z; rule RRULE:FREQ=WEEKLY;BYDAY=MO -> RRULE:FREQ=WEEKLY;BYDAY=TU; ' +
+      'moved along: 1 changed occurrence (override), 1 cancelled date (EXDATE)\n');
 
     const { master, overrides } = parts(emittedEvent(), 'vevent');
     expect(master).toEqual(expect.arrayContaining([
@@ -411,6 +416,29 @@ describe('moving a recurring series (#107)', () => {
     const reply = await errorReply(setEvent(move));
     expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
     expect(reply.message).toMatch(opening);
+  });
+
+  test('a start weeks later takes the cancelled date along, and the reply says so', async () => {
+    // the trap: an occurrence's date passed as start_date shifts the series
+    storedEvent = weekly('FREQ=WEEKLY;BYDAY=MO');
+    const reply = await setEvent({ start_date: '2026-11-09T10:00:00Z', end_date: '2026-11-09T11:00:00Z' });
+    expect(parts(emittedEvent(), 'vevent').master).toContain('EXDATE:20261123T100000Z');
+    const { series } = JSON.parse(reply.content[0].text.match(/```json\n([\s\S]*)\n```/)[1]);
+    expect(series).toEqual(expect.objectContaining({ overrides_moved: 1, exdates_moved: 1, rdates_moved: 0 }));
+  });
+
+  test('no Series line for a write that leaves the series shape alone, or for a single event', async () => {
+    storedEvent = weekly('FREQ=WEEKLY;BYDAY=MO');
+    expect((await setEvent({ fields: { LOCATION: 'Room 4' } })).content[0].text).not.toContain('**Series**');
+    storedEvent = calendar('VEVENT', ['UID:one@test', 'SUMMARY:Once', 'DTSTART:20261005T090000Z', 'DTEND:20261005T100000Z']);
+    expect((await setEvent({ start_date: '2026-10-06T09:00:00Z', end_date: '2026-10-06T10:00:00Z' })).content[0].text)
+      .not.toContain('**Series**');
+  });
+
+  test('update_todo reports a moved series too', async () => {
+    storedTodo = calendar('VTODO', TODO_OVERRIDE, TODO_MASTER);
+    const reply = await setTodo({ DTSTART: '2026-09-28T09:00:00Z' });
+    expect(reply.content[0].text).toMatch(/\*\*Series\*\*: series start DTSTART:20260928T080000Z -> DTSTART:20260928T090000Z; moved along: 1 changed occurrence \(override\)/);
   });
 
   test('any other error is passed on as it is', () => {

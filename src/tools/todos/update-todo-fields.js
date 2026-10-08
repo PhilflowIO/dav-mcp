@@ -4,7 +4,7 @@ import { formatSuccess } from '../../formatters.js';
 import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
 import { z } from 'zod';
 import { writeFields, reconcileTodoDates } from '../shared/ical-dates.js';
-import { assertFieldUpdatable } from '../../ical-components.js';
+import { assertFieldUpdatable, describeSeriesChange } from '../../ical-components.js';
 
 /**
  * Schema for field-based todo updates
@@ -145,10 +145,12 @@ export const updateTodoFields = {
     });
     await assertDavSuccess(updateResponse, `update todo ${validated.todo_url}`);
 
+    const series = describeSeriesChange(todoObject, updatedData, 'vtodo');
     return formatSuccess('Todo updated successfully', {
       ...etagAfterWrite(updateResponse),
       updated_fields: Object.keys(validated.fields || {}),
-      message: `Updated ${Object.keys(validated.fields || {}).length} field(s): ${Object.keys(validated.fields || {}).join(', ')}`
+      message: `Updated ${Object.keys(validated.fields || {}).length} field(s): ${Object.keys(validated.fields || {}).join(', ')}`,
+      ...(series && { series }),
     });
   }
 };
