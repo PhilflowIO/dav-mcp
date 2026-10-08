@@ -62,20 +62,40 @@ export function writeVCardFields(vCard, fields) {
  */
 export function normalizeVCard(data) {
   const lines = unfold(data);
+  const versions = cardVersions(lines);
   let version = null;
   return lines.map((line, index) => {
-    if (/^BEGIN:VCARD\s*$/i.test(line)) version = versionOf(lines, index);
+    if (versions.has(index)) version = versions.get(index);
     return normalizeContentLine(line, version);
   }).join('\r\n');
 }
 
-/** the VERSION of the card that begins at `lines[begin]`, or null */
-function versionOf(lines, begin) {
-  for (let i = begin + 1; i < lines.length && !/^END:VCARD\s*$/i.test(lines[i]); i++) {
-    const version = /^VERSION:\s*(\S+)\s*$/i.exec(lines[i]);
-    if (version) return version[1];
-  }
-  return null;
+/**
+ * The VERSION of each card, by the index of its BEGIN:VCARD line: the first
+ * VERSION after that line and before an END:VCARD, else null. One pass over
+ * the lines — a BEGIN waits for the next VERSION or END instead of
+ * searching for it, so a body of BEGIN lines alone costs no more than any
+ * other.
+ */
+function cardVersions(lines) {
+  const versions = new Map();
+  let waiting = [];
+  const settle = (version) => {
+    for (const begin of waiting) versions.set(begin, version);
+    waiting = [];
+  };
+  lines.forEach((line, index) => {
+    if (/^BEGIN:VCARD\s*$/i.test(line)) {
+      waiting.push(index);
+      versions.set(index, null);
+    } else if (/^END:VCARD\s*$/i.test(line)) {
+      settle(null);
+    } else if (waiting.length > 0) {
+      const version = /^VERSION:\s*(\S+)\s*$/i.exec(line);
+      if (version) settle(version[1]);
+    }
+  });
+  return versions;
 }
 
 /**

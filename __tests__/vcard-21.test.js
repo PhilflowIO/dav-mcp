@@ -174,6 +174,14 @@ describe('reading a vCard 2.1 card', () => {
     expect(performance.now() - started).toBeLessThan(1000);
   });
 
+  test('40 000 BEGIN:VCARD lines without END or VERSION are read in linear time', () => {
+    // each BEGIN used to search the rest of the body for its VERSION: 71 s here
+    const body = Array(40_000).fill('BEGIN:VCARD').join('\r\n');
+    const started = performance.now();
+    expect(() => readVCard(body)).toThrow();
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
   test('a parameter list folded over 8000 lines is read in linear time', () => {
     // each line used to rescan the whole parameter list so far: 70 s here
     const lines = ['X-A;' + 'p'.repeat(70) + '='];
