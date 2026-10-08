@@ -14,10 +14,12 @@ name: Release
 # repository secrets. npm then attaches a provenance attestation that links
 # the published version to this run and commit.
 #
-# Order: build -> verify -> publish to npm -> GitHub release -> bundle,
-# registry, image. The tarball travels between jobs as an artifact, so npm
-# receives the exact file that installed and started on every supported
-# Node version.
+# Order: pack, and in parallel test -> verify -> publish to npm -> GitHub
+# release -> bundle, registry, image. The pack job runs no code from any
+# dependency: it checks out the tag and packs it before anything is
+# installed, so no install script or test can change what goes into the
+# tarball. The tarball travels between jobs as an artifact, so npm receives
+# the exact file that installed and started on every supported Node version.
 #
 # The bundle, registry and image workflows are called from here
 # (workflow_call) instead of reacting to the release: a release created with
@@ -25,7 +27,7 @@ name: Release
 # workflows, and the registry entry points at the npm package, so it must
 # not be published before npm has the version.
 #
-# Re-running: use "Re-run failed jobs"; that keeps the tarball the build job
+# Re-running: use "Re-run failed jobs"; that keeps the tarball the pack job
 # already packed. A version already on npm is never replaced: same bytes ->
 # the publish step does nothing, different bytes -> it fails and asks for a
 # new version. npm does not allow re-publishing a version anyway.
@@ -47,8 +49,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
-    name: Build and pack
+  pack:
+    name: Check and pack
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -116,25 +118,19 @@ jobs:
           echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
           echo "✅ Tag $GITHUB_REF_NAME matches $NAME@$VERSION (prerelease: $PRERELEASE)"
 
-      # No dependency cache: the job that produces the release bytes must not
-      # restore a cache that other workflow runs can write.
+      # Only for `node` and `npm pack`; nothing is installed in this job, so
+      # no dependency code runs before the tarball and its sha256 exist.
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22.x'
 
-      - name: Install dependencies
-        run: npm ci --no-audit --no-fund
-
-      - name: Run tests
-        run: npm test
-
-      # The tarball is packed from the working tree; it must hold the files
-      # committed under the tag, not something an install script or a test
-      # wrote into them.
+      # The tarball must hold the files committed under the tag. In a fresh
+      # checkout with nothing installed nothing should differ; --ignored also
+      # catches gitignored files, which `npm pack` would include as well.
       - name: Check the packed files are the tagged ones
         run: |
-          DRIFT=$(git status --porcelain --untracked-files=all -- package.json src README.md LICENSE PRIVACY.md CHANGELOG.md)
+          DRIFT=$(git status --porcelain --untracked-files=all --ignored -- package.json src README.md LICENSE PRIVACY.md CHANGELOG.md)
           if [ -n "$DRIFT" ]; then
             echo "❌ ERROR: files that go into the package differ from $GITHUB_REF_NAME:"
             echo "$DRIFT"
@@ -189,12 +185,39 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # The unit tests of the tagged commit. A job of its own, because it installs
+  # the dependencies with their lifecycle scripts and runs third-party code;
+  # it never sees the tarball, and the publish waits for it.
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      # No dependency cache, as everywhere in this workflow.
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.x'
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Run tests
+        run: npm test
+
   # Installs the file users will install, on the Node versions they run, and
   # starts the server from it, before it is public. A failure here publishes
   # nothing.
   verify:
     name: Install and start packed tarball (Node ${{ matrix.node-version }})
-    needs: build
+    needs: pack
     runs-on: ubuntu-latest
     permissions: {}
 
@@ -235,8 +258,8 @@ jobs:
       # `npx -y dav-mcp@<version>` resolves it.
       - name: Install the tarball
         env:
-          ASSET: ${{ needs.build.outputs.asset }}
-          SHA256: ${{ needs.build.outputs.sha256 }}
+          ASSET: ${{ needs.pack.outputs.asset }}
+          SHA256: ${{ needs.pack.outputs.sha256 }}
         run: |
           node --version && npm --version
           echo "$SHA256  release/$ASSET" | sha256sum --check
@@ -249,7 +272,7 @@ jobs:
       - name: Start the installed server over stdio
         working-directory: consumer
         env:
-          VERSION: ${{ needs.build.outputs.version }}
+          VERSION: ${{ needs.pack.outputs.version }}
           CALDAV_SERVER_URL: https://example.invalid/dav/
           CALDAV_USERNAME: check
           CALDAV_PASSWORD: check
@@ -295,7 +318,7 @@ jobs:
   # and installs no dependencies: it sends the verified file.
   publish-npm:
     name: Publish to npm
-    needs: [build, verify]
+    needs: [pack, test, verify]
     runs-on: ubuntu-latest
     # Required reviewer and a release-tag-only deployment rule are set on this
     # environment in the repository settings; the npm trusted publisher only
@@ -306,10 +329,10 @@ jobs:
       id-token: write # OIDC token for npm trusted publishing and provenance
 
     env:
-      ASSET: ${{ needs.build.outputs.asset }}
-      SHA256: ${{ needs.build.outputs.sha256 }}
-      VERSION: ${{ needs.build.outputs.version }}
-      PRERELEASE: ${{ needs.build.outputs.prerelease }}
+      ASSET: ${{ needs.pack.outputs.asset }}
+      SHA256: ${{ needs.pack.outputs.sha256 }}
+      VERSION: ${{ needs.pack.outputs.version }}
+      PRERELEASE: ${{ needs.pack.outputs.prerelease }}
 
     steps:
       - name: Setup Node.js
@@ -416,7 +439,7 @@ jobs:
   # separate so the npm job never holds a token that writes to the repo.
   github-release:
     name: Publish GitHub release
-    needs: [build, publish-npm]
+    needs: [pack, publish-npm]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -425,9 +448,9 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       # No checkout in this job, so gh has to be told which repository.
       GH_REPO: ${{ github.repository }}
-      ASSET: ${{ needs.build.outputs.asset }}
-      SHA256: ${{ needs.build.outputs.sha256 }}
-      PRERELEASE: ${{ needs.build.outputs.prerelease }}
+      ASSET: ${{ needs.pack.outputs.asset }}
+      SHA256: ${{ needs.pack.outputs.sha256 }}
+      PRERELEASE: ${{ needs.pack.outputs.prerelease }}
 
     steps:
       - name: Fetch the tarball
@@ -496,11 +519,11 @@ jobs:
   # image of a version appears before npm has that version.
   image:
     name: Container image
-    needs: [build, github-release]
+    needs: [pack, github-release]
     permissions:
       contents: read
       packages: write
     uses: ./.github/workflows/publish-image.yml
     with:
       tag: ${{ github.ref_name }}
-      latest: ${{ needs.build.outputs.prerelease != 'true' }}
+      latest: ${{ needs.pack.outputs.prerelease != 'true' }}
