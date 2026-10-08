@@ -13,6 +13,7 @@ import ICAL from 'ical.js';
 import { readVCard, nameComponents, organizationText } from './vcard.js';
 import { readSeries, shownEvent, todoStatus } from './ical-components.js';
 import { shareTimezones } from './tools/shared/ical-dates.js';
+import { seriesNames, labelled } from './occurrence-names.js';
 import { budgetPool, zonedInstant } from './occurrences.js';
 
 /**
@@ -49,6 +50,7 @@ function parseICalEvent(icalData, timeRange = null, matches = null, resolved = n
       occurrenceShown: Boolean(occurrence),
       isRecurring: event.isRecurring(),
       rrule: event.isRecurring() ? vevent.getFirstPropertyValue('rrule') : null,
+      series: seriesListing(vevent, 'vevent', occurrence),
       organizer: item.component.getFirstPropertyValue('organizer'),
       attendees: item.component.getAllProperties('attendee').map(att => ({
         email: att.getFirstValue(),
@@ -349,6 +351,79 @@ function formatDateTime(icalTime, at = null) {
   }
 }
 
+// Lists in a listing stay short; the rest is in the raw data
+const MAX_LISTED_NAMES = 25;
+
+const listNames = (names) => names.length > MAX_LISTED_NAMES
+  ? `${names.slice(0, MAX_LISTED_NAMES).join(', ')}, and ${names.length - MAX_LISTED_NAMES} more (see the raw data)`
+  : names.join(', ');
+
+/**
+ * What a model needs to cancel or restore single occurrences of a series:
+ * the name of the occurrence shown (its ORIGINAL start), the exclusions
+ * (EXDATE) and the changed occurrences (overrides), all named in the
+ * series' own form, as cancel_occurrences/restore_occurrences take them
+ * (see src/occurrence-names.js).
+ *
+ * @param {ICAL.Component} master - the component shown as the series
+ * @param {'vevent'|'vtodo'} type
+ * @param {Object|null} [occurrence] - the occurrence shown (getOccurrenceDetails), if any
+ * @returns {Object|null} null for something that does not recur
+ */
+function seriesListing(master, type, occurrence = null) {
+  try {
+    const all = master.parent ? master.parent.getAllSubcomponents(type) : [];
+    const uid = master.getFirstPropertyValue('uid');
+    const overrides = all.filter((c) => c !== master && c.hasProperty('recurrence-id') &&
+      c.getFirstPropertyValue('uid') === uid);
+    const names = seriesNames(master, overrides, type);
+    if (!names) return null;
+    const { naming } = names;
+    // by the instant the occurrence's own value names: an RDATE in UTC next
+    // to a Berlin series is converted to the Berlin wall clock
+    const shown = occurrence?.recurrenceId
+      ? naming.nameTime(occurrence.recurrenceId).text
+      : naming.name(master.getFirstPropertyValue('dtstart'), naming.tzid).text;
+    return {
+      naming,
+      shown,
+      shownIsOccurrence: Boolean(occurrence?.recurrenceId),
+      shownChanged: Boolean(occurrence?.item?.component?.hasProperty('recurrence-id')),
+      shownNow: occurrence?.startDate ? formatDateTime(occurrence.startDate) : '',
+      exclusions: names.exclusions.map(labelled),
+      inert: names.inert.map(labelled),
+      overrides: names.overrides.map(({ text, component }) => {
+        const start = component.getFirstPropertyValue('dtstart');
+        const status = String(component.getFirstPropertyValue('status') || '').toUpperCase();
+        const now = start ? `now ${formatDateTime(start)}` : 'changed';
+        return `${text} (${now}${status === 'CANCELLED' ? ', status CANCELLED' : ''})`;
+      }),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** the lines seriesListing's result adds to an event or todo */
+function seriesLines(series) {
+  if (!series) return '';
+  const which = !series.shownIsOccurrence
+    ? 'series start, the first occurrence'
+    : series.shownChanged ? `this occurrence, changed — now at ${series.shownNow}` : 'this occurrence';
+  let output = `- **Occurrence ID**: ${series.shown} (${which})\n`;
+  if (series.exclusions.length) {
+    output += `- **Cancelled occurrences**: ${listNames(series.exclusions)}\n`;
+  }
+  if (series.overrides.length) {
+    output += `- **Changed occurrences** (by original start): ${listNames(series.overrides)}\n`;
+  }
+  // stored exclusions that name no occurrence: they cancel nothing
+  if (series.inert.length) {
+    output += `- **Exclusions that match no occurrence** (they cancel nothing): ${listNames(series.inert)}\n`;
+  }
+  return output;
+}
+
 /**
  * Format a single calendar event to Markdown
  */
@@ -385,6 +460,7 @@ export function formatEvent(event, calendar = 'Unknown Calendar', timeRange = nu
   if (parsed.isRecurring && parsed.rrule) {
     output += `- **Recurring**: ${parsed.rrule.toString()}\n`;
   }
+  output += seriesLines(parsed.series);
 
   // several occurrences behind it (free/busy details): each one
   if (parsed.occurrences && parsed.occurrences.length > 1) {
@@ -744,6 +820,12 @@ export function formatSuccess(operation, details = {}) {
     output += `- **Message**: ${details.message}\n`;
   }
 
+  // cancel_occurrences / restore_occurrences: what the exclusions now are,
+  // by name, so the model can tell the user what was cancelled or restored
+  if (details.occurrences?.summary) {
+    output += `- **Occurrences**: ${details.occurrences.summary}\n`;
+  }
+
   // A write to a recurring series can change more than was named: what else
   // moved is shown, so the model can tell the user.
   if (details.series?.summary) {
@@ -863,6 +945,8 @@ function parseVTodo(icalData) {
       due: vtodo.getFirstPropertyValue('due'),
       completed: vtodo.getFirstPropertyValue('completed'),
       dtstart: vtodo.getFirstPropertyValue('dtstart'),
+      rrule: vtodo.getFirstPropertyValue('rrule'),
+      series: seriesListing(vtodo, 'vtodo'),
     };
   } catch (error) {
     // the parser's message quotes the offending line: personal data, so only its type
@@ -929,6 +1013,11 @@ export function formatTodo(todo, calendar = 'Unknown Calendar') {
   if (parsed.completed) {
     output += `- **Completed**: ${formatDateTime(parsed.completed)}\n`;
   }
+
+  if (parsed.rrule) {
+    output += `- **Recurring**: ${parsed.rrule.toString()}\n`;
+  }
+  output += seriesLines(parsed.series);
 
   output += `- **Calendar**: ${calendarName}\n`;
   output += `- **URL**: ${todo.url}\n`;

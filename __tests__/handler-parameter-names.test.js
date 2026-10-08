@@ -34,6 +34,10 @@ jest.unstable_mockModule('tsdav-utils', () => ({
   expandOccurrences: jest.fn(),
   resolvePropertyZone: jest.fn(),
   resolveZone: jest.fn(),
+  // imported by the occurrence edits (src/tools/shared/occurrence-edits.js);
+  // no test here cancels or restores an occurrence
+  cancelOccurrences: jest.fn(),
+  restoreOccurrences: jest.fn(),
 }));
 
 // --- Mock tsdavManager ---
@@ -184,7 +188,8 @@ describe('Error propagation (no internal try-catch)', () => {
       await updateTodoFields.handler({
         todo_url: 'http://example.com/cal/todo.ics',
         todo_etag: '"etag-123"',
-        fields: {},
+        // a call that asks for nothing returns before any fetch
+        fields: { SUMMARY: 'Test' },
       });
     } catch (e) {
       caught = e;

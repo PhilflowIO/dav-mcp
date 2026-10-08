@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { parseDateValue } from 'tsdav-utils';
 import { requestUrlProblem } from './request-origins.js';
+import { ValidationError } from './error-handler.js';
 
 /**
  * Validation schemas for all MCP tools
@@ -278,7 +279,7 @@ export const createEventSchema = z.object({
   all_day: z.boolean().optional(),
   description: z.string().max(5000).optional(),
   location: z.string().max(500).optional(),
-}).superRefine((data, ctx) => refineDateRange(data, ctx, {
+}).strict().superRefine((data, ctx) => refineDateRange(data, ctx, {
   startKey: 'start_date',
   endKey: 'end_date',
 }));
@@ -287,12 +288,12 @@ export const updateEventSchema = z.object({
   event_url: davUrl('Invalid event URL'),
   event_etag: z.string().min(1, 'ETag is required'),
   updated_ical_data: z.string().min(1, 'iCal data is required'),
-});
+}).strict();
 
 export const deleteEventSchema = z.object({
   event_url: davUrl('Invalid event URL'),
   event_etag: z.string().min(1, 'ETag is required'),
-});
+}).strict();
 
 export const calendarQuerySchema = z.object({
   limit: resultLimit,
@@ -331,7 +332,7 @@ export const makeCalendarSchema = z.object({
   color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
   timezone: z.string().optional(),
   components: z.array(z.enum(['VEVENT', 'VTODO', 'VJOURNAL'])).optional(),
-});
+}).strict();
 
 export const updateCalendarSchema = z.object({
   calendar_url: davUrl('Invalid calendar URL'),
@@ -339,7 +340,7 @@ export const updateCalendarSchema = z.object({
   description: z.string().max(500).optional(),
   color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
   timezone: z.string().optional(),
-}).refine(data => {
+}).strict().refine(data => {
   // At least one field must be provided for update
   return data.display_name || data.description || data.color || data.timezone;
 }, {
@@ -348,7 +349,7 @@ export const updateCalendarSchema = z.object({
 
 export const deleteCalendarSchema = z.object({
   calendar_url: davUrl('Invalid calendar URL'),
-});
+}).strict();
 
 export const calendarMultiGetSchema = z.object({
   calendar_url: davUrl('Invalid calendar URL'),
@@ -371,18 +372,18 @@ export const createContactSchema = z.object({
   phone: z.string().max(50).optional(),
   organization: z.string().max(200).optional(),
   note: z.string().max(1000).optional(),
-});
+}).strict();
 
 export const updateContactSchema = z.object({
   vcard_url: davUrl('Invalid vCard URL'),
   vcard_etag: z.string().min(1, 'ETag is required'),
   updated_vcard_data: z.string().min(1, 'vCard data is required'),
-});
+}).strict();
 
 export const deleteContactSchema = z.object({
   vcard_url: davUrl('Invalid vCard URL'),
   vcard_etag: z.string().min(1, 'ETag is required'),
-});
+}).strict();
 
 export const addressBookQuerySchema = z.object({
   limit: resultLimit,
@@ -417,18 +418,18 @@ export const createTodoSchema = z.object({
   priority: z.number().int().min(0).max(9).optional(), // 0=undefined, 1=highest, 9=lowest
   status: z.enum(['NEEDS-ACTION', 'IN-PROCESS', 'COMPLETED', 'CANCELLED']).optional(),
   percent_complete: z.number().int().min(0).max(100).optional(),
-});
+}).strict();
 
 export const updateTodoSchema = z.object({
   todo_url: davUrl('Invalid todo URL'),
   todo_etag: z.string().min(1, 'ETag is required'),
   updated_ical_data: z.string().min(1, 'iCal data is required'),
-});
+}).strict();
 
 export const deleteTodoSchema = z.object({
   todo_url: davUrl('Invalid todo URL'),
   todo_etag: z.string().min(1, 'ETag is required'),
-});
+}).strict();
 
 export const todoQuerySchema = z.object({
   limit: resultLimit,
@@ -461,8 +462,18 @@ export const todoMultiGetSchema = z.object({
 export function validateInput(schema, data) {
   const result = schema.safeParse(data);
   if (!result.success) {
-    const errors = result.error.errors.map(err => `${err.path.join('.')}: ${err.message}`).join(', ');
-    throw new Error(`Validation failed: ${errors}`);
+    const errors = result.error.errors.map((err) => {
+      // a write tool refuses what it does not take, rather than drop it and
+      // report success for a change it never made
+      if (err.code === 'unrecognized_keys') {
+        const where = err.path.length ? ` in ${err.path.join('.')}` : '';
+        return `unknown parameter${err.keys.length > 1 ? 's' : ''}${where}: ${err.keys.join(', ')} (this tool does not take ${err.keys.length > 1 ? 'them' : 'it'}; see its input schema)`;
+      }
+      return err.path.length ? `${err.path.join('.')}: ${err.message}` : err.message;
+    }).join(', ');
+    // the caller's input: a ValidationError, which clients and the error
+    // handler read as invalid input, not as a failure of the server
+    throw new ValidationError(`Validation failed: ${errors}`);
   }
   return result.data;
 }

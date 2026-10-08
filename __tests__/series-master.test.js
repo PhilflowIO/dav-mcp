@@ -341,7 +341,10 @@ describe('moving a recurring series (#107)', () => {
     const reply = await errorReply(setTodo({ RRULE: 'FREQ=WEEKLY;BYDAY=TU' }));
     expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
     expect(reply.message).toMatch(/^The new RRULE leaves the override for RECURRENCE-ID:20261005T080000Z naming no occurrence/);
-    expect(reply.message).toMatch(/\. Give what it names in fields of this same update_todo call \(e\.g\. fields\.RRULE\)\.$/);
+    // the library's own remedy (a complete EXDATE list) is no option here;
+    // the hint names what works with these tools
+    expect(reply.message).toMatch(/\. Give an RRULE \(fields\.RRULE\) that keeps those occurrences, or bring back the exclusions that would name nothing with restore_occurrences in this same update_todo call .* send the edited whole with update_todo_raw\.$/);
+    expect(reply.message).not.toMatch(/list mode|complete EXDATE/);
     expect(reply.data.details.code).toBe('ORPHANED_EXCEPTIONS');
     expect(updateTodo).not.toHaveBeenCalled();
   });
@@ -391,9 +394,15 @@ describe('moving a recurring series (#107)', () => {
 
   test('a new RRULE and RDATE that would make a twin is a validation error', async () => {
     storedEvent = acrossTheGap();
-    const reply = await errorReply(setEvent({
-      fields: { RRULE: 'FREQ=DAILY;COUNT=12', RDATE: '2026-04-20T02:30:00' },
-    }));
+    // RDATE is no field of update_event since #126; the refusal is mapped the
+    // same way for every write, so it is checked on the mapping itself
+    let thrown;
+    try {
+      updateFields(storedEvent, { RRULE: 'FREQ=DAILY;COUNT=12', RDATE: '2026-04-20T02:30:00' }, { type: 'vevent' });
+    } catch (error) {
+      thrown = error;
+    }
+    const reply = JSON.parse(createToolErrorResponse(explainWriteRefusal(thrown, 'vevent')).content[0].text);
     expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
     expect(reply.message).toMatch(/^Writing RRULE and RDATE is refused: /);
     expect(reply.data.details.code).toBe('DST_AMBIGUOUS');
@@ -452,9 +461,10 @@ describe('moving a recurring series (#107)', () => {
 
   test('a value the library cannot read names the property to correct', async () => {
     storedEvent = weekly('FREQ=WEEKLY;BYDAY=MO');
-    const reply = await errorReply(setEvent({ fields: { EXDATE: 'garbage' } }));
+    // (EXDATE is no field since #126; DTSTAMP takes the same date grammar)
+    const reply = await errorReply(setEvent({ fields: { DTSTAMP: 'garbage' } }));
     expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
-    expect(reply.message).toMatch(/^EXDATE: "garbage" is not a date or date-time\. .*Correct EXDATE and call update_event again\.$/);
+    expect(reply.message).toMatch(/^DTSTAMP: "garbage" is not a date or date-time\. .*Correct DTSTAMP and call update_event again\.$/);
   });
 
   test('a stored object that does not parse is a CalDAV error, with the repair route', async () => {

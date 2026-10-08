@@ -7,13 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking changes
+- **Write tools refuse parameters they do not take.** A create, update or
+  delete call with an unknown parameter is a validation error naming it,
+  instead of succeeding without it (#126).
+- **`update_event` and `update_todo` refuse `EXDATE` and `RDATE` in
+  `fields`.** Single occurrences are cancelled and restored with
+  `cancel_occurrences` / `restore_occurrences`; extra dates (RDATE) are edited
+  only through `update_event_raw` / `update_todo_raw` (#126).
+- **Moving a series takes its exceptions along.** A new start moves every
+  occurrence, the cancelled and changed ones and the extra dates included, or
+  is refused (#107).
+
 ### Changed
 - **tsdav-utils 0.7.0** (`@philflow/tsdav-utils`), for its bounded,
-  zone-correct occurrence expansion. Its write semantics change too: moving a
-  series' DTSTART now moves its overrides with it, and an `EXDATE` or
-  `RDATE` given in `update_event`'s fields is the whole list, replacing the
-  one stored rather than adding to it (#126 tracks cancelling a single
-  occurrence).
+  zone-correct occurrence expansion and its occurrence edits. Its write
+  semantics change too: moving a series' DTSTART now moves its overrides with
+  it, and an `EXDATE` or `RDATE` written as a field would be the whole list —
+  so the update tools no longer take them in `fields`; single occurrences are
+  cancelled and restored with `cancel_occurrences` / `restore_occurrences`
+  (#126, below).
 - **Moving a recurring event or todo moves the whole series** (#107). A new
   start given to `update_event` (or `DTSTART` to `update_todo`) now takes every
   occurrence along: moved and cancelled occurrences, extra dates and the end
@@ -36,17 +49,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   several weeks later used to leave cancelled and moved occurrences where
   they were; it now takes them along, so a cancellation can land on a
   meeting nobody cancelled. To start a series later without moving it, give
-  `RRULE` and `EXDATE` explicitly, or use the raw tools. The `start_date` and
+  the new start together with an `RRULE` that keeps the occurrences, and fix
+  its exceptions with `restore_occurrences` / `cancel_occurrences` in the same
+  call; a series with changed occurrences (overrides) to keep in place is
+  rewritten with the raw tools. The `start_date` and
   `DTSTART` descriptions now say it is the series' first start, not the
   occurrence a listing showed.
-- **Single occurrences are changed with the raw tools** (#107). `update_event`
-  and `update_todo` edit the whole series and refuse `RECURRENCE-ID`, which
-  would have turned the series into one occurrence. To change one occurrence,
-  fetch the object with `calendar_multi_get` / `todo_multi_get` and send it
-  back with `update_event_raw` / `update_todo_raw`; the descriptions of all
-  four tools say so.
+- **Single occurrences are moved or retitled with the raw tools** (#107).
+  `update_event` and `update_todo` edit the whole series and refuse
+  `RECURRENCE-ID`, which would have turned the series into one occurrence. To
+  move or retitle one occurrence, fetch the object with `calendar_multi_get` /
+  `todo_multi_get` and send it back with `update_event_raw` /
+  `update_todo_raw`; to cancel one, use `cancel_occurrences` (#126).
+- **`fields.EXDATE` and `fields.RDATE` are refused** by `update_event` and
+  `update_todo` (#126), with a validation error naming `cancel_occurrences` /
+  `restore_occurrences`. Written as a field, either list replaced every value
+  already in the series. Extra dates (RDATE) of a series are edited through
+  `update_event_raw`/`update_todo_raw`.
+- **Write tools refuse parameters they do not take** (#126). Unknown keys
+  were dropped silently, so a call with a misspelled or newer parameter
+  reported success for a change it never made (dav-mcp 4.3.1 drops
+  `cancel_occurrences` and answers "Updated 0 field(s)"). The create, update
+  and delete tools now answer such a call with a validation error naming the
+  parameter.
+- **An update that asks for nothing writes nothing.** `update_event` and
+  `update_todo` without fields, dates or occurrence names (empty lists count
+  as none), or whose occurrences are already as asked, reply "not changed"
+  instead of writing the object back with a new etag.
+
+### Added
+- **Listings name occurrences the way the update tools take them** (#126).
+  For a recurring event or todo, `calendar_query`, `list_events`,
+  `calendar_multi_get` and the todo listings show an **Occurrence ID** (the
+  original start of the occurrence shown, or of the first one), the
+  **Cancelled occurrences** (EXDATE) and the **Changed occurrences**
+  (overrides, by original start, with where each is now), all in the series'
+  own form: the wall-clock time in its zone, UTC with `Z`, or a date. An
+  exclusion stored in another zone is shown in that form too, and a date that
+  excludes a whole day of a timed series is marked "(whole day)" (the marked
+  text is accepted as it is). Every name is converted from the instant its
+  value names — an extra date (RDATE) stored in UTC next to a Berlin series is
+  named on the Berlin wall clock. A stored exclusion that names no occurrence
+  (a floating EXDATE next to a zoned series, a time the rule never yields)
+  cancels nothing and is listed apart, as "Exclusions that match no
+  occurrence". Recurring todos now show their rule.
+- The reply of `update_event`/`update_todo` says which occurrences were
+  cancelled or restored and which changed versions were removed, compared by
+  occurrence, not by the stored text.
 
 ### Fixed
+- **Cancelling one occurrence no longer brings back the ones cancelled
+  before** (#126). `update_event` wrote `fields.EXDATE` as the complete list of
+  exclusions, so a model that wrote one date to cancel one more occurrence
+  dropped every earlier exclusion and those occurrences came back.
+  `update_event` and `update_todo` now take `cancel_occurrences` and
+  `restore_occurrences`: each names an occurrence by its original start, as
+  the listings show it, and adds to or takes from the exclusions without
+  touching the others (tsdav-utils `cancelOccurrences`/`restoreOccurrences`).
+  Cancelling a changed occurrence removes its changed version too; restoring
+  one occurrence of a day excluded as a whole brings back only that one. A
+  name in the wrong form is refused rather than cancelling another
+  occurrence: a time without a zone on a UTC series is not read in the
+  host's zone. A refused name comes back as a validation error naming it,
+  with the occurrences that day (or the cancelled ones) and how the series
+  names occurrences, and saying to use the name exactly as listed. Names
+  refer to the series as it is before the call; restores, then cancels, then
+  fields and dates are applied, so a move in the same call takes the new exclusions along. On an
+  event or todo that does not recur both are refused (instead of excluding
+  its only occurrence). A new RRULE that would leave an exclusion naming no
+  occurrence is refused as a validation error that names the way out:
+  `restore_occurrences` in the same call, or the raw tool.
 - **`update_todo` writes into the to-do, not an event next to it** (#107).
   For a calendar object holding both an event and a to-do, `update_todo` wrote
   its fields (a new due date, say) into the event. It now writes into the
@@ -56,11 +128,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   error** (#107). The refusals above reached the client as an internal error
   (-32603). They now come back as a validation error (-32002) that keeps the
   reason and the suggested rule, and names the tools to use instead.
-- **Date-order mistakes are reported as invalid input** (#115). An event
+- **Date-order mistakes are reported as invalid input** (refs #115, in part). An event
   ending before it starts, or a todo moved by `DTSTART` alone past its due
   date, answered with an internal error; it is now a validation error, and the
   todo case says to give `DTSTART` and `DUE` together.
-- **Unreadable values are reported as invalid input** (#115). A date or rule
+- **Unreadable values are reported as invalid input** (refs #115, in part). A date or rule
   the update tools cannot read (`EXDATE: "garbage"`, an unknown rule part) is
   now a validation error that names the property to correct, for events,
   to-dos and contacts alike. A stored object that cannot be parsed is reported
@@ -81,7 +153,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "no occurrence falls inside the queried range". All of them now use the
   CalDAV time-range test (RFC 4791 9.9): it starts before the range ends and
   ends after it starts; one without duration counts when it starts in
-  [start, end). A floating time is read on the server's clock throughout.
+  [start, end). A floating time is read on the clock of the machine running dav-mcp
+  throughout.
 - **Recurring events are expanded by tsdav-utils** (#98), the reader the
   write side uses, so dav-mcp and the library agree on which occurrences a
   series has. An override replaces the occurrence its RECURRENCE-ID names,
