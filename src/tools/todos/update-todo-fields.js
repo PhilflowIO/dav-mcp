@@ -172,7 +172,9 @@ export const updateTodoFields = {
     return formatSuccess('Todo updated successfully', {
       ...etagAfterWrite(updateResponse),
       updated_fields: Object.keys(validated.fields || {}),
-      message: `Updated ${Object.keys(validated.fields || {}).length} field(s): ${Object.keys(validated.fields || {}).join(', ')}`,
+      message: Object.keys(fields).length || !occurrences.change
+        ? `Updated ${Object.keys(fields).length} field(s): ${Object.keys(fields).join(', ')}`
+        : 'Updated occurrences only; no fields changed',
       ...(occurrences.change && { occurrences: occurrences.change }),
     });
   }

@@ -203,7 +203,9 @@ export const updateEventFields = {
     return formatSuccess('Event updated successfully', {
       ...etagAfterWrite(updateResponse),
       updated_fields: changedFields,
-      message: `Updated ${changedFields.length} field(s): ${changedFields.join(', ')}`,
+      message: changedFields.length || !occurrences.change
+        ? `Updated ${changedFields.length} field(s): ${changedFields.join(', ')}`
+        : 'Updated occurrences only; no fields changed',
       ...(occurrences.change && { occurrences: occurrences.change }),
     });
   }
