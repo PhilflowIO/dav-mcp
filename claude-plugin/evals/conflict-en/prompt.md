@@ -1,5 +1,5 @@
 ---
-description: "Etag conflict: re-read and show the change, no blind retry."
+description: "412 on update: re-read and show the change, no blind retry."
 runs: 2
 max_turns: 14
 allowed_tools: ["Skill"]

@@ -1,8 +1,8 @@
 ---
-description: "Finding one contact: search by name, never list the address book."
+description: "Finding one contact: search by name. Phrasing held out of the skill description."
 runs: 2
 max_turns: 12
 allowed_tools: ["Skill"]
 ---
 
-Wie ist die Handynummer von Lena Hoffmann?
+Ich muss gleich Lena Hoffmann anrufen, hast du ihre Nummer?

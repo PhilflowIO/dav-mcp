@@ -1,5 +1,5 @@
 ---
-description: "Read first, then update_event with that url and etag."
+description: "Read first, then update_event with that url and the etag exactly as returned."
 runs: 2
 max_turns: 12
 allowed_tools: ["Skill"]

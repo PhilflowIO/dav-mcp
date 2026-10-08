@@ -1,5 +1,5 @@
 ---
-description: "Recurring series: never delete the series for one occurrence."
+description: "One occurrence of a series: never delete or rewrite the series."
 runs: 2
 max_turns: 12
 allowed_tools: ["Skill"]

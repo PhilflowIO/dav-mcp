@@ -1,6 +1,7 @@
 ---
-type: tool_used
-tool: mcp__plugin_dav-mcp_dav-mcp__calendar_query
-min: 0
-max: 0
+type: regex
+target: trace
+match: not_contains
+arm: both
+pattern: '\\?"name\\?"\s*:\s*\\?"mcp__plugin_dav-mcp_dav-mcp__'
 ---

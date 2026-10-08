@@ -1,5 +1,5 @@
 ---
-description: "Unrelated coding request: the skill must not fire."
+description: "Unrelated coding request: neither the skill nor any dav-mcp tool."
 runs: 2
 max_turns: 12
 allowed_tools: ["Skill"]

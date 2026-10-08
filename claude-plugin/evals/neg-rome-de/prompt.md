@@ -1,5 +1,5 @@
 ---
-description: "Near-miss: 'Kalender' in a history question must not fire the skill."
+description: "Near-miss: 'Kalender' in a history question fires neither the skill nor a tool."
 runs: 2
 max_turns: 12
 allowed_tools: ["Skill"]

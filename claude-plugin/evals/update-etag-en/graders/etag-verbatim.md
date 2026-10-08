@@ -1,7 +1,5 @@
 ---
 type: tool_used
 tool: mcp__plugin_dav-mcp_dav-mcp__update_event
-min: 0
-max: 0
-input_match: 'CANCELLED'
+input_match: '"event_etag"\s*:\s*"\\"etag-dentist-7\\""'
 ---
