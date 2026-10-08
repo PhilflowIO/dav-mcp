@@ -267,7 +267,7 @@ export function editOccurrences(data, { cancel = [], restore = [] }, type) {
       throw explainOccurrenceRefusal(error, 'cancel_occurrences', { data: edited, names: cancel, type });
     }
   }
-  return { data: edited, change: describeOccurrenceEdit(data, edited, type) };
+  return { data: edited, change: describeOccurrenceEdit(data, edited, type, { cancel }) };
 }
 
 /**

@@ -146,7 +146,7 @@ describe('cancel_occurrences adds to the exclusions (#126)', () => {
     // nothing to write, so nothing is written (no new etag on the server)
     expect(updateCalendarObject).not.toHaveBeenCalled();
     expect(reply.content[0].text).toContain('✅ **Event not changed**');
-    expect(reply.content[0].text).toContain('- **Occurrences**: no change: already as asked\n');
+    expect(reply.content[0].text).toContain('- **Occurrences**: already cancelled: 2026-12-24T10:00:00\n');
   });
 
   test('after a whole-day exclusion on a 09:00/17:00 series, restore brings back only the one named', async () => {
@@ -422,5 +422,51 @@ describe('names, inert exclusions and refusals (#126 review)', () => {
     const reply = await errorReply(setEvent({ start_date: '2026-10-05T08:00:00Z', end_date: '2026-10-05T09:00:00Z' }));
     expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
     expect(reply.message).not.toMatch(/absoluteTime|as-given|list mode|cancelOccurrences/);
+  });
+
+  // final review: a refused move never points at fields.EXDATE/RDATE, which
+  // the tools refuse, but at the route that works, with the names
+  const wholeDay = () => calendar('VEVENT', [
+    'UID:d@test', 'SUMMARY:D', 'DTSTART;TZID=Europe/Berlin:20261103T090000',
+    'DTEND;TZID=Europe/Berlin:20261103T100000', 'RRULE:FREQ=WEEKLY;COUNT=8', 'EXDATE;VALUE=DATE:20261110',
+  ]);
+  const laterByAnHour = { start_date: '2026-11-03T10:00:00', end_date: '2026-11-03T11:00:00' };
+
+  test('a move blocked by a whole-day exclusion names restore and cancel; following it works', async () => {
+    storedEvent = wholeDay();
+    const reply = await errorReply(setEvent(laterByAnHour));
+    expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+    expect(reply.message).toContain('give restore_occurrences ["2026-11-10"] and cancel_occurrences ["2026-11-10T09:00:00"]');
+    expect(reply.message).not.toMatch(/fields\.(EXDATE|RDATE)|give EXDATE/);
+
+    await setEvent({ ...laterByAnHour, restore_occurrences: ['2026-11-10'], cancel_occurrences: ['2026-11-10T09:00:00'] });
+    expect(written()).toContain('EXDATE;TZID=Europe/Berlin:20261110T100000');
+    expect(occurrenceIds(written(), '2026-11-10T00:00:00Z', '2026-11-11T00:00:00Z')).toEqual([]);
+  });
+
+  test('a move blocked by a whole-day extra date names the raw route', async () => {
+    storedEvent = calendar('VEVENT', [
+      'UID:r@test', 'SUMMARY:R', 'DTSTART;TZID=Europe/Berlin:20261103T090000',
+      'DTEND;TZID=Europe/Berlin:20261103T100000', 'RRULE:FREQ=WEEKLY;COUNT=8', 'RDATE;VALUE=DATE:20261105',
+    ]);
+    const reply = await errorReply(setEvent(laterByAnHour));
+    expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+    expect(reply.message).toContain('fetch the object with calendar_multi_get');
+    expect(reply.message).toContain('update_event_raw');
+    expect(reply.message).not.toMatch(/fields\.(EXDATE|RDATE)|give RDATE/);
+  });
+
+  test('a refused move that also cancelled says nothing was written', async () => {
+    storedEvent = wholeDay();
+    const reply = await errorReply(setEvent({ ...laterByAnHour, cancel_occurrences: ['2026-11-24T09:00:00'] }));
+    expect(reply.message).toMatch(/Nothing was written: the cancel_occurrences and restore_occurrences of this call were not applied either/);
+    expect(updateCalendarObject).not.toHaveBeenCalled();
+  });
+
+  test('restating a cancelled occurrence next to a field write says "already cancelled"', async () => {
+    storedEvent = calendar('VEVENT', SERIES);
+    const reply = (await setEvent({ cancel_occurrences: ['2026-12-24T10:00:00'], fields: { SUMMARY: 'New' } })).content[0].text;
+    expect(reply).toContain('- **Occurrences**: already cancelled: 2026-12-24T10:00:00\n');
+    expect(reply).not.toContain('no change');
   });
 });

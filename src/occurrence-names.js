@@ -339,8 +339,9 @@ export const labelled = ({ text, wholeDay }) => (wholeDay ? `${text} (whole day)
  * @param {string} before - the object as fetched
  * @param {string} after - the object after the edit
  * @param {'vevent'|'vtodo'} type
+ * @param {{cancel?: string[]}} [asked] - the names given to cancel_occurrences
  */
-export function describeOccurrenceEdit(before, after, type) {
+export function describeOccurrenceEdit(before, after, type, { cancel = [] } = {}) {
   const old = exclusionTexts(before, type);
   const now = exclusionTexts(after, type);
   const minus = (a, b) => a.filter((x) => !b.includes(x));
@@ -357,7 +358,10 @@ export function describeOccurrenceEdit(before, after, type) {
   }
   // a write that changed no occurrence (a stored value restated, say) is
   // still a write, and is not reported as none
+  // a call that only names occurrences cancelled before says so by name, so
+  // no "no change" stands next to a write of other fields
   const summary = parts.length ? parts.join('; ')
-    : before === after ? 'no change: already as asked' : 'the exclusions were rewritten; no occurrence changed';
+    : before !== after ? 'the exclusions were rewritten; no occurrence changed'
+      : cancel.length ? `already cancelled: ${cancel.join(', ')}` : 'already as asked';
   return { summary, ...change };
 }
