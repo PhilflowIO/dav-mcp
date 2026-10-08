@@ -477,6 +477,34 @@ describe('moving a recurring series (#107)', () => {
     expect(reply.message).toMatch(/^dav-mcp called tsdav-utils wrongly \(INVALID_TYPE\): Invalid type "vfoo"/);
   });
 
+  test('a series in a zone, moved with a UTC start, stays in its zone and keeps its local time after the DST change', async () => {
+    // every Monday 09:00 Berlin; "10:00 Berlin on Tuesday" given as 08:00Z (CEST)
+    storedEvent = calendar('VEVENT', [
+      'UID:berlin@test', 'SUMMARY:Planning', 'RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=6',
+      'DTSTART;TZID=Europe/Berlin:20261005T090000', 'DTEND;TZID=Europe/Berlin:20261005T100000',
+    ]).replace('BEGIN:VEVENT', [...BERLIN, 'BEGIN:VEVENT'].join('\r\n'));
+    await setEvent({ start_date: '2026-10-06T08:00:00Z', end_date: '2026-10-06T09:00:00Z' });
+
+    const written = emittedEvent();
+    const { master } = parts(written, 'vevent');
+    expect(master).toEqual(expect.arrayContaining([
+      'DTSTART;TZID=Europe/Berlin:20261006T100000', 'DTEND;TZID=Europe/Berlin:20261006T110000',
+      'RRULE:FREQ=WEEKLY;BYDAY=TU;COUNT=6',
+    ]));
+    // after 25 October (CET) the occurrences are still 10:00 in Berlin, i.e. 09:00Z
+    const vcalendar = new ICAL.Component(ICAL.parse(written));
+    const zone = new ICAL.Timezone(vcalendar.getFirstSubcomponent('vtimezone'));
+    ICAL.TimezoneService.register(zone, 'Europe/Berlin');
+    const iterator = new ICAL.Event(vcalendar.getFirstSubcomponent('vevent')).iterator();
+    const starts = [];
+    for (let next = iterator.next(); next; next = iterator.next()) starts.push(next.toJSDate().toISOString());
+    ICAL.TimezoneService.remove('Europe/Berlin');
+    expect(starts).toEqual([
+      '2026-10-06T08:00:00.000Z', '2026-10-13T08:00:00.000Z', '2026-10-20T08:00:00.000Z',
+      '2026-10-27T09:00:00.000Z', '2026-11-03T09:00:00.000Z', '2026-11-10T09:00:00.000Z',
+    ]);
+  });
+
   test('any other error is passed on as it is', () => {
     const fault = new Error('Failed to parse iCal data: unexpected end');
     expect(explainWriteRefusal(fault, 'vevent')).toBe(fault);

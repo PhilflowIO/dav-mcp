@@ -255,7 +255,8 @@ describe('update_event converts between all-day and timed', () => {
     expect(parsed.dtstart.getParameter('value')).toBeUndefined();
   });
 
-  test('a UTC value written over a TZID event drops the TZID', async () => {
+  test('a UTC value written over a TZID event keeps the TZID, at the same instant', async () => {
+    // absoluteTime 'keep-zone': 10:00Z is 12:00 in Berlin in May (CEST)
     storedEvent = TIMED_EVENT_WITH_TZID;
 
     await updateEventFields.handler({
@@ -266,12 +267,12 @@ describe('update_event converts between all-day and timed', () => {
     });
 
     const data = emittedUpdate();
-    expect(data).not.toContain('TZID');
+    expect(data).toContain('DTSTART;TZID=Europe/Berlin:20260525T120000');
+    expect(data).toContain('DTEND;TZID=Europe/Berlin:20260525T130000');
 
     const parsed = reparse(data);
     expect(parsed.dtstartCount).toBe(1);
-    expect(parsed.dtstart.getParameter('tzid')).toBeUndefined();
-    expect(parsed.event.startDate.toJSDate().toISOString()).toBe('2026-05-25T10:00:00.000Z');
+    expect(parsed.dtstart.getParameter('tzid')).toBe('Europe/Berlin');
   });
 
   test('an all-day value written over a TZID event drops the TZID', async () => {

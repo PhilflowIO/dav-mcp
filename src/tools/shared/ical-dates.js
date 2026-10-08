@@ -7,12 +7,19 @@ import { ValidationError } from '../../error-handler.js';
  * Every property dav-mcp writes onto a calendar object or vCard goes through
  * writeFields — the create tools as much as the update tools.
  *
- * Encoding is tsdav-utils' job: a value with an offset is converted to UTC, a
- * bare date becomes VALUE=DATE, and a TZID or VALUE=DATE left over from the old
- * value is dropped. The one choice it leaves to the caller is what a date-time
- * without a zone means. Here it is read in the server's timezone and written as
- * UTC, which is what create_event has always done, so the same input lands on
- * the same instant whichever tool it goes through.
+ * Encoding is tsdav-utils' job: a bare date becomes VALUE=DATE, a date-time
+ * drops a VALUE=DATE left over from the old value. Two choices are left to the
+ * caller:
+ *  - A date-time without a zone, where the object has no zone to read it in,
+ *    is read in the server's timezone and written as UTC ('local'), which is
+ *    what create_event has always done, so the same input lands on the same
+ *    instant whichever tool it goes through.
+ *  - A date-time with Z or an offset is written as its wall-clock time in the
+ *    zone the value already lives in — its own TZID, or DTSTART's
+ *    ('keep-zone'). A model that moves a weekly 09:00 Europe/Berlin series
+ *    with "2026-10-06T08:00:00Z" means 10:00 in Berlin every week; written as
+ *    UTC, the series would sit an hour earlier after the DST change. Where no
+ *    zone applies (a new object, a UTC series) the instant is written as UTC.
  *
  * A calendar object may hold more than one component type — a VEVENT next to
  * a VTODO. Left to choose, tsdav-utils takes the VEVENT first, so the todo
@@ -33,7 +40,7 @@ import { ValidationError } from '../../error-handler.js';
  */
 export function writeFields(object, fields, type) {
   try {
-    return updateFields(object, fields, { floatingTime: 'local', type });
+    return updateFields(object, fields, { floatingTime: 'local', absoluteTime: 'keep-zone', type });
   } catch (error) {
     throw explainWriteRefusal(error, type);
   }

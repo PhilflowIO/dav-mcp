@@ -114,10 +114,11 @@ describe('update_todo writes DUE as the instant the caller gave (#91)', () => {
     expect(lines(emittedTodo(), 'DUE')).toEqual(['DUE;VALUE=DATE:20261026']);
   });
 
-  test('a zoned value replaces a TZID instead of keeping it next to a UTC value', async () => {
+  test('a zoned value is written in the TZID the todo already has, at the same instant', async () => {
+    // absoluteTime 'keep-zone': 18:00Z on 26 October is 19:00 in Berlin (CET)
     storedTodo = vtodo('DUE;TZID=Europe/Berlin:20260101T100000');
     await setTodo({ DUE: '2026-10-26T18:00:00Z' });
-    expect(lines(emittedTodo(), 'DUE')).toEqual(['DUE:20261026T180000Z']);
+    expect(lines(emittedTodo(), 'DUE')).toEqual(['DUE;TZID=Europe/Berlin:20261026T190000']);
   });
 
   test('a value without a zone keeps the TZID the todo already has', async () => {
@@ -191,7 +192,7 @@ describe('update_todo keeps DUE, DTSTART and DURATION coherent', () => {
     storedTodo = withBerlinZone(vtodo('DTSTART;TZID=Europe/Berlin:20261020T090000', 'DUE;TZID=Europe/Berlin:20261026T180000'));
     await expect(setTodo({ DUE: '2026-10-20T06:30:00Z' })).rejects.toThrow(/must be later than DTSTART/);
     await setTodo({ DUE: '2026-10-20T07:30:00Z' });
-    expect(lines(emittedTodo(), 'DUE')).toEqual(['DUE:20261020T073000Z']);
+    expect(lines(emittedTodo(), 'DUE')).toEqual(['DUE;TZID=Europe/Berlin:20261020T093000']);
   });
 
   test('a DUE in a TZID next to a UTC DTSTART is not ordered by guesswork', async () => {
