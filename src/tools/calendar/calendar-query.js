@@ -4,7 +4,7 @@ import { formatEventList } from '../../formatters.js';
 import { buildTimeRangeOptions, limitResults, DEFAULT_RESULT_LIMIT } from '../shared/helpers.js';
 import ICAL from 'ical.js';
 import { shownEvent } from '../../ical-components.js';
-import { ZONE_SLACK_MS, requestBudget } from '../../occurrences.js';
+import { ZONE_SLACK_MS, budgetPool } from '../../occurrences.js';
 import { instantOf, hasAbsoluteInstant } from '../shared/ical-dates.js';
 import { parseObjects, textValues, containsText, dateKey, orNull } from '../shared/query-objects.js';
 
@@ -86,8 +86,9 @@ export const calendarQuery = {
     let parsed = parseObjects(allEvents, 'vevent');
     const { timeRange } = timeRangeOptions;
     const matches = searchOf(validated);
-    // one expansion budget for every event of this query (one tool call)
-    const budget = requestBudget();
+    // one expansion budget for this query (one tool call), shared fairly by
+    // its events
+    const budget = budgetPool(parsed.length);
 
     if (matches) {
       parsed = parsed.filter((p) => isFound(p, matches, timeRange, budget));
@@ -157,7 +158,9 @@ function isFound(parsed, matches, timeRange, budget) {
 /** shownEvent for a parsed object, computed once per query */
 function shownOf(parsed, matches, timeRange, budget) {
   if (!('shown' in parsed)) {
-    parsed.shown = parsed.root ? orNull(() => shownEvent(parsed.root, timeRange, matches, budget)) : null;
+    const share = budget.take();
+    parsed.shown = parsed.root ? orNull(() => shownEvent(parsed.root, timeRange, matches, share)) : null;
+    budget.give(share);
   }
   return parsed.shown;
 }

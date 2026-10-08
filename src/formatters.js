@@ -13,7 +13,7 @@ import ICAL from 'ical.js';
 import { readVCard, nameComponents, organizationText } from './vcard.js';
 import { readSeries, shownEvent, todoStatus } from './ical-components.js';
 import { shareTimezones } from './tools/shared/ical-dates.js';
-import { requestBudget } from './occurrences.js';
+import { budgetPool, zonedInstant } from './occurrences.js';
 
 /**
  * Parse iCal data string to extract event properties (RFC 5545 compliant)
@@ -41,6 +41,10 @@ function parseICalEvent(icalData, timeRange = null, matches = null, resolved = n
       dtend: occurrence ? occurrence.endDate : event.endDate,
       outsideRange,
       expansionTruncated,
+      expansionReason: shown.expansionReason ?? null,
+      // the instants the expansion computed (exact at a DST change)
+      dtstartAt: occurrence?.startAt ?? null,
+      dtendAt: occurrence?.endAt ?? null,
       occurrences: shown.occurrences ?? null,
       occurrenceShown: Boolean(occurrence),
       isRecurring: event.isRecurring(),
@@ -281,7 +285,7 @@ function displayTimeZone(icalTime) {
  * organiser never chose, and at a large host offset it moves the date.
  */
 function formatWithFixedOffset(icalTime) {
-  const offsetSeconds = icalTime.utcOffset();
+  const offsetSeconds = zonedInstant(icalTime)?.offset ?? icalTime.utcOffset();
   const sign = offsetSeconds < 0 ? '-' : '+';
   const hours = Math.floor(Math.abs(offsetSeconds) / 3600);
   const minutes = Math.floor((Math.abs(offsetSeconds) % 3600) / 60);
@@ -300,7 +304,7 @@ function formatWithFixedOffset(icalTime) {
 /**
  * Format ICAL.Time to human-readable format with proper timezone support
  */
-function formatDateTime(icalTime) {
+function formatDateTime(icalTime, at = null) {
   if (!icalTime) return '';
 
   try {
@@ -319,7 +323,10 @@ function formatDateTime(icalTime) {
       return formatWithFixedOffset(icalTime);
     }
 
-    const jsDate = icalTime.toJSDate();
+    // the instant: the one the expansion computed, else the zone's own
+    // conversion (tsdav-utils; ical.js' toJSDate is up to an hour off near a
+    // DST change), else ical.js for UTC and floating times
+    const jsDate = new Date(at ?? zonedInstant(icalTime)?.at ?? icalTime.toJSDate().getTime());
 
     const dateStr = jsDate.toLocaleDateString('en-US', {
       year: 'numeric',
@@ -349,8 +356,8 @@ export function formatEvent(event, calendar = 'Unknown Calendar', timeRange = nu
   const calendarName = collectionName(calendar, 'Unknown Calendar');
   const parsed = parseICalEvent(event.data, timeRange, matches, shown, budget);
 
-  const startDate = formatDateTime(parsed.dtstart);
-  const endDate = formatDateTime(parsed.dtend);
+  const startDate = formatDateTime(parsed.dtstart, parsed.dtstartAt);
+  const endDate = formatDateTime(parsed.dtend, parsed.dtendAt);
 
   let output = `## ${parsed.summary || 'Untitled Event'}\n\n`;
   output += `- **When**: ${startDate}`;
@@ -383,7 +390,7 @@ export function formatEvent(event, calendar = 'Unknown Calendar', timeRange = nu
   if (parsed.occurrences && parsed.occurrences.length > 1) {
     output += `- **Occurrences in the window**: ${parsed.occurrences.length}\n`;
     parsed.occurrences.forEach((o) => {
-      output += `  - ${formatDateTime(o.startDate)} to ${formatDateTime(o.endDate)}\n`;
+      output += `  - ${formatDateTime(o.startDate, o.startAt)} to ${formatDateTime(o.endDate, o.endAt)}\n`;
     });
   }
 
@@ -392,8 +399,10 @@ export function formatEvent(event, calendar = 'Unknown Calendar', timeRange = nu
     output += `- **Note**: no occurrence of this series falls inside the queried range; the date above is the series start\n`;
   } else if (parsed.expansionTruncated && parsed.occurrenceShown) {
     output += `- **Note**: incomplete — this series could not be expanded fully (too many occurrences); an earlier occurrence in the queried range may exist\n`;
+  } else if (parsed.expansionReason) {
+    output += `- **Note**: incomplete — this series cannot be read (${parsed.expansionReason}); the date above is the series start, not an occurrence in the queried range\n`;
   } else if (parsed.expansionTruncated) {
-    output += `- **Note**: incomplete — this series could not be expanded (too many occurrences, or it cannot be read); the date above is the series start, not an occurrence in the queried range\n`;
+    output += `- **Note**: incomplete — this series could not be expanded (too many occurrences); the date above is the series start, not an occurrence in the queried range\n`;
   }
 
   // Show organizer if present
@@ -435,7 +444,7 @@ export function formatEvent(event, calendar = 'Unknown Calendar', timeRange = nu
  * found (see shownEvent). `shown` hands over what the query already
  * resolved per event (a Map from the event object to shownEvent's result).
  */
-export function formatEventList(events, calendar = 'Unknown Calendar', timeRange = null, total = null, matches = null, shown = null, budget = requestBudget()) {
+export function formatEventList(events, calendar = 'Unknown Calendar', timeRange = null, total = null, matches = null, shown = null, budget = budgetPool(events?.length ?? 0)) {
   const calendarName = collectionName(calendar, 'Unknown Calendar');
 
   if (!events || events.length === 0) {
@@ -451,8 +460,10 @@ export function formatEventList(events, calendar = 'Unknown Calendar', timeRange
 
   events.forEach((event, index) => {
     output += `### ${index + 1}. `;
-    // one expansion budget for the whole list (one tool call)
-    output += formatEvent(event, calendarName, timeRange, matches, shown?.get(event), budget).replace(/^## /, '') + '\n';
+    // one expansion budget for the whole list (one tool call), shared fairly
+    const share = budget.take();
+    output += formatEvent(event, calendarName, timeRange, matches, shown?.get(event), share).replace(/^## /, '') + '\n';
+    budget.give(share);
   });
 
   output += `---\n<details>\n<summary>Raw Data (JSON)</summary>\n\n\`\`\`json\n`;
@@ -1038,8 +1049,8 @@ export function formatFreeBusy({ busy, free, range, calendarCount = 1, events = 
   // so neither the free slots nor an empty busy list can be taken as certain
   if (incomplete.length > 0) {
     output += `**Warning**: incomplete — ${incomplete.length === 1 ? 'a recurring event' : `${incomplete.length} recurring events`} could not be expanded fully (too many occurrences, or a series that cannot be read), so busy time from ${incomplete.length === 1 ? 'it' : 'them'} may be missing and the free time below is not certain:\n`;
-    incomplete.forEach(({ object, summary }) => {
-      output += `- ${summary || 'Untitled Event'} (${object.url})\n`;
+    incomplete.forEach(({ object, summary, reason }) => {
+      output += `- ${summary || 'Untitled Event'} (${object.url})${reason ? `: cannot be read — ${reason}` : ''}\n`;
     });
     output += '\n';
   }

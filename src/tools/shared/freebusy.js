@@ -1,7 +1,7 @@
 import ICAL from 'ical.js';
 import { shareTimezones } from './ical-dates.js';
 import { readSeries, blocksTime } from '../../ical-components.js';
-import { relateSeries, seriesOccurrences, spanOf, touchesRange, requestBudget } from '../../occurrences.js';
+import { relateSeries, seriesOccurrences, spanOf, touchesRange, requestBudget, budgetPool } from '../../occurrences.js';
 
 /**
  * Client-side free/busy calculation.
@@ -25,7 +25,8 @@ import { relateSeries, seriesOccurrences, spanOf, touchesRange, requestBudget } 
  * @param {ICAL.Component} root - the parsed VCALENDAR
  * @param {{start: number, end: number}} range - ms
  * @param {Object} [budget] - the tool call's expansion budget (requestBudget)
- * @returns {{occurrences: Object[], truncated: boolean, shown: Object|null}}
+ * @returns {{occurrences: Object[], truncated: boolean, reason?: string, shown: Object|null}}
+ *   reason: why the series could not be read at all, when that is why
  */
 export function busyOccurrencesOf(root, range, budget = requestBudget()) {
   const none = { occurrences: [], truncated: false, shown: null };
@@ -60,10 +61,11 @@ export function busyOccurrencesOf(root, range, budget = requestBudget()) {
     return { occurrences, truncated: false, shown: view(series.master, event, null, occurrences) };
   }
 
-  const { occurrences, truncated } = seriesOccurrences(related, range, { filter: blocks, budget });
+  const { occurrences, truncated, reason } = seriesOccurrences(related, range, { filter: blocks, budget });
   return {
     occurrences,
     truncated,
+    reason,
     shown: occurrences.length ? view(series.master, event, occurrences[0], occurrences) : null,
   };
 }
@@ -118,8 +120,9 @@ function mergeIntervals(intervals) {
  */
 export function calculateFreeBusy(calendarObjects, range) {
   const window = { start: range.start.getTime(), end: range.end.getTime() };
-  // one expansion budget for every object of this answer (one tool call)
-  const budget = requestBudget();
+  // one expansion budget for this answer (one tool call), shared fairly by
+  // its objects
+  const budget = budgetPool(calendarObjects.length);
   const blocking = [];
   const incomplete = [];
   const intervals = [];
@@ -132,10 +135,12 @@ export function calculateFreeBusy(calendarObjects, range) {
       // A single unparseable object must not take the whole answer down
       continue;
     }
-    const { occurrences, truncated, shown } = busyOccurrencesOf(root, window, budget);
+    const share = budget.take();
+    const { occurrences, truncated, reason, shown } = busyOccurrencesOf(root, window, share);
+    budget.give(share);
     if (truncated) {
       const summary = readSeries(root, 'vevent')?.master.getFirstPropertyValue('summary');
-      incomplete.push({ object, summary: summary ? String(summary) : '' });
+      incomplete.push({ object, summary: summary ? String(summary) : '', reason: reason ?? null });
     }
     if (occurrences.length === 0) continue;
     blocking.push({ object, shown });

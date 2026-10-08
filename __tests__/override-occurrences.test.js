@@ -316,6 +316,94 @@ describe('the step cap is never silent', () => {
   });
 });
 
+describe('ordinary calendars are complete (review of #110)', () => {
+  const week = { time_range_start: '2026-10-12T00:00:00Z', time_range_end: '2026-10-19T00:00:00Z' };
+  const year = { time_range_start: '2026-01-01T00:00:00Z', time_range_end: '2027-01-01T00:00:00Z' };
+  const one = (uid, ...lines) => ({ ...object(BERLIN, vevent(`SUMMARY:${uid}`, ...lines)), url: `${CALENDAR_URL}${uid}.ics` });
+  const run = async (objects, range) => {
+    stored = objects;
+    const started = performance.now();
+    const texts = [];
+    for (const [tool, args] of [[freeBusyQuery, { include_event_details: true }], [calendarQuery, {}], [listEvents, { calendar_url: CALENDAR_URL }]]) {
+      texts.push((await tool.handler({ ...range, ...args })).content[0].text);
+    }
+    return { texts, elapsed: performance.now() - started };
+  };
+  const rules = ['FREQ=MONTHLY;BYDAY=1MO', 'FREQ=MONTHLY;BYDAY=-1FR', 'FREQ=MONTHLY;BYMONTHDAY=-1', 'FREQ=MONTHLY;BYMONTHDAY=15',
+    'FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1', 'FREQ=MONTHLY;INTERVAL=3;BYDAY=2TU'];
+
+  test('30 monthly series from 2010-2014: every one expanded, in every tool', async () => {
+    const objects = Array.from({ length: 30 }, (_, i) => one(`m${i}`,
+      `DTSTART;TZID=Europe/Berlin:${2010 + (i % 5)}0${1 + (i % 9)}0${1 + (i % 9)}T090000`, 'DURATION:PT1H', `RRULE:${rules[i % rules.length]}`));
+    const { texts, elapsed } = await run(objects, year);
+    for (const text of texts) expect(text).not.toMatch(/incomplete/i);
+    expect(elapsed).toBeLessThan(2000 * 3);
+  });
+
+  test('200 yearly birthdays (all-day, no end) from 1950-2000: complete, each a whole day', async () => {
+    const objects = Array.from({ length: 200 }, (_, i) => one(`b${i}`,
+      `DTSTART;VALUE=DATE:${1950 + (i % 50)}10${String(12 + (i % 7)).padStart(2, '0')}`, 'RRULE:FREQ=YEARLY'));
+    const { texts, elapsed } = await run(objects, week);
+    for (const text of texts) expect(text).not.toMatch(/incomplete/i);
+    // blocks the whole week: every day has a birthday
+    expect(texts[0]).toContain('**No free time**');
+    expect(elapsed).toBeLessThan(2000 * 3);
+  });
+
+  test('one series that cannot be expanded does not starve the others', async () => {
+    const heavy = one('heavy', 'DTSTART:19500101T090000Z', 'DURATION:PT1M', 'RRULE:FREQ=SECONDLY;BYHOUR=9;BYMINUTE=0;BYSECOND=0');
+    const ordinary = Array.from({ length: 20 }, (_, i) => one(`o${i}`,
+      `DTSTART;TZID=Europe/Berlin:20${10 + (i % 10)}0105T1${i % 10}0000`, 'DURATION:PT30M', `RRULE:${['FREQ=DAILY', 'FREQ=WEEKLY;BYDAY=MO,WE', 'FREQ=MONTHLY;BYDAY=2MO', 'FREQ=YEARLY'][i % 4]}`));
+    stored = [heavy, ...ordinary];
+    const text = (await freeBusyQuery.handler({ ...week })).content[0].text;
+    const named = text.split('\n').filter((l) => l.startsWith('- ') && l.includes('.ics'));
+    expect(named).toEqual([expect.stringContaining('heavy.ics')]);
+  });
+});
+
+describe('an all-day occurrence without DTEND or DURATION lasts its day (RFC 5545 3.6.1)', () => {
+  const day = (date) => ({ start: new Date(`${date}T00:00:00Z`), end: new Date(`${date}T23:59:59Z`) });
+  const busy = (obj, date) => calculateFreeBusy([obj], day(date)).busy.length;
+
+  test('a single one, a weekly one, and an override without its own end', () => {
+    expect(busy(object(vevent('SUMMARY:Holiday', 'DTSTART;VALUE=DATE:20261013')), '2026-10-13')).toBe(1);
+    const weekly = object(vevent('SUMMARY:Gym', 'DTSTART;VALUE=DATE:20261006', 'RRULE:FREQ=WEEKLY'),
+      vevent('SUMMARY:Gym (moved)', 'RECURRENCE-ID;VALUE=DATE:20261020', 'DTSTART;VALUE=DATE:20261021'));
+    expect(busy(weekly, '2026-10-13')).toBe(1);
+    expect(busy(weekly, '2026-10-21')).toBe(1);
+    expect(busy(weekly, '2026-10-20')).toBe(0);
+    // a timed one without an end lasts no time
+    expect(busy(object(vevent('SUMMARY:Tick', 'DTSTART:20261013T100000Z', 'RRULE:FREQ=DAILY')), '2026-10-13')).toBe(0);
+  });
+});
+
+describe('times are shown as tsdav-utils converts them', () => {
+  test('at the autumn fold a daily 02:30 in Berlin is its first pass, 02:30 CEST', () => {
+    const series = object(BERLIN, vevent('SUMMARY:Night', 'DTSTART;TZID=Europe/Berlin:20261001T023000', 'DURATION:PT10M', 'RRULE:FREQ=DAILY'));
+    const output = formatEvent(series, 'Work', { start: '2026-10-25T00:00:00Z', end: '2026-10-25T01:00:00Z' });
+    expect(output).toContain('October 25, 2026, 02:30 AM GMT+2');
+  });
+
+  test('a series the library cannot read says why', async () => {
+    // RFC 5545: the UNTIL of a floating series must be floating too
+    stored = [object(vevent('SUMMARY:Floating', 'DTSTART:20261001T090000', 'DURATION:PT1H', 'RRULE:FREQ=DAILY;UNTIL=20261030T090000Z'))];
+    const text = (await freeBusyQuery.handler({ time_range_start: '2026-10-12T00:00:00Z', time_range_end: '2026-10-13T00:00:00Z' })).content[0].text;
+    expect(text).toMatch(/cannot be read — .*floating/);
+  });
+
+  test('MONTHLY;BYMONTH, which ical.js yields out of order, loses no occurrence near a window end', () => {
+    const series = relateSeries(...(() => {
+      const root = new ICAL.Component(ICAL.parse(object(
+        vevent('SUMMARY:x', 'DTSTART:19951127T030000Z', 'DURATION:PT1H', 'RRULE:FREQ=MONTHLY;INTERVAL=2;BYMONTH=11,2'),
+        vevent('SUMMARY:Moved', 'RECURRENCE-ID:20050227T030000Z', 'DTSTART:20241214T081500Z', 'DURATION:PT15M')).data));
+      const { master, overrides } = readSeries(root, 'vevent');
+      return [master, overrides];
+    })());
+    const range = { start: Date.UTC(2024, 11, 14), end: Date.UTC(2024, 11, 15) };
+    expect(seriesOccurrences(series, range).occurrences.map((o) => o.item.summary)).toEqual(['Moved']);
+  });
+});
+
 describe('the near-range start and the budget, at their edges', () => {
   const seriesOf = (...vevents) => {
     const root = new ICAL.Component(ICAL.parse(object(...vevents).data));

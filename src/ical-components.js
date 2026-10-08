@@ -124,19 +124,21 @@ export function shownEvent(calendar, timeRange = null, matches = null, budget = 
   let occurrence = null;
   let outsideRange = false;
   let expansionTruncated = false;
+  let expansionReason = null;
   if (range && event.isRecurring()) {
     const filter = matches ? (o) => matches(o.item.component) : null;
     const result = seriesOccurrences(related, range, { filter, first: true, budget });
     occurrence = result.occurrences[0] ?? null;
     // capped: the occurrence found may not be the earliest, or none was found
     expansionTruncated = result.truncated;
+    expansionReason = result.reason ?? null;
     outsideRange = !occurrence && !result.truncated;
   }
 
   return {
     vevent, event, occurrence,
     item: occurrence ? occurrence.item : event,
-    outsideRange, expansionTruncated,
+    outsideRange, expansionTruncated, expansionReason,
   };
 }
 

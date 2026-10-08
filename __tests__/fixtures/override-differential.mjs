@@ -69,9 +69,9 @@ function prop(name, wall, zone, allDay, params = '') {
 const wallOf = (time) => Date.UTC(time.year, time.month - 1, time.day, time.hour, time.minute, time.second) / 1000;
 
 function series() {
-  const kind = random() < 1 / 32 ? 'dense' : pick(['day', 'day', 'sub']);
+  const kind = random() < 1 / 32 ? 'dense' : pick(['day', 'day', 'sub', 'cal']);
   const zone = pick(['utc', 'ny', 'floating']);
-  const allDay = kind === 'day' && chance(0.15);
+  const allDay = (kind === 'day' || kind === 'cal') && chance(kind === 'cal' ? 0.3 : 0.15);
   const parts = [];
   let start;
   let duration;
@@ -92,6 +92,24 @@ function series() {
     // RFC 5545: a floating series' UNTIL is floating too; now and then not,
     // which the library refuses to read
     else if (end < 0.4) parts.push(`UNTIL=${stamp(start + int(30, 900) * DAY, allDay ? 'date' : zone === 'floating' && chance(0.8) ? 'local' : 'utc')}`);
+  } else if (kind === 'cal') {
+    // MONTHLY and YEARLY from years back: ordinals, negative month days,
+    // BYSETPOS, BYMONTH, BYWEEKNO
+    start = Date.UTC(1995 + int(0, 20), int(0, 11), int(1, 31)) / 1000 + (allDay ? 0 : int(0, 47) * 1800);
+    duration = allDay ? DAY : pick([900, 3600, 3 * 3600, 26 * 3600]);
+    const yearly = chance(0.4);
+    parts.push(yearly ? 'FREQ=YEARLY' : 'FREQ=MONTHLY');
+    if (chance(0.4)) parts.push(`INTERVAL=${int(2, 3)}`);
+    const wd = () => pick(['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU']);
+    const variant = pick(['plain', 'plain', 'ordinal', 'monthday', 'setpos', 'bymonth', ...(yearly ? ['weekno'] : [])]);
+    if (variant === 'ordinal') parts.push(`BYDAY=${pick(['1', '2', '3', '-1', '-2'])}${wd()}`, ...(yearly ? [`BYMONTH=${int(1, 12)}`] : []));
+    if (variant === 'monthday') parts.push(`BYMONTHDAY=${pick(['-1', '-2', '1', '15', '31', '30,-1'])}`, ...(yearly ? [`BYMONTH=${int(1, 12)}`] : []));
+    if (variant === 'setpos') parts.push('BYDAY=MO,TU,WE,TH,FR', `BYSETPOS=${pick(['1', '-1', '2', '1,-1'])}`, ...(yearly ? [`BYMONTH=${int(1, 12)}`] : []));
+    if (variant === 'bymonth') parts.push(`BYMONTH=${int(1, 12)},${int(1, 12)}`);
+    if (variant === 'weekno') parts.push(`BYWEEKNO=${int(1, 52)}`, ...(chance(0.5) ? [`BYDAY=${wd()}`] : []));
+    const end = random();
+    if (end < 0.15) parts.push(`COUNT=${int(5, 400)}`);
+    else if (end < 0.3) parts.push(`UNTIL=${stamp(start + int(300, 12000) * DAY, allDay ? 'date' : zone === 'floating' ? 'local' : 'utc')}`);
   } else if (kind === 'sub') {
     // hourly or every few minutes, starting weeks before the range
     start = Date.UTC(2026, 0, 1) / 1000 + int(0, 300) * DAY + int(0, 95) * 900;
@@ -110,14 +128,15 @@ function series() {
     duration = 600;
     parts.push('FREQ=MINUTELY', 'BYDAY=MO,TU,WE,TH,FR', 'COUNT=60000');
   }
-  return { kind, zone, allDay, start, duration, rrule: parts.join(';') };
+  // RFC 5545 3.6.1: an all-day event without DTEND or DURATION lasts its day
+  return { kind, zone, allDay, start, duration, rrule: parts.join(';'), noEnd: allDay && chance(0.3) };
 }
 
 function masterLines(s, extra = []) {
   return [
     'BEGIN:VEVENT', 'UID:s@test', 'DTSTAMP:20260101T000000Z', 'SUMMARY:Series',
     prop('DTSTART', s.start, s.zone, s.allDay),
-    s.allDay ? `DURATION:P${s.duration / DAY}D` : `DURATION:PT${s.duration}S`,
+    ...(s.noEnd ? [] : [s.allDay ? `DURATION:P${s.duration / DAY}D` : `DURATION:PT${s.duration}S`]),
     `RRULE:${s.rrule}`,
     ...(s.transparent ? ['TRANSP:TRANSPARENT'] : []),
     ...extra,
@@ -243,7 +262,8 @@ export function reference(text, horizon) {
     const recurrenceId = ICAL.Time.fromDateTimeString(wallText(wall));
     if (o.recurrenceId.value.length === 10) recurrenceId.isDate = true;
     const startAt = instantOfTime(o.start, floating);
-    const endAt = o.end ? instantOfTime(o.end, floating) : startAt;
+    // no end given: a date lasts its day, a date-time no time (RFC 5545 3.6.1)
+    const endAt = o.end ? instantOfTime(o.end, floating) : o.start.value.length === 10 ? startAt + 864e5 : startAt;
     if (o.overridden) return { recurrenceId, startAt, endAt, item: events.get(placed.get(wall)) };
     const future = futures.filter(([w]) => w <= wall).pop();
     if (!future) return { recurrenceId, startAt, endAt, item: masterEvent };
@@ -271,15 +291,18 @@ const examples = [];
 for (let n = 0; main && n < CASES; n++) {
   const s = series();
   s.transparent = chance(0.15);
-  const sub = s.kind !== 'day';
-  const reach = sub ? 3 * DAY : 120 * DAY;
+  const sub = s.kind === 'sub' || s.kind === 'dense';
+  const cal = s.kind === 'cal';
+  const reach = sub ? 3 * DAY : cal ? 400 * DAY : 120 * DAY;
 
   // the instances of the bare series near where the range will be, to pick
   // override and EXDATE targets from
   const rangeStart = sub
     ? s.start + (s.kind === 'dense' ? int(27, 31) : int(0, 60)) * DAY + int(0, 95) * 900
-    : s.start + int(-30, 1200) * DAY + int(0, 47) * 1800;
-  const rangeEnd = rangeStart + pick(sub ? [900, 3600, 6 * 3600, DAY] : [3600, 4 * 3600, DAY, 3 * DAY, 10 * DAY, 20 * DAY]);
+    : cal ? Date.UTC(2024, 0, 1) / 1000 + int(0, 1000) * DAY + int(0, 47) * 1800
+      : s.start + int(-30, 1200) * DAY + int(0, 47) * 1800;
+  const rangeEnd = rangeStart + pick(sub ? [900, 3600, 6 * 3600, DAY]
+    : cal ? [DAY, 7 * DAY, 31 * DAY, 92 * DAY] : [3600, 4 * 3600, DAY, 3 * DAY, 10 * DAY, 20 * DAY]);
   const bare = seriesOf(document([masterLines(s)], s.zone)).event;
   const ids = [];
   const walk = new ICAL.RecurExpansion({ component: bare.component, dtstart: bare.startDate });
@@ -350,7 +373,7 @@ for (let n = 0; main && n < CASES; n++) {
       'BEGIN:VEVENT', 'UID:s@test', 'DTSTAMP:20260101T000000Z', `SUMMARY:Override ${kind}`,
       idLine,
       prop('DTSTART', begin, s.zone, s.allDay),
-      s.allDay ? `DURATION:P${Math.max(1, length / DAY)}D` : `DURATION:PT${length}S`,
+      ...(s.allDay && chance(0.3) ? [] : [s.allDay ? `DURATION:P${Math.max(1, length / DAY)}D` : `DURATION:PT${length}S`]),
       ...lines,
       'END:VEVENT',
     ]);

@@ -37,29 +37,62 @@ import { toInstant, timezoneFor } from './tools/shared/ical-dates.js';
 
 /**
  * The work one tool call may spend expanding recurring events, across all of
- * them, in tsdav-utils units: one per rule candidate ical.js tests, which
- * measures at 1-15 microseconds each here, so this is about a second at
- * worst. Created once per call (requestBudget) and passed down; a series it
- * does not cover is reported incomplete, never wrong.
+ * them, in tsdav-utils units. The library charges one per rule candidate
+ * ical.js tests; a request budget (requestBudget, budgetPool) is also charged
+ * the measured time of everything seriesOccurrences does, at US_PER_UNIT:
+ * what the library does not count (reading the object's VTIMEZONEs anew on
+ * every call), the copies made here, and the work on each occurrence. So
+ * 400 000 units bound the expansion of one tool call to about 2 s (the
+ * charge is measured time, so that holds on slower hardware too; what is
+ * expanded there is less). A year of a calendar of 100 ordinary series
+ * (daily, weekly, monthly, yearly, with overrides) needs about 1-1.5 s of it.
  */
-const REQUEST_BUDGET = 150000;
+const REQUEST_BUDGET = 400000;
+const US_PER_UNIT = 5;
 
 /**
- * What one call into the library costs on top of its candidates, charged to
- * the same budget: it reads the object's VTIMEZONEs anew (expanding their DST
- * rules) on every call, which the library does not count. Bounds how many
- * calls one tool call makes, however many overrides its series hold.
+ * What one call into the library costs on top of its candidates when the
+ * budget is not a timed request budget (tests, diagnostics): deterministic.
  */
 const CALL_COST = 100;
+
+/**
+ * Each calendar object of a tool call gets at least this share, whatever
+ * the objects before it spent: one heavy series cannot starve the rest.
+ */
+const MIN_SHARE = 2000;
 
 // Overrides whose recurrence ids lie at most this many periods apart are
 // checked in one call: walking the periods between (a few units each) costs
 // less than another call (CALL_COST).
 const CLUSTER_PERIODS = 20;
 
-/** A fresh budget for one tool call */
+/** A fresh budget for one tool call that expands one object */
 export function requestBudget() {
-  return createRecurrenceBudget(REQUEST_BUDGET);
+  return Object.assign(createRecurrenceBudget(REQUEST_BUDGET), { timed: true });
+}
+
+/**
+ * The budget of a tool call that expands `count` objects, shared fairly:
+ * take() gives the next object the larger of an equal share of what is left
+ * and MIN_SHARE; give() returns what it did not spend.
+ *
+ * @param {number} count
+ * @returns {{take: () => Object, give: (budget: Object) => void}}
+ */
+export function budgetPool(count) {
+  let remaining = REQUEST_BUDGET;
+  let left = Math.max(1, count);
+  return {
+    take() {
+      const units = Math.max(MIN_SHARE, Math.floor(remaining / left));
+      return Object.assign(createRecurrenceBudget(units), { timed: true, granted: units });
+    },
+    give(budget) {
+      remaining -= budget.granted - Math.max(0, budget.remaining);
+      left = Math.max(1, left - 1);
+    },
+  };
 }
 
 /**
@@ -107,7 +140,13 @@ export function spanOf({ startDate, endDate, startAt, endAt }) {
  * tsdav-utils (the object's VTIMEZONE, else IANA data; RFC 5545 3.3.5 at DST
  * changes); floating times by the host clock. null for a TZID neither knows.
  */
+const frames = new WeakMap();
 function frameOfProperty(property) {
+  if (!frames.has(property)) frames.set(property, readFrame(property));
+  return frames.get(property);
+}
+
+function readFrame(property) {
   const value = property.getFirstValue();
   if (value.isDate || property.type === 'date') return { kind: 'date', toWall: utcDay, toInstant: (w) => w };
   const tzid = property.getParameter('tzid');
@@ -144,17 +183,49 @@ function frameOfProperty(property) {
  * server.
  */
 const zones = new Map();
+const definitions = new WeakMap();
+const definitionOf = (vtimezone) => {
+  if (!definitions.has(vtimezone)) definitions.set(vtimezone, vtimezone.toString());
+  return definitions.get(vtimezone);
+};
 const MAX_ZONES = 64;
 function zoneOf(property, tzid) {
   let root = property.parent;
   while (root?.parent) root = root.parent;
   const vtimezone = root?.getAllSubcomponents('vtimezone').find((z) => z.getFirstPropertyValue('tzid') === tzid);
-  const key = vtimezone ? `${tzid}\n${vtimezone.toString()}` : tzid;
+  const key = vtimezone ? `${tzid}\n${definitionOf(vtimezone)}` : tzid;
   if (!zones.has(key)) {
     if (zones.size >= MAX_ZONES) zones.clear();
     zones.set(key, vtimezone ? resolveZone(tzid, vtimezone) : resolvePropertyZone(property));
   }
   return zones.get(key);
+}
+
+/**
+ * The instant of an ICAL.Time in a zone ical.js resolved from a VTIMEZONE,
+ * converted by tsdav-utils (ical.js is up to an hour off near DST changes,
+ * ical.js#847; a local time shown twice is its first pass, RFC 5545 3.3.5),
+ * with the zone's offset there. null for UTC, floating, dates and zones
+ * without their VTIMEZONE.
+ *
+ * @param {ICAL.Time} time
+ * @returns {{at: number, offset: number}|null} ms, and seconds east of UTC
+ */
+export function zonedInstant(time) {
+  const zone = time?.zone;
+  if (!zone || time.isDate || !zone.component || !zone.tzid || zone === ICAL.Timezone.utcTimezone) return null;
+  const vtimezone = zone.component;
+  const key = `${zone.tzid}\n${definitionOf(vtimezone)}`;
+  if (!zones.has(key)) {
+    if (zones.size >= MAX_ZONES) zones.clear();
+    zones.set(key, orNull(() => resolveZone(zone.tzid, vtimezone)));
+  }
+  const converter = zones.get(key);
+  if (!converter) return null;
+  return orNull(() => {
+    const at = converter.toInstant(wallText(wallOfTime(time))).getTime();
+    return { at, offset: converter.offsetAt(new Date(at)) };
+  });
 }
 
 const utcDay = (ms) => Math.floor(ms / 86400000) * 86400000;
@@ -234,6 +305,8 @@ export function relateSeries(master, overrides) {
     .filter((o) => String(o.component.getFirstProperty('recurrence-id').getParameter('range') ?? '').toUpperCase() === 'THISANDFUTURE')
     .sort((a, b) => a.wall - b.wall);
   series.plan = shiftPlan(series);
+  const rule = master.getFirstPropertyValue('rrule');
+  series.unordered = rule?.freq === 'MONTHLY' && Boolean(rule.parts?.BYMONTH);
   return series;
 }
 
@@ -267,6 +340,19 @@ export function relateSeries(master, overrides) {
  */
 export function seriesOccurrences(series, range, { filter = null, first = false, budget = requestBudget() } = {}) {
   if (!series.frame) return { occurrences: [], truncated: false };
+  if (!budget.timed) return occurrencesWithin(series, range, filter, first, budget);
+  // a request budget pays for all the time spent here, not only in the library
+  const before = budget.remaining;
+  const started = performance.now();
+  try {
+    return occurrencesWithin(series, range, filter, first, budget);
+  } finally {
+    const spent = before - budget.remaining;
+    budget.remaining -= Math.max(0, Math.ceil(((performance.now() - started) * 1000) / US_PER_UNIT) - spent);
+  }
+}
+
+function occurrencesWithin(series, range, filter, first, budget) {
   const accept = (o) => {
     const { start, end } = spanOf(o);
     return touchesRange(start, end, range) && (!filter || filter(o));
@@ -277,8 +363,12 @@ export function seriesOccurrences(series, range, { filter = null, first = false,
   const from = series.frame.toWall(range.start - lead) - DST_SLACK_MS;
   const to = series.frame.toWall(range.end + trail) + DST_SLACK_MS;
 
-  const main = expand(series, from, to, series.overrides, budget);
-  if (!main) return { occurrences: [], truncated: true };
+  // only the overrides whose id lies in the window can replace anything it
+  // walks (the others are checked below, or are irrelevant); the library
+  // converts every one it is given, on every call
+  const inWindow = series.overrides.filter((o) => o.wall >= from && o.wall <= to);
+  const main = expand(series, from, to, inWindow, budget);
+  if (main.unreadable) return { occurrences: [], truncated: true, reason: main.unreadable };
   truncated ||= !main.complete;
   const { reached } = main;
 
@@ -289,7 +379,7 @@ export function seriesOccurrences(series, range, { filter = null, first = false,
     if (o.overridden) valid.set(o.wall, o);
   }
   const unchecked = new Set();
-  const outside = series.overrides.filter((o) => (o.wall < from || o.wall > to)
+  const outside = series.overrides.filter((o) => !inWindow.includes(o)
     && (series.futures.includes(o) ? o.wall < from : mayTouch(o, range)))
     .sort((a, b) => a.wall - b.wall);
   for (const cluster of clusters(series, outside)) {
@@ -298,7 +388,7 @@ export function seriesOccurrences(series, range, { filter = null, first = false,
     const checked = expand(series, first, last, cluster, budget);
     for (const override of cluster) {
       // decided only below where an incomplete expansion stopped
-      if (!checked || override.wall >= checked.reached) {
+      if (checked.unreadable || override.wall >= checked.reached) {
         unchecked.add(override);
         continue;
       }
@@ -391,13 +481,14 @@ function durationOf(event) {
  */
 function expand(series, from, to, overrides, budget) {
   const { frame, plan } = series;
-  // the call's own cost first; nothing left: not called at all
-  budget.remaining -= CALL_COST;
-  if (budget.remaining <= 0) return { occurrences: [], complete: false, reached: from };
+  if (budget.remaining <= 0) {
+    budget.exhausted = true;
+    return { occurrences: [], complete: false, reached: from };
+  }
   const startWall = wallOfTime(series.event.startDate);
   let dtstart = startWall;
   let dropStart = false;
-  if (plan) {
+  if (plan?.kind === 'fixed') {
     const periods = Math.floor((from - startWall) / plan.periodMs);
     if (periods > 0) {
       dtstart = startWall + periods * plan.periodMs;
@@ -405,8 +496,15 @@ function expand(series, from, to, overrides, budget) {
       // for the real one): a moved one counts only if the rule makes it
       dropStart = !generates(plan.rule, dtstart) || pastUntil(series, dtstart);
     }
+  } else if (plan?.kind === 'calendar') {
+    // its own (first) period lies before `from`: whatever ical.js makes of
+    // a period it starts in the middle of is never used, the moved start
+    // itself included
+    dtstart = calendarAnchor(plan, startWall, from) ?? startWall;
   }
 
+  const before = budget.remaining;
+  const started = performance.now();
   // toJSON is ical.js' live jCal: clone it, or the copy's DTSTART would move
   // the series itself
   const clone = (component) => new ICAL.Component(structuredClone(component.toJSON()));
@@ -435,17 +533,28 @@ function expand(series, from, to, overrides, budget) {
   for (const { component } of overrides) copy.addSubcomponent(clone(component));
 
   const bound = (wall) => (frame.kind === 'date' ? wallText(wall).slice(0, 10) : wallText(wall));
+  // ical.js yields MONTHLY;BYMONTH candidates of a year in the order of the
+  // BYMONTH list (November before February), and the library stops at the
+  // first one past `until`, reporting the list complete: a year beyond the
+  // window lets every occurrence in it come out
+  const lookahead = series.unordered ? 366 * 864e5 : 0;
   let result;
   try {
     result = expandOccurrences(copy, {
       budget,
       from: bound(from),
-      until: bound(to + (frame.kind === 'date' ? 86400000 : 1000)),
+      until: bound(to + lookahead + (frame.kind === 'date' ? 86400000 : 1000)),
       limit: Number.MAX_SAFE_INTEGER,
     });
-  } catch {
-    return null;
+  } catch (error) {
+    return { unreadable: error?.message || String(error) };
+  } finally {
+    // what the call cost beyond the candidates the library charged
+    const spent = before - budget.remaining;
+    const cost = budget.timed ? Math.ceil(((performance.now() - started) * 1000) / US_PER_UNIT) : spent + CALL_COST;
+    budget.remaining -= Math.max(0, cost - spent);
   }
+  if (!result.complete) budget.exhausted = true;
 
   const occurrences = [];
   for (const o of result.occurrences) {
@@ -456,6 +565,34 @@ function expand(series, from, to, overrides, budget) {
   }
   const last = occurrences.length ? occurrences[occurrences.length - 1].wall : from;
   return { occurrences, complete: result.complete, reached: result.complete ? Infinity : last };
+}
+
+/**
+ * Where a copy of a MONTHLY or YEARLY series may start for a walk from
+ * `from`: DTSTART moved by whole periods on the wall calendar (same day of
+ * the month, same time) to a period that ends before the month (or year)
+ * holding `from` begins — so the walk's first period, which ical.js may
+ * compute from the moved start on (BYSETPOS, days earlier in the month), is
+ * never used. A moved day that does not exist (31 in April, 29 February) is
+ * passed over for an earlier period. null where no whole period fits.
+ */
+function calendarAnchor(plan, startWall, from) {
+  const s = new Date(startWall);
+  const f = new Date(from);
+  const index = (d) => (plan.unit === 'month' ? d.getUTCFullYear() * 12 + d.getUTCMonth() : d.getUTCFullYear());
+  for (let j = Math.floor((index(f) - index(s)) / plan.interval) - 1; j >= 1; j--) {
+    const wall = calendarShift(plan, s, j);
+    if (wall !== null) return wall;
+  }
+  return null;
+}
+
+/** DTSTART `periods` periods later on the wall calendar; null when that day does not exist */
+function calendarShift(plan, s, periods) {
+  const months = plan.unit === 'month' ? periods * plan.interval : periods * plan.interval * 12;
+  const wall = Date.UTC(s.getUTCFullYear(), s.getUTCMonth() + months, s.getUTCDate(),
+    s.getUTCHours(), s.getUTCMinutes(), s.getUTCSeconds());
+  return new Date(wall).getUTCDate() === s.getUTCDate() ? wall : null;
 }
 
 /** A wall clock as a value of the frame's form, for the copy's DTSTART */
@@ -473,7 +610,11 @@ function wallValue(wall, frame) {
 /** One of the library's occurrences in this module's shape, `item` its component */
 function asOccurrence(series, raw, item) {
   const start = timeFrom(series, raw.start);
-  const end = raw.end ? timeFrom(series, raw.end) : start;
+  // no end given (no DTEND, DURATION, nor one of the master): RFC 5545 3.6.1
+  // — a date lasts that day, a date-time no time at all
+  const end = raw.end ? timeFrom(series, raw.end)
+    : start.time.isDate ? timeFrom(series, { value: wallText(start.at + 864e5).slice(0, 10), tzid: null, instant: null })
+      : start;
   return {
     recurrenceId: timeOf(raw.wall, series.frame, series.root, series.frame.toInstant(raw.wall)),
     startDate: start.time, endDate: end.time,
@@ -570,17 +711,19 @@ function shiftPlan({ event, master, frame }) {
   const rules = master.getAllProperties('rrule');
   if (rules.length !== 1 || master.hasProperty('rdate')) return null;
   const rule = rules[0].getFirstValue();
-  const unit = UNIT_SECONDS[rule.freq];
-  if (!unit) return null;
-  const parts = Object.keys(rule.parts ?? {});
-  if (parts.some((part) => !PERIODIC_PARTS.has(part))) return null;
-  if ((rule.parts.BYDAY ?? []).some((day) => !WEEKDAYS.includes(String(day)))) return null;
-  if (parts.some((part) => TIME_PARTS[part] && TIME_PARTS[part] >= unit)) return null;
   const dtend = master.getFirstProperty('dtend');
   if (dtend) {
     const own = frameOfProperty(dtend);
     if (!own || own.kind !== frame.kind || own.tzid !== frame.tzid) return null;
   }
+  const parts = Object.keys(rule.parts ?? {});
+  if (rule.freq === 'MONTHLY' || rule.freq === 'YEARLY') return calendarPlan(event, rule, parts);
+
+  const unit = UNIT_SECONDS[rule.freq];
+  if (!unit) return null;
+  if (parts.some((part) => !PERIODIC_PARTS.has(part))) return null;
+  if ((rule.parts.BYDAY ?? []).some((day) => !WEEKDAYS.includes(String(day)))) return null;
+  if (parts.some((part) => TIME_PARTS[part] && TIME_PARTS[part] >= unit)) return null;
 
   const period = (rule.interval || 1) * unit;
   if (frame.kind === 'date' && period % 86400 !== 0) return null;
@@ -589,7 +732,40 @@ function shiftPlan({ event, master, frame }) {
     if (parts.some((part) => part !== 'WKST')) return null;
     lastWall = wallOfTime(event.startDate) + (rule.count - 1) * period * 1000;
   }
-  return { periodMs: period * 1000, lastWall, rule };
+  return { kind: 'fixed', periodMs: period * 1000, lastWall, rule };
+}
+
+/**
+ * MONTHLY and YEARLY: every BY part (BYDAY with or without an ordinal,
+ * BYMONTHDAY negative or not, BYSETPOS, BYYEARDAY, BYWEEKNO, BYMONTH, the
+ * time parts) is evaluated within each month or year, from its calendar and
+ * the defaults DTSTART gives: day of the month, month, time of day — all
+ * kept when DTSTART moves by whole periods on the wall calendar
+ * (calendarAnchor). Not the weekday: YEARLY;BYWEEKNO without BYDAY takes
+ * DTSTART's weekday, which a year later is another, so that is not shifted;
+ * nor MONTHLY;BYMONTH, which ical.js does not repeat by INTERVAL.
+ * COUNT only without BY parts and on a day every month has (1-28): its last
+ * occurrence is then DTSTART plus COUNT-1 periods.
+ */
+function calendarPlan(event, rule, parts) {
+  if (rule.freq === 'YEARLY' && parts.includes('BYWEEKNO') && !parts.includes('BYDAY')) return null;
+  // ical.js expands MONTHLY;BYMONTH into every listed month of every year,
+  // not every INTERVAL-th month: that does not repeat by whole periods
+  if (rule.freq === 'MONTHLY' && parts.includes('BYMONTH')) return null;
+  const plan = {
+    kind: 'calendar',
+    unit: rule.freq === 'MONTHLY' ? 'month' : 'year',
+    interval: rule.interval || 1,
+    rule,
+    lastWall: null,
+  };
+  plan.periodMs = plan.interval * (plan.unit === 'month' ? 30.44 : 365.25) * 864e5;
+  if (rule.count) {
+    const start = new Date(wallOfTime(event.startDate));
+    if (parts.some((part) => part !== 'WKST') || start.getUTCDate() > 28) return null;
+    plan.lastWall = calendarShift(plan, start, rule.count - 1);
+  }
+  return plan;
 }
 
 /**
