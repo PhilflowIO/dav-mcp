@@ -145,6 +145,15 @@ The version lives in `package.json`; four other files repeat it.
    than npm's `latest`. A prerelease does not move `latest` and needs no
    pin.
 
+The npm side is configured once, on npmjs.com under the package's trusted
+publisher: repository `PhilflowIO/dav-mcp`, workflow `release.yml`,
+environment `npm-publish`, and publishing access "require two-factor
+authentication and disallow tokens". **The environment field is mandatory;
+never clear it.** The MCP Registry job, called from `release.yml`, holds a
+GitHub OIDC token as well, and for a called workflow npm checks the name of
+the calling workflow, so without the environment that token would be
+accepted for an npm publish too.
+
 A failed run is re-run with "Re-run failed jobs", which keeps the tarball that
 was already packed. A version that is on npm is never replaced. The bundle,
 registry and image workflows can also be started by hand for an existing

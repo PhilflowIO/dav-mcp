@@ -533,6 +533,14 @@ jobs:
 
   # The registry entry names the npm package and version; the registry
   # checks that npm serves it, so this runs only after the publish.
+  #
+  # This job also holds `id-token: write`, for its GitHub OIDC login to the
+  # MCP Registry. For a called workflow npm validates the *calling* workflow
+  # (docs.npmjs.com/trusted-publishers, Troubleshooting), so this token
+  # presents as release.yml, the file the trusted publisher names. What keeps
+  # it from publishing to npm is the trusted publisher's environment field,
+  # `npm-publish`, which this job does not run in. That field must stay set
+  # on npmjs.com (CONTRIBUTING.md, Releases).
   registry:
     name: MCP Registry
     needs: publish-npm
