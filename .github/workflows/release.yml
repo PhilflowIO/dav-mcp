@@ -360,7 +360,9 @@ jobs:
       # Safe to run again for a version that is already on npm: same bytes ->
       # nothing to do, different bytes -> fail and ask for a new version.
       # The registry is asked anonymously over its JSON API, so the answer
-      # does not depend on the token setup-node writes into .npmrc.
+      # does not depend on the token setup-node writes into .npmrc, and past
+      # its CDN cache (no-cache header, unique query), so a re-run right after
+      # a publish does not see a stale 404 and try to publish again.
       - name: Publish with provenance
         env:
           npm_config_allow_git: none
@@ -368,7 +370,8 @@ jobs:
         run: |
           LOCAL="sha512-$(openssl dgst -sha512 -binary "release/$ASSET" | base64 -w0)"
           URL="https://registry.npmjs.org/dav-mcp/$VERSION"
-          STATUS=$(curl --silent --show-error --output "$RUNNER_TEMP/existing.json" --write-out '%{http_code}' "$URL")
+          STATUS=$(curl --silent --show-error --header 'Cache-Control: no-cache' \
+            --output "$RUNNER_TEMP/existing.json" --write-out '%{http_code}' "$URL?nocache=$(date +%s%N)")
           case "$STATUS" in
             404)
               echo "ℹ️  dav-mcp@$VERSION is not on npm yet"
@@ -407,16 +410,22 @@ jobs:
           if [ "$PRERELEASE" = true ]; then DIST_TAG=next; fi
           npm publish "$SPEC" --provenance --access public --ignore-scripts --tag "$DIST_TAG"
 
-      # The registry answers from a cache that can lag behind the publish;
-      # poll until it serves the bytes this run verified.
+      # The registry's CDN can serve a stale answer for minutes after a
+      # publish (a 12 x 10 s wait failed a release whose bytes npm served a
+      # few minutes later). Each request bypasses the cache (no-cache header,
+      # unique query), and the wait backs off up to about 10 minutes. Not yet
+      # there means wait; different bytes mean fail at once.
       - name: Check the registry serves the verified tarball
         run: |
           LOCAL="sha512-$(openssl dgst -sha512 -binary "release/$ASSET" | base64 -w0)"
           URL="https://registry.npmjs.org/dav-mcp/$VERSION"
-          for _ in $(seq 1 12); do
-            PUBLISHED=$(curl --silent --fail "$URL" | jq -r '.dist.integrity' || true)
+          WAITED=0
+          DELAY=5
+          while :; do
+            PUBLISHED=$(curl --silent --fail --header 'Cache-Control: no-cache' "$URL?nocache=$(date +%s%N)" \
+              | jq -r '.dist.integrity // empty' || true)
             if [ "$PUBLISHED" = "$LOCAL" ]; then
-              echo "✅ registry serves dav-mcp@$VERSION ($LOCAL)"
+              echo "✅ registry serves dav-mcp@$VERSION ($LOCAL) after ${WAITED}s"
               {
                 echo "### dav-mcp@$VERSION is on npm"
                 echo ""
@@ -428,12 +437,25 @@ jobs:
               } >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
-            sleep 10
+            case "$PUBLISHED" in
+              sha512-*)
+                echo "❌ ERROR: registry serves different bytes for dav-mcp@$VERSION"
+                echo "   served:   $PUBLISHED"
+                echo "   verified: $LOCAL"
+                exit 1
+                ;;
+            esac
+            if [ "$WAITED" -ge 600 ]; then
+              echo "❌ ERROR: registry did not serve dav-mcp@$VERSION within ${WAITED}s"
+              echo "   verified: $LOCAL"
+              exit 1
+            fi
+            echo "ℹ️  not served yet after ${WAITED}s, next check in ${DELAY}s"
+            sleep "$DELAY"
+            WAITED=$((WAITED + DELAY))
+            DELAY=$((DELAY * 2))
+            if [ "$DELAY" -gt 60 ]; then DELAY=60; fi
           done
-          echo "❌ ERROR: registry does not serve the verified tarball for dav-mcp@$VERSION"
-          echo "   served:   ${PUBLISHED:-nothing}"
-          echo "   verified: $LOCAL"
-          exit 1
 
   # Release notes and the tarball on GitHub, after npm has the version. Kept
   # separate so the npm job never holds a token that writes to the repo.
