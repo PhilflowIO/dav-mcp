@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Moving a recurring event or todo moves the whole series** (#107). A new
+  start given to `update_event` (or `DTSTART` to `update_todo`) now takes every
+  occurrence along: moved and cancelled occurrences, extra dates and the end
+  of the series shift by the same amount, so they keep applying to the
+  occurrences they were made for. A weekday or day of month the rule only
+  repeats from the start follows it: a series every Monday, moved to a Tuesday,
+  becomes every Tuesday. Where the rule cannot follow (every Monday and
+  Wednesday, moved by one day), the update is refused and says which rule to
+  give in the same call. Likewise, a new rule that would leave a moved or
+  cancelled occurrence on a date the series no longer has is refused. This
+  comes with tsdav-utils 0.5.0.
+- **Single occurrences are changed with the raw tools** (#107). `update_event`
+  and `update_todo` edit the whole series and refuse `RECURRENCE-ID`, which
+  would have turned the series into one occurrence. To change one occurrence,
+  fetch the object with `calendar_multi_get` / `todo_multi_get` and send it
+  back with `update_event_raw` / `update_todo_raw`; the tool descriptions say
+  so.
+
 ### Fixed
 - **`npx -y dav-mcp` starts on npm 12** (#100). npm 12 refuses git and
   remote-tarball dependencies by default, and dav-mcp installed tsdav
@@ -36,6 +55,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   decoded, which is the version every CardDAV server accepts (sabre/dav,
   i.e. Baïkal and Nextcloud, refuses 2.1). Whitespace inside a `BASE64` or
   `b` value (2.1 lets exporters indent it) is removed when it is written.
+
+- **`update_todo` writes into the to-do, not an event next to it** (#107).
+  For a calendar object holding both an event and a to-do, `update_todo` wrote
+  its fields (a new due date, say) into the event. It now writes into the
+  to-do, `update_event` into the event, and either tool refuses an object that
+  holds nothing of its kind and names the other tool.
+- **A refused series change is reported as invalid input, not as a server
+  error** (#107). The refusals above reached the client as an internal error
+  (-32603). They now come back as a validation error (-32002) that keeps the
+  reason and the suggested rule, and names the tools to use instead.
 
 ## [4.3.0] - 2026-10-07
 

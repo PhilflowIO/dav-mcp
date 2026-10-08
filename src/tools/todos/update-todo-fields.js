@@ -53,7 +53,7 @@ export const updateTodoFields = {
     idempotentHint: true,
     openWorldHint: true,
   },
-  description: 'PREFERRED: Update todo fields without iCal formatting. Supports: SUMMARY (title), DESCRIPTION (details), STATUS (NEEDS-ACTION/IN-PROCESS/COMPLETED/CANCELLED), PRIORITY (0-9), DUE (due date), PERCENT-COMPLETE (0-100), and any RFC 5545 VTODO property including custom X-* properties.',
+  description: 'PREFERRED: Update todo fields without iCal formatting. Supports: SUMMARY (title), DESCRIPTION (details), STATUS (NEEDS-ACTION/IN-PROCESS/COMPLETED/CANCELLED), PRIORITY (0-9), DUE (due date), PERCENT-COMPLETE (0-100), and any RFC 5545 VTODO property including custom X-* properties. Recurring todos: update_todo edits the whole series. Changing DTSTART moves every occurrence, including moved and cancelled ones (overrides, EXDATE) and the end of the series (UNTIL); a weekday or day of month the rule only restates follows the new start. If the rule cannot follow, the call is refused and says which rule to give: pass RRULE in fields of the same call. RECURRENCE-ID cannot be set. To change a single occurrence, fetch the todo with todo_multi_get and send the edited iCalendar with update_todo_raw.',
   inputSchema: {
     type: 'object',
     properties: {
