@@ -24,7 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with the occurrences that day (or the cancelled ones) and how the series
   names occurrences, and saying to use the name exactly as listed. Names refer to the series as it
   is before the call; restores, then cancels, then fields and dates are
-  applied, so a move in the same call takes the new exclusions along.
+  applied, so a move in the same call takes the new exclusions along. On an
+  event or todo that does not recur both are refused (instead of excluding
+  its only occurrence). A new RRULE that would leave an exclusion naming no
+  occurrence is refused as a validation error that names the way out:
+  `restore_occurrences` in the same call, or the raw tool.
 
 ### Added
 - **Listings name occurrences the way the update tools take them** (#126).
@@ -35,8 +39,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (overrides, by original start, with where each is now), all in the series'
   own form: the wall-clock time in its zone, UTC with `Z`, or a date. An
   exclusion stored in another zone is shown in that form too, and a date that
-  excludes a whole day of a timed series is marked "(whole day)". Recurring
-  todos now show their rule.
+  excludes a whole day of a timed series is marked "(whole day)" (the marked
+  text is accepted as it is). Every name is converted from the instant its
+  value names — an extra date (RDATE) stored in UTC next to a Berlin series is
+  named on the Berlin wall clock. A stored exclusion that names no occurrence
+  (a floating EXDATE next to a zoned series, a time the rule never yields)
+  cancels nothing and is listed apart, as "Exclusions that match no
+  occurrence". Recurring todos now show their rule.
 - The reply of `update_event`/`update_todo` says which occurrences were
   cancelled or restored and which changed versions were removed, compared by
   occurrence, not by the stored text.
