@@ -60,25 +60,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (#98): from the start of the period that holds the range, for SECONDLY to
   WEEKLY rules with BYDAY, BYMONTH or a BYHOUR/BYMINUTE/BYSECOND that
   expands the rule (BYHOUR on DAILY, BYMINUTE on HOURLY); from a whole
-  number of months or years later for MONTHLY and YEARLY rules (ordinal
-  BYDAY, negative BYMONTHDAY, BYSETPOS and BYWEEKNO with BYDAY included);
-  and for a COUNT rule without BY parts. Other rules — a limiting BYHOUR
-  (on HOURLY), MONTHLY with BYMONTH, YEARLY BYWEEKNO without BYDAY — are
-  walked from DTSTART. `freebusy_query` used to walk every series from its
-  start.
+  number of months or years later for MONTHLY and YEARLY rules where every
+  month or year surely has an occurrence (a BYMONTHDAY within ±28, an
+  ordinal BYDAY within ±4 of a month, BYSETPOS over the weekdays every month
+  has, ...); and for a COUNT rule without BY parts. Other rules — a limiting
+  BYHOUR (on HOURLY), the 31st, 29 February, a fifth Monday, week 53,
+  MONTHLY with BYMONTH — are walked from DTSTART, as ical.js shifts its
+  INTERVAL grid where a period is empty. `freebusy_query` used to walk
+  every series from its start.
 - **No series can stall a tool call** (#98). ical.js tests rule candidates
   one by one without a bound of its own: `FREQ=SECONDLY;BYHOUR=9` from 1950
   took 27 s, fifty `MINUTELY;BYHOUR=10` series 45 s per call, and
   `FREQ=DAILY;BYMONTH=2;BYMONTHDAY=30` never returned. Each tool call now
   has one budget of rule candidates (300 000, at most 100 000 per call into
   the library) and of time (1.5 s of expansion), whichever runs out first;
-  each calendar object gets a fair share of both, so one heavy series cannot
-  leave the others unexpanded. Expansion stays near 1.5 s per tool call
-  (2-2.5 s at worst on slow hardware); a year of 100 ordinary series takes
-  about 1.5 s in all. A series that needs more is never reported
-  wrong, only incomplete: `freebusy_query`, which used to answer "Nothing blocks
-  this window" for it, names it and says its busy time may be missing, and
-  an event list says the series could not be expanded fully.
+  each calendar object gets a fair share of both and at least 20 ms, so one
+  heavy series cannot leave the others unexpanded. The clock is checked
+  before each call into the library, so expansion takes about 1.5 s plus up
+  to one call per remaining object: it grows with the number of objects and
+  overrides in an answer (20 objects with 4 000 overrides each in range:
+  about 10 s), and under machine load a series may come back incomplete
+  where it otherwise would not. A year of 100 ordinary series takes about
+  1.5 s in all. A walk that needs more than 100 000 candidates is
+  incomplete even for a lone series (`FREQ=DAILY;BYMONTHDAY=1,15` from
+  1970, which cannot start near the range). ical.js yields a BY list in the
+  order it is written (`BYHOUR=17,9`) and the library stops at the first
+  candidate past its window, so such rules are read one period further. A
+  series that needs more is never reported wrong, only incomplete:
+  `freebusy_query`, which used to answer "Nothing blocks this window" for
+  it, names it and says its busy time may be missing, and an event list
+  says the series could not be expanded fully.
 - **Listed events show their STATUS** (e.g. CANCELLED; for a series, the
   occurrence listed), and `freebusy_query`'s event details list exactly the
   occurrences that make up the busy time.
