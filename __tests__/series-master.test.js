@@ -108,8 +108,12 @@ describe('update_event on an override-first object (#96)', () => {
     const { master, overrides } = parts(emittedEvent(), 'vevent');
     expect(master).toEqual(expect.arrayContaining(['DTSTART:20261001T100000Z', 'DTEND:20261001T104500Z']));
     expect(master.some((l) => l.startsWith('DURATION'))).toBe(false);
-    // the override is an instance of its own and keeps what it had
-    expect(overrides).toEqual([EVENT_OVERRIDE.map((l) => l)]);
+    // the override moves with its series: the +1h shift reaches its
+    // RECURRENCE-ID and its own times, so it still names a real occurrence
+    expect(overrides).toEqual([[
+      'UID:series@test', 'SUMMARY:Standup (moved)',
+      'RECURRENCE-ID:20261002T100000Z', 'DTSTART:20261002T150000Z', 'DTEND:20261002T160000Z',
+    ]]);
   });
 
   test('fields go to the master, not the override', async () => {
