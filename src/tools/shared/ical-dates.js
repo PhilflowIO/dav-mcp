@@ -1,6 +1,7 @@
 import ICAL from 'ical.js';
 import { updateFields, seriesMaster } from 'tsdav-utils';
 import { explainWriteRefusal } from '../../ical-components.js';
+import { ValidationError } from '../../error-handler.js';
 
 /**
  * Every property dav-mcp writes onto a calendar object or vCard goes through
@@ -91,14 +92,18 @@ export function writeEventFields(object, fields, dates) {
  * guessing a zone (a TZID without its VTIMEZONE next to UTC) nothing is
  * claimed; see endsBefore.
  *
+ * The refusal is the caller's input, so it is a ValidationError: reported as
+ * an internal error, an LLM reads it as a broken server instead of fixing the
+ * dates.
+ *
  * @param {ICAL.Component} vevent
- * @throws {Error} when DTEND is at or before DTSTART
+ * @throws {ValidationError} when DTEND is at or before DTSTART
  */
 export function assertEndAfterStart(vevent) {
   const dtstart = vevent.getFirstProperty('dtstart');
   const dtend = vevent.getFirstProperty('dtend');
   if (dtstart && dtend && notAfter(dtend, dtstart)) {
-    throw new Error(
+    throw new ValidationError(
       `End date must be after start date: as written, the event would run from ` +
       `${dtstart.getFirstValue()} to ${dtend.getFirstValue()}`
     );
@@ -121,8 +126,12 @@ export function assertEndAfterStart(vevent) {
  *
  * @param {string} iCalString - the todo with its fields already written
  * @param {Iterable<string>} changed - property names written by this update
+ * Each refusal is the caller's input meeting the stored todo, so it is a
+ * ValidationError naming what to send instead — most often DTSTART and DUE
+ * together, since a todo moved by its DTSTART alone keeps its old DUE.
+ *
  * @returns {string} the todo, with a superseded DUE or DURATION removed
- * @throws {Error} when the dates the caller set cannot form a valid todo
+ * @throws {ValidationError} when the dates the caller set cannot form a valid todo
  */
 export function reconcileTodoDates(iCalString, changed) {
   const touched = new Set([...changed].map((name) => name.toUpperCase()));
@@ -141,20 +150,22 @@ export function reconcileTodoDates(iCalString, changed) {
     const due = vtodo.getFirstProperty('due');
 
     if (vtodo.hasProperty('duration') && !dtstart) {
-      throw new Error('DURATION needs a DTSTART (RFC 5545 3.6.2): set DTSTART too, or set DUE instead');
+      throw new ValidationError('DURATION needs a DTSTART (RFC 5545 3.6.2): set DTSTART too, or set DUE instead');
     }
 
     if (dtstart && due) {
       if (dtstart.type !== due.type) {
         const [dateOne, timeOne] = dtstart.type === 'date' ? ['DTSTART', 'DUE'] : ['DUE', 'DTSTART'];
-        throw new Error(
+        throw new ValidationError(
           `DUE and DTSTART must both be dates or both be date-times (RFC 5545 3.8.2.3), ` +
-          `but ${dateOne} is a date and ${timeOne} has a time`
+          `but ${dateOne} is a date and ${timeOne} has a time. Give DTSTART and DUE together, ` +
+          `in the same form`
         );
       }
       if (notAfter(due, dtstart)) {
-        throw new Error(
-          `DUE (${due.getFirstValue()}) must be later than DTSTART (${dtstart.getFirstValue()}) (RFC 5545 3.8.2.3)`
+        throw new ValidationError(
+          `DUE (${due.getFirstValue()}) must be later than DTSTART (${dtstart.getFirstValue()}) ` +
+          `(RFC 5545 3.8.2.3). To move the todo, give DTSTART and DUE together in fields`
         );
       }
     }

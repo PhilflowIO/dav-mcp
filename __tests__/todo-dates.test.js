@@ -54,6 +54,7 @@ const { updateEventFields } = await import('../src/tools/calendar/update-event-f
 const { createEvent } = await import('../src/tools/calendar/create-event.js');
 const { updateContactFields } = await import('../src/tools/contacts/update-contact-fields.js');
 const { todoQuery } = await import('../src/tools/todos/todo-query.js');
+const { createToolErrorResponse, MCP_ERROR_CODES } = await import('../src/error-handler.js');
 
 const vtodo = (...lines) => [
   'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//test//EN',
@@ -377,5 +378,43 @@ describe('the other field tools get the same encoding', () => {
     });
     const data = updateVCard.mock.calls[0][0].vCard.data;
     expect(lines(data, 'REV')).toEqual(['REV:20261026T180000Z']);
+  });
+});
+
+// Refs #115: these refusals are the caller's input, so they reach the client
+// as validation errors (-32002), not as internal errors a model reads as a
+// broken server.
+describe('date refusals on the write path are validation errors (#115)', () => {
+  const reply = async (call) => {
+    try {
+      await call;
+    } catch (error) {
+      return JSON.parse(createToolErrorResponse(error).content[0].text);
+    }
+    throw new Error('expected the call to fail');
+  };
+
+  test('update_todo: moving DTSTART past the stored DUE says to give both', async () => {
+    storedTodo = vtodo('DTSTART:20261020T090000Z', 'DUE:20261021T090000Z');
+    const { code, message } = await reply(setTodo({ DTSTART: '2026-10-27T09:00:00Z' }));
+    expect(code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+    expect(message).toMatch(/^DUE \(.*\) must be later than DTSTART .* give DTSTART and DUE together in fields$/);
+    expect(updateTodo).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ['DURATION without a DTSTART', 'DUE:20261021T090000Z', { DURATION: 'PT2H' }],
+    ['a date DTSTART next to a timed DUE', 'DUE:20261026T180000Z', { DTSTART: '2026-10-20' }],
+  ])('update_todo: %s', async (_, stored, fields) => {
+    storedTodo = vtodo(stored);
+    expect((await reply(setTodo(fields))).code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+  });
+
+  test('create_event: an end at the start, as written', async () => {
+    const { code } = await reply(createEvent.handler({
+      calendar_url: CALENDAR_URL, summary: 'Standup',
+      start_date: '2026-10-26T10:00:60', end_date: '2026-10-26T10:01:00',
+    }));
+    expect(code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
   });
 });
