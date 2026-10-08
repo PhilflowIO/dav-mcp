@@ -1,69 +1,89 @@
 ---
 name: calendar-contacts-tasks
-description: How to work with the user's calendars, contacts and to-dos through the dav-mcp tools - finding events and free time, scheduling, updating and deleting safely, and handling dates, time zones and all-day events correctly. Use when the user asks about their schedule, availability, meetings, contacts, or tasks.
+description: Reads and changes the user's own calendars, contacts and to-dos on their CalDAV/CardDAV server (Nextcloud, iCloud, Baikal, Radicale and others) through the dav-mcp tools - finding events, free time, phone numbers and tasks, and creating, moving, cancelling or deleting them safely. Use whenever the user asks about or wants to change their schedule, appointments, meetings, availability, a contact's details or their to-do list, in any language, e.g. "Was steht morgen an?", "Bin ich Dienstag frei?", "Trag mir einen Termin ein", "Wie ist die Nummer von Lena?", "meine Aufgaben diese Woche", "when am I free?".
 ---
 
 # Calendars, contacts and tasks with dav-mcp
 
-The dav-mcp tools read and write the user's own CalDAV/CardDAV server. Every
-change lands in the calendar apps the user and the people they share calendars
-with see. Work so that nothing surprising happens there.
+The tools named here belong to the dav-mcp MCP server (in Claude Code:
+`mcp__plugin_dav-mcp_dav-mcp__<name>`). They read and write the user's own
+server, so every change shows up in the calendar apps the user and anyone
+sharing their calendars see.
+
+If no dav-mcp tools are available in this session, say so and never invent
+entries. The tools come from the dav-mcp server: the dav-mcp plugin in Claude
+Code, the dav-mcp bundle in Claude Desktop, or a manual MCP setup elsewhere.
+claude.ai chat and Cowork load only this guide.
 
 ## Find before you list
 
-- To find events, use `calendar_query` with a time range or a text filter. It
-  searches every calendar when `calendar_url` is omitted, so there is no need
-  to call `list_calendars` first. `list_events` returns a whole calendar and
-  can be thousands of entries.
-- For "when am I free", "am I available", or finding a meeting slot, use
-  `freebusy_query`. It already ignores cancelled and transparent events and
-  expands recurring ones.
-- Contacts: `addressbook_query` by name, email or organization. To-dos:
-  `todo_query` by status, title or due date.
-- Results are capped (default 20). The response says how many matched in
-  total; narrow the range or raise `limit` when the user needs more.
+- Events: `calendar_query` with a time range or text filter. Without
+  `calendar_url` it searches every calendar; no `list_calendars` first.
+  Never `list_events` to look something up: it returns a whole calendar.
+- "When am I free", "am I available", finding a slot: `freebusy_query`,
+  not `calendar_query`. It expands recurring events. It prints times in UTC:
+  convert them to the user's time zone before answering.
+- Contacts: `addressbook_query` by name, email or organization, never
+  `list_contacts`. To-dos: `todo_query`, never `list_todos`.
 
 ## Dates and time zones
 
-- Turn relative dates ("tomorrow", "next Friday") into ISO 8601 using today's
-  date and the user's time zone. If you don't know the user's zone and the
-  time of day matters, ask.
-- A datetime with `Z` or an offset is an exact instant. A datetime without a
-  zone is read in the event's own zone (updates) or, for new events and
-  to-dos, in the time zone of the computer running dav-mcp, not the calendar
-  server's. Prefer sending an explicit offset.
-- A bare date (`2026-05-25`) makes an all-day event. The end of an all-day
-  event is exclusive: one day on 25 May is start `2026-05-25`, end
-  `2026-05-26`.
-- Start and end must be the same kind: both dates or both datetimes.
+- Resolve relative dates ("morgen", "next Friday") from today's date.
+- A time the user gives ("3 pm", "um 10") is wall-clock time. Send it
+  without a zone (`2026-10-15T15:00:00`). On an update this keeps the
+  event's own time zone; on a new event dav-mcp reads it in the zone of the
+  computer it runs on, which is the user's when dav-mcp runs there (the
+  plugin, the Desktop bundle). On a new event, add an offset only when the
+  user names another zone. Never `Z` or an offset on an update of an existing event: it pins the
+  event to UTC, and a recurring one shifts by an hour after the next
+  daylight-saving change.
+- All-day events take bare dates and the end is exclusive: vacation from 19
+  to 23 October is one event, start `2026-10-19`, end `2026-10-24`.
 
 ## Changing data
 
-- Updates and deletes need the item's `url` and `etag` from a recent read.
-  Read the item first, then change it. If the server reports a conflict, the
-  item changed in the meantime: read it again and show the user what changed
-  before retrying.
-- Use `update_event`, `update_contact` and `update_todo` with the fields that
-  change. The `*_raw` variants replace the whole iCalendar or vCard object;
-  use them only when the user gives you a complete object or needs a property
-  the field tools cannot set.
-- Before deleting, name the exact item (title, date, calendar) and make sure
-  the user asked for that deletion. `delete_calendar` removes the calendar and
-  every event in it.
-- Creating an event does not invite anyone. If attendees should be notified,
-  tell the user that their calendar app or server handles invitations.
+- Read the item first and pass its `url` and `etag` to the update or delete,
+  the etag exactly as returned, quotes included. Use
+  `update_event`/`update_contact`/`update_todo`; the `*_raw` tools only for a
+  complete object the user supplies.
+- If an update fails with `412 Precondition Failed`, the item changed since
+  you read it. Do not retry with the same etag. Read it again, tell the user
+  what changed, and ask before applying the change to the new version.
+- Delete only what the user named, after checking it is the exact item.
+  `delete_calendar` removes every event in the calendar.
+- `create_event` adds no attendees and sends no invitations. When the user
+  wants someone invited, say plainly that the person is not invited and has
+  to be invited from their calendar app; never say an invitation was or will
+  be sent.
 
 ## Recurring events
 
-`calendar_query` returns each recurring series once, dated at its first
-occurrence inside the queried range; it does not list every occurrence. To
-see each time a series blocks, use `freebusy_query`, which expands
-recurrences. Changing a single occurrence or the whole series edits the
-series' iCalendar data; confirm with the user which one they mean before
-updating or deleting a recurring event.
+`calendar_query` returns a series once, dated at its first occurrence in the
+range. Changing or deleting it changes every occurrence: `delete_event`
+deletes the whole series, `STATUS: CANCELLED` cancels all of it. dav-mcp
+cannot change a single occurrence safely: do not add an `EXDATE` or rewrite
+the series with `update_event_raw` to drop one day (an `EXDATE` field
+replaces the exclusions already there). When the user means one day
+("cancel Monday's standup"), say it is a recurring series and that one
+occurrence is changed in their calendar app; change the series only when they
+ask for the series ("from now on", "every week").
+
+Never move a series (an event with `RRULE`) to another time without asking
+first. Moving it moves every occurrence, past ones included, and each day
+the user took out (an `EXDATE` line in its data) may stay at the old time
+(dav-mcp before 4.4.0 does not move it), so that day comes back. Tell the
+user both, name each excluded day, then ask, or point them to their calendar
+app.
 
 ## When something fails
 
-Error messages from dav-mcp name the cause (wrong credentials, unknown URL,
-conflicting etag, invalid date). Relay the cause in plain words and what the
-user can do about it, rather than retrying the same call.
+Tell the user the cause in plain words and what to do, instead of repeating
+the call:
+
+- `Invalid credentials` / `401 Unauthorized`: the server rejected the
+  username or password. In Claude Code they re-enter it in `/plugin` →
+  Installed → dav-mcp → Configure options; iCloud, and Nextcloud with
+  two-factor login, need an app password.
+- `404` / not found: the URL changed; search again.
+- Server not reachable or no calendars: the server URL must be the DAV
+  address (e.g. ending in `/remote.php/dav/` for Nextcloud).

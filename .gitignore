@@ -66,3 +66,7 @@ TEST_RESULTS_SUMMARY.md
 
 # MCP Bundles built by `mcpb pack`
 *.mcpb
+
+# claude plugin eval output (report, aggregate JSON, agent-mock recordings)
+**/evals/results/
+evals/skill-without-tools/results/
