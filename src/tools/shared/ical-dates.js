@@ -1,23 +1,49 @@
 import ICAL from 'ical.js';
 import { updateFields, seriesMaster } from 'tsdav-utils';
+import { explainWriteRefusal } from '../../ical-components.js';
+import { ValidationError } from '../../error-handler.js';
 
 /**
  * Every property dav-mcp writes onto a calendar object or vCard goes through
  * writeFields — the create tools as much as the update tools.
  *
- * Encoding is tsdav-utils' job: a value with an offset is converted to UTC, a
- * bare date becomes VALUE=DATE, and a TZID or VALUE=DATE left over from the old
- * value is dropped. The one choice it leaves to the caller is what a date-time
- * without a zone means. Here it is read in the server's timezone and written as
- * UTC, which is what create_event has always done, so the same input lands on
- * the same instant whichever tool it goes through.
+ * Encoding is tsdav-utils' job: a bare date becomes VALUE=DATE, a date-time
+ * drops a VALUE=DATE left over from the old value. Two choices are left to the
+ * caller:
+ *  - A date-time without a zone, where the object has no zone to read it in,
+ *    is read in the server's timezone and written as UTC ('local'), which is
+ *    what create_event has always done, so the same input lands on the same
+ *    instant whichever tool it goes through.
+ *  - A date-time with Z or an offset is written as its wall-clock time in the
+ *    zone the value already lives in — its own TZID, or DTSTART's
+ *    ('keep-zone'). A model that moves a weekly 09:00 Europe/Berlin series
+ *    with "2026-10-06T08:00:00Z" means 10:00 in Berlin every week; written as
+ *    UTC, the series would sit an hour earlier after the DST change. Where no
+ *    zone applies (a new object, a UTC series) the instant is written as UTC.
+ *
+ * A calendar object may hold more than one component type — a VEVENT next to
+ * a VTODO. Left to choose, tsdav-utils takes the VEVENT first, so the todo
+ * tools name 'vtodo' and the event tools 'vevent'; an object without that
+ * component is refused by the library ("No VTODO found in VCALENDAR (it holds:
+ * VEVENT)"). A vCard has no component type, so the contact tools pass none.
+ *
+ * What the library refuses — a value it cannot read, a series move the rule
+ * cannot follow, a RECURRENCE-ID on the master, no component of the type — is
+ * the caller's input meeting this object, not a fault: it comes back as a
+ * ValidationError that says how to fix it with these tools
+ * (explainWriteRefusal).
  *
  * @param {string|{data: string}} object - calendar object or vCard
  * @param {Record<string, string>} fields - bare property name -> value
+ * @param {'vevent'|'vtodo'} [type] - the component to write into
  * @returns {string} the rewritten object
  */
-export function writeFields(object, fields) {
-  return updateFields(object, fields, { floatingTime: 'local' });
+export function writeFields(object, fields, type) {
+  try {
+    return updateFields(object, fields, { floatingTime: 'local', absoluteTime: 'keep-zone', type });
+  } catch (error) {
+    throw explainWriteRefusal(error, type);
+  }
 }
 
 /**
@@ -51,13 +77,13 @@ export function writeFields(object, fields) {
  * @returns {string} the rewritten calendar object
  */
 export function writeEventFields(object, fields, dates) {
-  if (!dates) return writeFields(object, fields);
+  if (!dates) return writeFields(object, fields, 'vevent');
 
   const written = writeFields(object, {
     ...fields,
     DTSTART: dates.startDate,
     DTEND: dates.endDate,
-  });
+  }, 'vevent');
   return editComponent(written, 'vevent', (vevent) => {
     vevent.removeAllProperties('duration');
     assertEndAfterStart(vevent);
@@ -74,14 +100,18 @@ export function writeEventFields(object, fields, dates) {
  * guessing a zone (a TZID without its VTIMEZONE next to UTC) nothing is
  * claimed; see endsBefore.
  *
+ * The refusal is the caller's input, so it is a ValidationError: reported as
+ * an internal error, an LLM reads it as a broken server instead of fixing the
+ * dates.
+ *
  * @param {ICAL.Component} vevent
- * @throws {Error} when DTEND is at or before DTSTART
+ * @throws {ValidationError} when DTEND is at or before DTSTART
  */
 export function assertEndAfterStart(vevent) {
   const dtstart = vevent.getFirstProperty('dtstart');
   const dtend = vevent.getFirstProperty('dtend');
   if (dtstart && dtend && notAfter(dtend, dtstart)) {
-    throw new Error(
+    throw new ValidationError(
       `End date must be after start date: as written, the event would run from ` +
       `${dtstart.getFirstValue()} to ${dtend.getFirstValue()}`
     );
@@ -104,8 +134,12 @@ export function assertEndAfterStart(vevent) {
  *
  * @param {string} iCalString - the todo with its fields already written
  * @param {Iterable<string>} changed - property names written by this update
+ * Each refusal is the caller's input meeting the stored todo, so it is a
+ * ValidationError naming what to send instead — most often DTSTART and DUE
+ * together, since a todo moved by its DTSTART alone keeps its old DUE.
+ *
  * @returns {string} the todo, with a superseded DUE or DURATION removed
- * @throws {Error} when the dates the caller set cannot form a valid todo
+ * @throws {ValidationError} when the dates the caller set cannot form a valid todo
  */
 export function reconcileTodoDates(iCalString, changed) {
   const touched = new Set([...changed].map((name) => name.toUpperCase()));
@@ -124,20 +158,22 @@ export function reconcileTodoDates(iCalString, changed) {
     const due = vtodo.getFirstProperty('due');
 
     if (vtodo.hasProperty('duration') && !dtstart) {
-      throw new Error('DURATION needs a DTSTART (RFC 5545 3.6.2): set DTSTART too, or set DUE instead');
+      throw new ValidationError('DURATION needs a DTSTART (RFC 5545 3.6.2): set DTSTART too, or set DUE instead');
     }
 
     if (dtstart && due) {
       if (dtstart.type !== due.type) {
         const [dateOne, timeOne] = dtstart.type === 'date' ? ['DTSTART', 'DUE'] : ['DUE', 'DTSTART'];
-        throw new Error(
+        throw new ValidationError(
           `DUE and DTSTART must both be dates or both be date-times (RFC 5545 3.8.2.3), ` +
-          `but ${dateOne} is a date and ${timeOne} has a time`
+          `but ${dateOne} is a date and ${timeOne} has a time. Give DTSTART and DUE together, ` +
+          `in the same form`
         );
       }
       if (notAfter(due, dtstart)) {
-        throw new Error(
-          `DUE (${due.getFirstValue()}) must be later than DTSTART (${dtstart.getFirstValue()}) (RFC 5545 3.8.2.3)`
+        throw new ValidationError(
+          `DUE (${due.getFirstValue()}) must be later than DTSTART (${dtstart.getFirstValue()}) ` +
+          `(RFC 5545 3.8.2.3). To move the todo, give DTSTART and DUE together in fields`
         );
       }
     }
@@ -322,11 +358,12 @@ function frameOf(property) {
 /**
  * Parse, hand the component updateFields just wrote to `edit`, serialize.
  *
- * That component is the series master (tsdav-utils' seriesMaster), not the
- * first one in the file: with an override stored first, a check or a
- * DURATION removal on the first component would miss what was written. The
- * object updateFields refused to edit (several instances, no master) cannot
- * reach this point, and seriesMaster would throw the same error if it did.
+ * That component is the series master (tsdav-utils' seriesMaster) of the
+ * type written, not the first one in the file: with an override stored first,
+ * or a VEVENT next to the VTODO, a check or a DURATION removal on the first
+ * component would miss what was written. An object updateFields refused to
+ * edit (no component of the type; several instances, no master) cannot reach
+ * this point, and seriesMaster would throw the same error if it did.
  */
 function editComponent(iCalString, name, edit) {
   let calendar;
@@ -336,9 +373,6 @@ function editComponent(iCalString, name, edit) {
     throw new Error(`Failed to parse iCal data: ${error.message}`);
   }
 
-  if (calendar.name !== name && calendar.getAllSubcomponents(name).length === 0) {
-    throw new Error(`No ${name.toUpperCase()} found in the calendar object`);
-  }
   const component = calendar.name === name ? calendar : seriesMaster(calendar, name);
 
   edit(component);

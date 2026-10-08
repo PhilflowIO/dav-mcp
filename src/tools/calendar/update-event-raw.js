@@ -15,7 +15,7 @@ export const updateEventRaw = {
     idempotentHint: true,
     openWorldHint: true,
   },
-  description: 'ADVANCED: Update event with raw iCal data. Requires manual iCal formatting - use update_event instead for simple field updates (summary, description). Only use this if you have complete pre-formatted iCal data or need to update advanced iCal properties.',
+  description: 'ADVANCED: Update event with raw iCal data. Requires manual iCal formatting - use update_event instead for simple field updates (summary, description). Use this to change a single occurrence of a recurring event: fetch the event with calendar_multi_get, add or edit the VEVENT with that occurrence\'s RECURRENCE-ID, and send the whole object. Also for complete pre-formatted iCal data or advanced iCal properties.',
   inputSchema: {
     type: 'object',
     properties: {

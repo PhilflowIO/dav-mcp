@@ -1,6 +1,6 @@
 import ICAL from 'ical.js';
-import { seriesMaster } from 'tsdav-utils';
-import { ValidationError } from './error-handler.js';
+import { seriesMaster, isUpdateFieldsError } from 'tsdav-utils';
+import { ValidationError, CalDAVError, CardDAVError, MCP_ERROR_CODES } from './error-handler.js';
 import { relateSeries, seriesOccurrences, spanOf, touchesRange } from './occurrences.js';
 
 /**
@@ -214,4 +214,182 @@ export function assertFieldUpdatable(object, type) {
     `edit the ${type.toUpperCase()} of the occurrence you mean, and send the whole object ` +
     `with ${raw}.`
   );
+}
+
+/** The tools of each kind of object a write can be aimed at, vCards included */
+const WRITE_TOOLS = {
+  ...KINDS,
+  vcard: { noun: 'contact', update: 'update_contact', raw: 'update_contact_raw', fetch: 'addressbook_multi_get' },
+};
+
+/** the field-update tool for a component type the object may hold instead */
+const FIELD_TOOL = { VEVENT: 'update_event', VTODO: 'update_todo' };
+
+/**
+ * Codes for a call dav-mcp itself got wrong (an option or an argument of the
+ * wrong shape). No input from the caller can cause or fix them, so they stay
+ * internal errors.
+ */
+const OUR_MISTAKES = new Set(['INVALID_INPUT', 'INVALID_TYPE', 'INVALID_FLOATING_TIME', 'INVALID_ABSOLUTE_TIME']);
+
+/** the parameter an event tool takes a property through, where it is not fields */
+const EVENT_PARAMETER = { DTSTART: 'start_date', DTEND: 'end_date' };
+
+/**
+ * What to do with an object that holds no component of the tool's type, from
+ * the types the library's message lists ("(it holds: VJOURNAL)"). The code
+ * says what happened; the list is only read to name the right tool.
+ */
+function wrongTypeHint(message, { noun, update }) {
+  const held = /\(it holds: ([A-Z, ]+)\)/.exec(message)?.[1].split(/,\s*/) ?? [];
+  const tools = held.map((name) => FIELD_TOOL[name] ? `${FIELD_TOOL[name]} for its ${name}` : null)
+    .filter(Boolean);
+  const hint = `This object holds no ${noun}, so ${update} cannot change it.`;
+  if (tools.length) return `${hint} Use ${tools.join(', or ')}.`;
+  return held.length
+    ? `${hint} dav-mcp has no field-update tool for ${held.join(', ')}.`
+    : hint;
+}
+
+/** The hint for a refusal, in this tool's terms, chosen by the library's remedy */
+function remedyHint(error, type, tools) {
+  const { update, raw, fetch } = tools;
+  switch (error.remedy) {
+    case 'same-call': {
+      // the message names what to give (RRULE, UNTIL, EXDATE, RDATE);
+      // `property` and `suggestion` make the example concrete
+      const name = error.property ?? 'RRULE';
+      const example = error.suggestion ? `fields.${name} "${error.suggestion}"` : `fields.${name}`;
+      return `Give what it names in fields of this same ${update} call (e.g. ${example}).`;
+    }
+    case 'rewrite-object':
+      return `To change a single occurrence, or to rewrite the whole object: fetch it with ` +
+        `${fetch} (its Raw Data block holds the full text and the etag), edit it, and send ` +
+        `the whole object with ${raw}.`;
+    case 'fix-value': {
+      if (!error.property) return '';
+      const parameter = type === 'vevent' && EVENT_PARAMETER[error.property];
+      return `Correct ${error.property}${parameter ? ` (${parameter})` : ''} and call ${update} again.`;
+    }
+    default:
+      return '';
+  }
+}
+
+/**
+ * Turn what tsdav-utils' updateFields threw into the error the client gets.
+ *
+ * Every refusal is an UpdateFieldsError with a stable `code` and a `remedy`;
+ * anything else is a failure of the library, passed on as it is. Refusals are
+ * the caller's input meeting this object, so they become a ValidationError:
+ * the library's message, which says why and often what to give instead (the
+ * rule with the new start's weekday, say), plus how that remedy is spelled in
+ * this server — fields of the same call, or the multi-get and raw tools.
+ *
+ * Two kinds of refusal are not the caller's to fix and are not reported as
+ * such: a call dav-mcp made wrongly (an option or argument of the wrong shape)
+ * stays an internal error, and a stored object that does not parse is a
+ * CalDAV/CardDAV error — the object on the server is broken, not the input.
+ *
+ * @param {Error} error - what updateFields threw
+ * @param {'vevent'|'vtodo'} [type] - the component the tool writes; none for a vCard
+ * @returns {Error} the error to throw
+ */
+export function explainWriteRefusal(error, type) {
+  if (!isUpdateFieldsError(error)) return error;
+
+  const tools = WRITE_TOOLS[type ?? 'vcard'];
+  const message = error.message.replace(/\.$/, '');
+
+  if (OUR_MISTAKES.has(error.code)) {
+    const fault = new Error(`dav-mcp called tsdav-utils wrongly (${error.code}): ${message}`, { cause: error });
+    fault.code = MCP_ERROR_CODES.INTERNAL_ERROR;
+    return fault;
+  }
+  if (error.code === 'INVALID_ICALENDAR') {
+    const Broken = type ? CalDAVError : CardDAVError;
+    return new Broken(
+      `The stored ${tools.noun} cannot be parsed, so it was not changed (${message}). ` +
+      `To repair it, fetch it with ${tools.fetch} and send a corrected object with ${tools.raw}.`,
+      { code: error.code }
+    );
+  }
+
+  const hint = error.code === 'COMPONENT_NOT_FOUND'
+    ? wrongTypeHint(error.message, tools)
+    : remedyHint(error, type, tools);
+  return new ValidationError(hint ? `${message}. ${hint}` : message, {
+    code: error.code, remedy: error.remedy,
+    ...(error.property && { property: error.property }),
+    ...(error.suggestion && { suggestion: error.suggestion }),
+  });
+}
+
+/**
+ * What a field update did to a recurring series, for the reply.
+ *
+ * A new start moves the whole series: tsdav-utils rewrites a weekday the rule
+ * restates and shifts every override, EXDATE and RDATE by the same distance.
+ * The caller named one date; the model has to be able to tell the user what
+ * else changed, so the reply lists it.
+ *
+ * @param {string|{data: string}} before - the object as fetched
+ * @param {string} after - the object as written
+ * @param {'vevent'|'vtodo'} type
+ * @returns {null | {
+ *   summary: string,
+ *   dtstart?: {from: string, to: string},
+ *   rrule?: {from: string|null, to: string|null},
+ *   overrides_moved: number, exdates_moved: number, rdates_moved: number,
+ * }} null when the object is no series or the write left its shape alone
+ */
+export function describeSeriesChange(before, after, type) {
+  const read = (object) => {
+    try {
+      const calendar = new ICAL.Component(ICAL.parse(typeof object === 'string' ? object : object.data));
+      return readSeries(calendar, type);
+    } catch {
+      return null;
+    }
+  };
+  const [old, now] = [read(before), read(after)];
+  if (!old || !now || old.detached.length || now.detached.length) return null;
+
+  const isSeries = (series) => ['rrule', 'rdate'].some((name) => series.master.hasProperty(name));
+  if (!isSeries(old) && !isSeries(now)) return null;
+
+  const line = (component, name) => component.getFirstProperty(name)?.toICALString() ?? null;
+  const values = (component, name) => component.getAllProperties(name)
+    .flatMap((property) => property.getValues().map(String));
+  const changedValues = (name) => {
+    const kept = new Set(values(now.master, name));
+    return values(old.master, name).filter((value) => !kept.has(value)).length;
+  };
+
+  const change = {
+    overrides_moved: old.overrides.filter((override, i) =>
+      line(override, 'recurrence-id') !== (now.overrides[i] && line(now.overrides[i], 'recurrence-id'))).length,
+    exdates_moved: changedValues('exdate'),
+    rdates_moved: changedValues('rdate'),
+  };
+  const parts = [];
+  const [startFrom, startTo] = [line(old.master, 'dtstart'), line(now.master, 'dtstart')];
+  if (startFrom !== startTo) {
+    change.dtstart = { from: startFrom, to: startTo };
+    parts.push(`series start ${startFrom} -> ${startTo}`);
+  }
+  const [ruleFrom, ruleTo] = [line(old.master, 'rrule'), line(now.master, 'rrule')];
+  if (ruleFrom !== ruleTo) {
+    change.rrule = { from: ruleFrom, to: ruleTo };
+    parts.push(`rule ${ruleFrom ?? '(none)'} -> ${ruleTo ?? '(none)'}`);
+  }
+  const moved = [
+    [change.overrides_moved, 'changed occurrence (override)', 'changed occurrences (overrides)'],
+    [change.exdates_moved, 'cancelled date (EXDATE)', 'cancelled dates (EXDATE)'],
+    [change.rdates_moved, 'extra date (RDATE)', 'extra dates (RDATE)'],
+  ].filter(([count]) => count > 0).map(([count, one, many]) => `${count} ${count === 1 ? one : many}`);
+  if (moved.length) parts.push(`moved along: ${moved.join(', ')}`);
+
+  if (!parts.length) return null;
+  return { summary: parts.join('; '), ...change };
 }

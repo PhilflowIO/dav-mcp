@@ -4,7 +4,7 @@ import { formatSuccess } from '../../formatters.js';
 import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
 import { z } from 'zod';
 import { writeEventFields } from '../shared/ical-dates.js';
-import { assertFieldUpdatable } from '../../ical-components.js';
+import { assertFieldUpdatable, describeSeriesChange } from '../../ical-components.js';
 
 /**
  * Schema for field-based event updates
@@ -80,7 +80,7 @@ export const updateEventFields = {
     idempotentHint: true,
     openWorldHint: true,
   },
-  description: 'PREFERRED: Update event fields without iCal formatting. Use start_date/end_date/all_day to move an event or convert it between all-day and timed. Use fields for everything else: SUMMARY (title), DESCRIPTION (details), LOCATION (place), STATUS (TENTATIVE/CONFIRMED/CANCELLED), and any other RFC 5545 property including custom X-* properties (e.g., X-ZOOM-LINK, X-MEETING-ROOM).',
+  description: 'PREFERRED: Update event fields without iCal formatting. Use start_date/end_date/all_day to move an event or convert it between all-day and timed. Use fields for everything else: SUMMARY (title), DESCRIPTION (details), LOCATION (place), STATUS (TENTATIVE/CONFIRMED/CANCELLED), and any other RFC 5545 property including custom X-* properties (e.g., X-ZOOM-LINK, X-MEETING-ROOM). Recurring events: update_event edits the whole series. Moving the start moves every occurrence, including moved and cancelled ones (overrides, EXDATE), extra dates (RDATE) and the end of the series (UNTIL); a weekday or day of month the rule only restates follows the new start (every Monday, moved to a Tuesday, becomes every Tuesday). If the rule cannot follow (e.g. BYDAY=MO,WE moved by one day), the call is refused and says what to give instead, such as fields.RRULE in the same call. The reply lists what else moved. RECURRENCE-ID cannot be set. To change a single occurrence, fetch the event with calendar_multi_get and send the edited iCalendar with update_event_raw.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -119,11 +119,11 @@ export const updateEventFields = {
       },
       start_date: {
         type: 'string',
-        description: 'New start. A datetime ("2026-05-25T10:00:00Z", or with an offset) makes the event timed; a bare date ("2026-05-25") makes it all-day. A datetime without a zone keeps the event\'s own timezone if it has one, else it is read in the timezone of the computer running dav-mcp. Must be given together with end_date.'
+        description: 'New start. For a recurring event this is the start of the SERIES (its first occurrence, DTSTART), not of the occurrence a listing showed: every occurrence moves by the difference. To shift every occurrence by an hour, give the series start plus one hour; to change one occurrence, use calendar_multi_get and update_event_raw. A datetime ("2026-05-25T10:00:00Z", or with an offset) makes the event timed; a bare date ("2026-05-25") makes it all-day. A datetime with a zone is that instant, written in the event\'s own timezone if it has one (so a series in Europe/Berlin stays there and keeps its local time across DST changes). A datetime without a zone keeps the event\'s own timezone if it has one, else it is read in the timezone of the computer running dav-mcp. Must be given together with end_date.'
       },
       end_date: {
         type: 'string',
-        description: 'New end, in the same form as start_date (a datetime without a zone is read in the event\'s own timezone, like start_date). For an all-day event the end is EXCLUSIVE: a single day on 2026-05-25 is start_date "2026-05-25" and end_date "2026-05-26".'
+        description: 'New end of the event (for a recurring event, of its first occurrence), in the same form as start_date (a datetime without a zone is read in the event\'s own timezone, like start_date). For an all-day event the end is EXCLUSIVE: a single day on 2026-05-25 is start_date "2026-05-25" and end_date "2026-05-26".'
       },
       all_day: {
         type: 'boolean',
@@ -153,9 +153,10 @@ export const updateEventFields = {
 
     // Step 2: Write the fields and, when moving the event, its dates in one
     // updateFields call on the series master, so an RRULE UNTIL in fields
-    // follows the new DTSTART (date-typed values such as EXDATE or
-    // RECURRENCE-ID are encoded by tsdav-utils). An explicit end replaces a
-    // stored DURATION.
+    // follows the new DTSTART (date-typed values such as EXDATE are encoded
+    // by tsdav-utils). A move takes the whole series along — overrides,
+    // EXDATE, RDATE, UNTIL — or is refused; RECURRENCE-ID is refused on the
+    // master. An explicit end replaces a stored DURATION.
     const fields = validated.fields || {};
     const moving = validated.start_date !== undefined;
     const updatedData = writeEventFields(calendarObject, fields, moving
@@ -174,10 +175,12 @@ export const updateEventFields = {
     });
     await assertDavSuccess(updateResponse, `update event ${validated.event_url}`);
 
+    const series = describeSeriesChange(calendarObject, updatedData, 'vevent');
     return formatSuccess('Event updated successfully', {
       ...etagAfterWrite(updateResponse),
       updated_fields: changedFields,
-      message: `Updated ${changedFields.length} field(s): ${changedFields.join(', ')}`
+      message: `Updated ${changedFields.length} field(s): ${changedFields.join(', ')}`,
+      ...(series && { series }),
     });
   }
 };

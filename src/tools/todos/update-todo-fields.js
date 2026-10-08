@@ -4,7 +4,7 @@ import { formatSuccess } from '../../formatters.js';
 import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
 import { z } from 'zod';
 import { writeFields, reconcileTodoDates } from '../shared/ical-dates.js';
-import { assertFieldUpdatable } from '../../ical-components.js';
+import { assertFieldUpdatable, describeSeriesChange } from '../../ical-components.js';
 
 /**
  * Schema for field-based todo updates
@@ -31,7 +31,7 @@ const updateTodoFieldsSchema = z.object({
 
 // What DUE and DTSTART accept; tsdav-utils parses exactly these forms
 const DATE_FORMS =
-  'ISO 8601 with a zone ("2026-10-26T18:00:00Z", "2026-10-26T14:00:00-04:00"), ' +
+  'ISO 8601 with a zone ("2026-10-26T18:00:00Z", "2026-10-26T14:00:00-04:00"; that instant, written in the todo\'s own timezone if it has one), ' +
   'without one (kept in the todo\'s own timezone if it has one, else read in the timezone of the computer running dav-mcp), ' +
   'or a date ("2026-10-26") for an all-day value';
 
@@ -53,7 +53,7 @@ export const updateTodoFields = {
     idempotentHint: true,
     openWorldHint: true,
   },
-  description: 'PREFERRED: Update todo fields without iCal formatting. Supports: SUMMARY (title), DESCRIPTION (details), STATUS (NEEDS-ACTION/IN-PROCESS/COMPLETED/CANCELLED), PRIORITY (0-9), DUE (due date), PERCENT-COMPLETE (0-100), and any RFC 5545 VTODO property including custom X-* properties.',
+  description: 'PREFERRED: Update todo fields without iCal formatting. Supports: SUMMARY (title), DESCRIPTION (details), STATUS (NEEDS-ACTION/IN-PROCESS/COMPLETED/CANCELLED), PRIORITY (0-9), DUE (due date), PERCENT-COMPLETE (0-100), and any RFC 5545 VTODO property including custom X-* properties. Recurring todos: update_todo edits the whole series. Changing DTSTART moves every occurrence, including moved and cancelled ones (overrides, EXDATE), extra dates (RDATE) and the end of the series (UNTIL); a weekday or day of month the rule only restates follows the new start. If the rule cannot follow, the call is refused and says what to give instead, such as RRULE in fields of the same call. The reply lists what else moved. RECURRENCE-ID cannot be set. To change a single occurrence, fetch the todo with todo_multi_get and send the edited iCalendar with update_todo_raw.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -90,11 +90,11 @@ export const updateTodoFields = {
           },
           DUE: {
             type: 'string',
-            description: `Due date: ${DATE_FORMS}. Must be later than DTSTART and of the same kind (both dates or both with a time). Replaces a DURATION.`
+            description: `Due date: ${DATE_FORMS}. Must be later than DTSTART and of the same kind (both dates or both with a time). Replaces a DURATION. For a recurring todo this is the due date of its first occurrence.`
           },
           DTSTART: {
             type: 'string',
-            description: `Start date: ${DATE_FORMS}`
+            description: `Start date: ${DATE_FORMS}. Moving it keeps the stored DUE, so to move a todo give DTSTART and DUE together. For a recurring todo this is the start of the SERIES (its first occurrence), not of an occurrence a listing showed: every occurrence moves by the difference. To change one occurrence, use todo_multi_get and update_todo_raw.`
           },
           COMPLETED: {
             type: 'string',
@@ -131,7 +131,7 @@ export const updateTodoFields = {
     // Step 2: Update fields (field-agnostic; date-typed values such as DUE
     // are encoded by tsdav-utils), then keep DUE/DTSTART/DURATION coherent
     const updatedData = reconcileTodoDates(
-      writeFields(todoObject, validated.fields || {}),
+      writeFields(todoObject, validated.fields || {}, 'vtodo'),
       Object.keys(validated.fields || {})
     );
 
@@ -145,10 +145,12 @@ export const updateTodoFields = {
     });
     await assertDavSuccess(updateResponse, `update todo ${validated.todo_url}`);
 
+    const series = describeSeriesChange(todoObject, updatedData, 'vtodo');
     return formatSuccess('Todo updated successfully', {
       ...etagAfterWrite(updateResponse),
       updated_fields: Object.keys(validated.fields || {}),
-      message: `Updated ${Object.keys(validated.fields || {}).length} field(s): ${Object.keys(validated.fields || {}).join(', ')}`
+      message: `Updated ${Object.keys(validated.fields || {}).length} field(s): ${Object.keys(validated.fields || {}).join(', ')}`,
+      ...(series && { series }),
     });
   }
 };

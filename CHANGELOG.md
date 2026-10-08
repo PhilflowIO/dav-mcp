@@ -14,8 +14,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `RDATE` given in `update_event`'s fields is the whole list, replacing the
   one stored rather than adding to it (#126 tracks cancelling a single
   occurrence).
+- **Moving a recurring event or todo moves the whole series** (#107). A new
+  start given to `update_event` (or `DTSTART` to `update_todo`) now takes every
+  occurrence along: moved and cancelled occurrences, extra dates and the end
+  of the series shift by the same amount, so they keep applying to the
+  occurrences they were made for. A weekday or day of month the rule only
+  repeats from the start follows it: a series every Monday, moved to a Tuesday,
+  becomes every Tuesday. Where the rule cannot follow (every Monday and
+  Wednesday, moved by one day), the update is refused and says what to give
+  instead in the same call. Likewise, a new rule that would leave a moved or
+  cancelled occurrence on a date the series no longer has is refused. The
+  reply says what else moved: the old and new rule and how many changed,
+  cancelled and extra dates went along.
+- **A time given in UTC keeps an event in its own time zone** (#107). A
+  start like `2026-10-06T08:00:00Z` for a weekly 09:00 Europe/Berlin series
+  used to turn the whole series into UTC, so after the change to winter time
+  every meeting sat an hour earlier in Berlin. The time is now written in the
+  event's (or to-do's) own zone at the same instant: 10:00 in Berlin, every
+  week. Events and to-dos without a zone are written in UTC as before.
+- **Starting a series later now moves its exceptions too** (#107). A start
+  several weeks later used to leave cancelled and moved occurrences where
+  they were; it now takes them along, so a cancellation can land on a
+  meeting nobody cancelled. To start a series later without moving it, give
+  `RRULE` and `EXDATE` explicitly, or use the raw tools. The `start_date` and
+  `DTSTART` descriptions now say it is the series' first start, not the
+  occurrence a listing showed.
+- **Single occurrences are changed with the raw tools** (#107). `update_event`
+  and `update_todo` edit the whole series and refuse `RECURRENCE-ID`, which
+  would have turned the series into one occurrence. To change one occurrence,
+  fetch the object with `calendar_multi_get` / `todo_multi_get` and send it
+  back with `update_event_raw` / `update_todo_raw`; the descriptions of all
+  four tools say so.
 
 ### Fixed
+- **`update_todo` writes into the to-do, not an event next to it** (#107).
+  For a calendar object holding both an event and a to-do, `update_todo` wrote
+  its fields (a new due date, say) into the event. It now writes into the
+  to-do, `update_event` into the event, and either tool refuses an object that
+  holds nothing of its kind and names the other tool.
+- **A refused series change is reported as invalid input, not as a server
+  error** (#107). The refusals above reached the client as an internal error
+  (-32603). They now come back as a validation error (-32002) that keeps the
+  reason and the suggested rule, and names the tools to use instead.
+- **Date-order mistakes are reported as invalid input** (#115). An event
+  ending before it starts, or a todo moved by `DTSTART` alone past its due
+  date, answered with an internal error; it is now a validation error, and the
+  todo case says to give `DTSTART` and `DUE` together.
+- **Unreadable values are reported as invalid input** (#115). A date or rule
+  the update tools cannot read (`EXDATE: "garbage"`, an unknown rule part) is
+  now a validation error that names the property to correct, for events,
+  to-dos and contacts alike. A stored object that cannot be parsed is reported
+  as a CalDAV/CardDAV error, with the raw tool that can replace it.
 - **Free/busy and event queries judge each occurrence as it now stands**
   (#98). A recurring series was expanded from its original dates, and every
   occurrence counted with the series' own STATUS and TRANSP. So a single
