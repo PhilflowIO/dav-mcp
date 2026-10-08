@@ -1,0 +1,49 @@
+name: Plugin pin is current
+
+# The Claude plugin pin moves in its own pull request after a release has
+# published the version to npm (CONTRIBUTING.md, Releases). This fails, every
+# day until it is done, when the pin on main is older than what npm serves as
+# latest, so the follow-up does not depend on someone remembering it.
+on:
+  schedule:
+    - cron: '41 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  plugin-pin-current:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.x'
+
+      # No install: the comparison is plain Node, from the same script that
+      # writes the pin.
+      - name: The pinned version is npm's latest
+        run: |
+          LATEST=$(npm view dav-mcp dist-tags.latest)
+          export LATEST
+          # The single quotes are on purpose: ${...} below is JavaScript.
+          # shellcheck disable=SC2016
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            import { compareVersions } from "./scripts/sync-claude-plugin.js";
+            const spec = JSON.parse(readFileSync("claude-plugin/.mcp.json", "utf8")).mcpServers["dav-mcp"].args.at(-1);
+            const pinned = spec.slice(spec.lastIndexOf("@") + 1);
+            const latest = process.env.LATEST;
+            console.log(`plugin pins dav-mcp@${pinned}, npm latest is ${latest}`);
+            if (compareVersions(pinned, latest) < 0) {
+              console.log(`::error::The Claude plugin still pins dav-mcp@${pinned}; npm latest is ${latest}. Run npm run plugin:sync on main and open a pull request.`);
+              process.exit(1);
+            }
+          '

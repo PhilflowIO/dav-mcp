@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Internal
+- **Releases are published to npm from CI with provenance** (#112), via trusted publishing from a `v<version>` tag on `main`.
+
 ### Fixed
 - **`npx -y dav-mcp` starts on npm 12** (#100). npm 12 refuses git and
   remote-tarball dependencies by default, and dav-mcp installed tsdav
