@@ -16,6 +16,10 @@
  * answers every request with 401 (see captureLoginFailure). No real account
  * is involved anywhere.
  *
+ * Limit: `claude plugin eval` answers each tool from one fixed file, so a
+ * read after a write in a run still returns the data from before the write.
+ * A case that needs a changed answer uses an agent mock (see conflict-en).
+ *
  * Usage: node scripts/generate-eval-mocks.js
  */
 
@@ -23,6 +27,7 @@ import { createServer } from 'node:http';
 import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import ICAL from 'ical.js';
 import { fileURLToPath } from 'node:url';
 
 process.env.TZ = 'Europe/Berlin';
@@ -164,8 +169,10 @@ function fakeClient({ events = [], todos = [], contacts = [], writes = ({ calend
   };
   return {
     fetchCalendars: async () => calendars,
-    fetchCalendarObjects: async ({ calendar, objectUrls }) => inCalendar(events, calendar)
-      .filter(o => !objectUrls || objectUrls.includes(o.url)),
+    // a CalDAV time-range filter: objects with an occurrence overlapping the range
+    fetchCalendarObjects: async ({ calendar, objectUrls, timeRange }) => inCalendar(events, calendar)
+      .filter(o => !objectUrls || objectUrls.includes(o.url))
+      .filter(o => !timeRange || overlaps(o.data, new Date(timeRange.start), new Date(timeRange.end))),
     fetchTodos: async ({ calendar }) => inCalendar(todos, calendar),
     fetchAddressBooks: async () => addressBooks,
     fetchVCards: async ({ addressBook, objectUrls }) => inCalendar(contacts, addressBook)
@@ -184,6 +191,20 @@ function fakeClient({ events = [], todos = [], contacts = [], writes = ({ calend
     propfind: async () => [{ ok: true, status: 207, props: {} }],
     davRequest: multiget,
   };
+}
+
+/** Whether any occurrence of the event in `data` overlaps [start, end). */
+function overlaps(data, start, end) {
+  const vevent = new ICAL.Component(ICAL.parse(data)).getFirstSubcomponent('vevent');
+  const event = new ICAL.Event(vevent);
+  const iterator = event.iterator();
+  for (let next = iterator.next(); next; next = iterator.next()) {
+    const occurrence = event.getOccurrenceDetails(next);
+    const from = occurrence.startDate.toJSDate();
+    if (from >= end) return false;
+    if (occurrence.endDate.toJSDate() > start) return true;
+  }
+  return false;
 }
 
 /** Run one tool the way the stdio server does and return [text, isError]. */
