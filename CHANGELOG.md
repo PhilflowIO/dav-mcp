@@ -15,14 +15,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   moved from the 20th to the 14th was missing from the 14th and still
   reported on the 20th, and an opaque occurrence of a transparent series was
   free. Each occurrence is now taken at its effective time with its own
-  status, in `freebusy_query`, `calendar_query` and the event lists alike;
-  `RANGE=THISANDFUTURE` overrides apply to every later occurrence, and an
-  override of an EXDATEd or non-existent occurrence is ignored. The
-  expansion still starts just before the range, not at the series start.
-  A listed occurrence shows its `STATUS` (e.g. CANCELLED), and
-  `freebusy_query`'s event details list only the events that block time,
-  each as its occurrence in the range. `freebusy_query` also gains that
-  near-the-range start, which it used to lack.
+  STATUS and TRANSP (compared case-insensitively), in `freebusy_query`,
+  `calendar_query` and `list_events` alike. An override is a full component:
+  one without STATUS of a cancelled series is not cancelled, and blocks time.
+- **One definition of "in the range"** (#98). Free/busy counted an
+  occurrence that overlaps the window, the event lists one that starts in it
+  (end included): a meeting running into the window was busy, yet listed as
+  "no occurrence falls inside the queried range". All of them now use the
+  CalDAV time-range test (RFC 4791 9.9): it starts before the range ends and
+  ends after it starts; one without duration counts when it starts in
+  [start, end). A floating time is read on the server's clock throughout.
+- **RECURRENCE-ID names an instant** (#98). An override whose
+  RECURRENCE-ID is written in another form than the series' DTSTART (UTC for
+  a series in Europe/Berlin, say) did not match its occurrence, and a
+  `RANGE=THISANDFUTURE` override in that form moved the later occurrences by
+  the wrong amount. A THISANDFUTURE override applies to every later
+  occurrence; one whose RECURRENCE-ID is no occurrence of the series, or an
+  EXDATEd one, is ignored like any such override.
+- **Recurring events are expanded from just before the range** (#98), also
+  for HOURLY, MINUTELY and SECONDLY rules and for a COUNT rule without BY
+  parts; an override moved into the range from years away is found from the
+  overrides themselves, all checked in one pass. `freebusy_query` used to
+  walk every series from its start.
+- **The expansion cap is never silent** (#98). A series too dense to expand
+  within the step cap used to leave its busy time out of `freebusy_query`,
+  which then answered "Nothing blocks this window". The answer now names it
+  and says its busy time may be missing; an event list says an earlier
+  occurrence may exist.
+- **Listed events show their STATUS** (e.g. CANCELLED; for a series, the
+  occurrence listed), and `freebusy_query`'s event details list exactly the
+  occurrences that make up the busy time.
 - **Quoted-printable contacts are decoded** (#103). vCard 2.1 cards from
   Outlook and Android exports encode non-ASCII text as
   `ENCODING=QUOTED-PRINTABLE`; they were shown as "Hans M=C3=BCller" and a
