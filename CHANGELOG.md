@@ -46,7 +46,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   excludes by instant, a date on a timed series its whole day; a floating
   EXDATE in a zoned series, or a UTC one in a floating series, names
   nothing. A series the library cannot read (a UTC `UNTIL` on a floating
-  series, say) is reported incomplete rather than guessed at.
+  series, say) is reported incomplete, with the reason, rather than guessed
+  at. An all-day occurrence without DTEND or DURATION lasts its day, a timed
+  one no time (RFC 5545 3.6.1); a recurring all-day event without an end
+  used to block nothing. Times are shown as the library converts them, so a
+  time a DST change shows twice reads with the offset of its first pass.
 - **THISANDFUTURE and moved overrides** (#98). A `RANGE=THISANDFUTURE`
   override moves every later occurrence by its own move, on its own wall
   clock; one whose RECURRENCE-ID is no occurrence, or an EXDATEd one, is
@@ -55,17 +59,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Recurring events are expanded from the range, not from their start**
   (#98): from the start of the period that holds the range, for SECONDLY to
   WEEKLY rules with BYDAY, BYMONTH or a BYHOUR/BYMINUTE/BYSECOND that
-  expands the rule (BYHOUR on DAILY, BYMINUTE on HOURLY), and for a COUNT
-  rule without BY parts. Other rules, a limiting BYHOUR (on HOURLY, say)
-  among them, are walked from DTSTART. `freebusy_query` used to walk every
-  series from its start.
+  expands the rule (BYHOUR on DAILY, BYMINUTE on HOURLY); from a whole
+  number of months or years later for MONTHLY and YEARLY rules (ordinal
+  BYDAY, negative BYMONTHDAY, BYSETPOS and BYWEEKNO with BYDAY included);
+  and for a COUNT rule without BY parts. Other rules — a limiting BYHOUR
+  (on HOURLY), MONTHLY with BYMONTH, YEARLY BYWEEKNO without BYDAY — are
+  walked from DTSTART. `freebusy_query` used to walk every series from its
+  start.
 - **No series can stall a tool call** (#98). ical.js tests rule candidates
   one by one without a bound of its own: `FREQ=SECONDLY;BYHOUR=9` from 1950
   took 27 s, fifty `MINUTELY;BYHOUR=10` series 45 s per call, and
   `FREQ=DAILY;BYMONTH=2;BYMONTHDAY=30` never returned. Every candidate, and
-  every call into the library, is now charged to one budget per tool call,
-  across all its series. A series that needs more is never reported wrong,
-  only incomplete: `freebusy_query`, which used to answer "Nothing blocks
+  the time spent expanding, is now charged to one budget per tool call, of
+  about 2 s; each calendar object gets a fair share of it, so one heavy
+  series cannot leave the others unexpanded. A year of 100 ordinary series
+  takes about 1.5 s in all. A series that needs more is never reported
+  wrong, only incomplete: `freebusy_query`, which used to answer "Nothing blocks
   this window" for it, names it and says its busy time may be missing, and
   an event list says the series could not be expanded fully.
 - **Listed events show their STATUS** (e.g. CANCELLED; for a series, the
