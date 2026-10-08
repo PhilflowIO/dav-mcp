@@ -49,5 +49,10 @@ describe('write tools refuse parameters they do not take', () => {
       event_url: 'https://dav.example.com/calendars/user/work/e.ics', event_etag: '"1"', exclude_dates: ['2026-10-12'],
     }));
     expect(message).toBe('Validation failed: unknown parameter: exclude_dates (this tool does not take it; see its input schema)');
+    // the class too, not only the code: clients branch on it
+    const error = await tool.handler({
+      event_url: 'https://dav.example.com/calendars/user/work/e.ics', event_etag: '"1"', exclude_dates: [],
+    }).catch((e) => e);
+    expect(error.name).toBe('ValidationError');
   });
 });

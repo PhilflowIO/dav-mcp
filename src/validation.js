@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { parseDateValue } from 'tsdav-utils';
 import { requestUrlProblem } from './request-origins.js';
+import { ValidationError } from './error-handler.js';
 
 /**
  * Validation schemas for all MCP tools
@@ -470,7 +471,9 @@ export function validateInput(schema, data) {
       }
       return err.path.length ? `${err.path.join('.')}: ${err.message}` : err.message;
     }).join(', ');
-    throw new Error(`Validation failed: ${errors}`);
+    // the caller's input: a ValidationError, which clients and the error
+    // handler read as invalid input, not as a failure of the server
+    throw new ValidationError(`Validation failed: ${errors}`);
   }
   return result.data;
 }
