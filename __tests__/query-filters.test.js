@@ -334,6 +334,73 @@ describe('addressbook_query', () => {
     });
   });
 
+  describe('a vCard 2.1 card with quoted-printable values', () => {
+    // Issue #103: Outlook/Android export non-ASCII text as ENCODING=QUOTED-PRINTABLE
+    const legacy = (name, ...lines) => ({
+      url: `${ADDRESSBOOK_URL}${name}.vcf`,
+      etag: '"1"',
+      data: ['BEGIN:VCARD', 'VERSION:2.1', ...lines, 'END:VCARD'].join('\r\n'),
+    });
+
+    test('UTF-8 is decoded for the display and the name filter', async () => {
+      storedCards = [legacy('hans',
+        'N;CHARSET=UTF-8;ENCODING=QUOTED-PRINTABLE:M=C3=BCller;Hans;;;',
+        'FN;CHARSET=UTF-8;ENCODING=QUOTED-PRINTABLE:Hans M=C3=BCller')];
+      expect(await urls(addressbookQuery, { name_filter: 'müller' })).toEqual(['hans.vcf']);
+      expect(await urls(addressbookQuery, { name_filter: 'M=C3' })).toEqual([]);
+      const text = shown(await addressbookQuery.handler({ name_filter: 'hans' }));
+      expect(text).toContain('### 1. Hans Müller');
+      expect(text).toContain('- **Full Name**: Hans Müller');
+    });
+
+    test('ISO-8859-1 and windows-1252 bytes are decoded in their charset', async () => {
+      storedCards = [
+        legacy('latin', 'FN;CHARSET=ISO-8859-1;ENCODING=QUOTED-PRINTABLE:Hans M=FCller'),
+        legacy('cp1252', 'FN;CHARSET=windows-1252;ENCODING=QUOTED-PRINTABLE:Price =80 Gro=DF'),
+      ];
+      expect(await urls(addressbookQuery, { name_filter: 'hans müller' })).toEqual(['latin.vcf']);
+      expect(await urls(addressbookQuery, { name_filter: '€ groß' })).toEqual(['cp1252.vcf']);
+    });
+
+    test('the bare QUOTED-PRINTABLE parameter and a lower-case one are recognised', async () => {
+      storedCards = [
+        legacy('bare', 'FN;CHARSET=UTF-8;QUOTED-PRINTABLE:J=C3=BCrgen'),
+        legacy('lower', 'FN;charset=utf-8;encoding=quoted-printable:Bj=C3=B6rn'),
+      ];
+      expect(await urls(addressbookQuery, { name_filter: 'jürgen' })).toEqual(['bare.vcf']);
+      expect(await urls(addressbookQuery, { name_filter: 'björn' })).toEqual(['lower.vcf']);
+      const text = shown(await addressbookQuery.handler({ name_filter: 'jürgen' }));
+      expect(text).toContain('### 1. Jürgen');
+      expect(text).not.toContain('QUOTED-PRINTABLE');
+    });
+
+    test('a soft line break joins the value across lines', async () => {
+      storedCards = [legacy('long',
+        'FN;CHARSET=UTF-8;ENCODING=QUOTED-PRINTABLE:Hans-Peter M=C3=',
+        '=BCller-L=C3=BCdenscheid',
+        'EMAIL;INTERNET:hp@example.com')];
+      expect(await urls(addressbookQuery, { name_filter: 'müller-lüdenscheid' })).toEqual(['long.vcf']);
+      expect(await urls(addressbookQuery, { email_filter: 'hp@example.com' })).toEqual(['long.vcf']);
+    });
+
+    test('a structured ADR keeps its components and an encoded line break', async () => {
+      storedCards = [legacy('adr', 'FN:Ada Adr',
+        'ADR;HOME;CHARSET=UTF-8;ENCODING=QUOTED-PRINTABLE:;;Stra=C3=9Fe 1=0D=0AHinterhaus;M=C3=BCnchen;;80331;',
+        'NOTE;ENCODING=QUOTED-PRINTABLE:first=0D=0Asecond')];
+      const text = shown(await addressbookQuery.handler({ name_filter: 'ada' }));
+      expect(text).toContain('Straße 1\nHinterhaus, München, 80331 (HOME)');
+    });
+
+    test('an unknown charset or invalid UTF-8 still reads, never throws', async () => {
+      storedCards = [
+        legacy('unknown', 'FN;CHARSET=X-NO-SUCH;ENCODING=QUOTED-PRINTABLE:Ren=C3=A9'),
+        legacy('mislabelled', 'FN;CHARSET=UTF-8;ENCODING=QUOTED-PRINTABLE:Ren=E9 Roi'),
+        legacy('plain', 'FN;ENCODING=QUOTED-PRINTABLE:Ren=E9 Nu'),
+      ];
+      expect((await urls(addressbookQuery, { name_filter: 'rené' })).sort()).toEqual(['mislabelled.vcf', 'plain.vcf', 'unknown.vcf']);
+    });
+  });
+
   test('a quoted parameter value keeps its semicolons and colons', async () => {
     storedCards = [card('quoted', 'FN:Quoted Person', 'EMAIL;X-LABEL="Work; HQ: main";PREF:q@example.com')];
     expect(await urls(addressbookQuery, { email_filter: 'q@example.com' })).toEqual(['quoted.vcf']);
