@@ -1,0 +1,1021 @@
+{
+  "tools": [
+    {
+      "name": "list_calendars",
+      "description": "List all available calendars from the CalDAV server. Use this to get calendar URLs needed for other operations",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "annotations": {
+        "title": "List calendars",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "list_events",
+      "description": "List ALL events from a single calendar without filtering. WARNING: Returns all events which can be many thousands - use calendar_query instead for searching with filters (supports multi-calendar search).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "calendar_url": {
+            "type": "string",
+            "description": "The URL of the calendar to fetch events from. Use list_calendars first to get available URLs."
+          },
+          "time_range_start": {
+            "type": "string",
+            "description": "Optional: Start date in ISO 8601 format (e.g., 2025-01-01T00:00:00.000Z)"
+          },
+          "time_range_end": {
+            "type": "string",
+            "description": "Optional: End date in ISO 8601 format"
+          }
+        },
+        "required": [
+          "calendar_url"
+        ]
+      },
+      "annotations": {
+        "title": "List events",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "create_event",
+      "description": "Create a new calendar event with title, date, time, optional description and location",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "calendar_url": {
+            "type": "string",
+            "description": "The URL of the calendar to create the event in"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Event title/summary"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Start in ISO 8601 format. A datetime (\"2026-05-25T10:00:00Z\") makes a timed event; a bare date (\"2026-05-25\") makes an all-day event."
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End, in the same form as start_date. For an all-day event the end is EXCLUSIVE: a single day on 2026-05-25 is start_date \"2026-05-25\" and end_date \"2026-05-26\"."
+          },
+          "all_day": {
+            "type": "boolean",
+            "description": "Optional. All-day is inferred from the date format, so this is only needed to state the intent explicitly; it must agree with the format of start_date/end_date."
+          },
+          "description": {
+            "type": "string",
+            "description": "Event description (optional)"
+          },
+          "location": {
+            "type": "string",
+            "description": "Event location (optional)"
+          }
+        },
+        "required": [
+          "calendar_url",
+          "summary",
+          "start_date",
+          "end_date"
+        ]
+      },
+      "annotations": {
+        "title": "Create event",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "update_event",
+      "description": "PREFERRED: Update event fields without iCal formatting. Use start_date/end_date/all_day to move an event or convert it between all-day and timed. Use fields for everything else: SUMMARY (title), DESCRIPTION (details), LOCATION (place), STATUS (TENTATIVE/CONFIRMED/CANCELLED), and any other RFC 5545 property including custom X-* properties (e.g., X-ZOOM-LINK, X-MEETING-ROOM).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "event_url": {
+            "type": "string",
+            "description": "The URL of the event to update"
+          },
+          "event_etag": {
+            "type": "string",
+            "description": "The etag of the event (required for conflict detection)"
+          },
+          "fields": {
+            "type": "object",
+            "description": "Fields to update, keyed by bare UPPERCASE property name (e.g., SUMMARY, LOCATION, STATUS). Any RFC 5545 property or custom X-* property is supported, EXCEPT the dates: use start_date/end_date/all_day for DTSTART, DTEND and DURATION. Property parameters such as \"VALUE=DATE\" are not accepted here, and values must not contain line breaks.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "properties": {
+              "SUMMARY": {
+                "type": "string",
+                "description": "Event title/summary"
+              },
+              "DESCRIPTION": {
+                "type": "string",
+                "description": "Event description/details"
+              },
+              "LOCATION": {
+                "type": "string",
+                "description": "Physical or virtual meeting location"
+              },
+              "STATUS": {
+                "type": "string",
+                "description": "Event status: TENTATIVE, CONFIRMED, or CANCELLED"
+              }
+            }
+          },
+          "start_date": {
+            "type": "string",
+            "description": "New start. A datetime (\"2026-05-25T10:00:00Z\", or with an offset) makes the event timed; a bare date (\"2026-05-25\") makes it all-day. A datetime without a zone keeps the event's own timezone if it has one, else it is read in the timezone of the computer running dav-mcp. Must be given together with end_date."
+          },
+          "end_date": {
+            "type": "string",
+            "description": "New end, in the same form as start_date (a datetime without a zone is read in the event's own timezone, like start_date). For an all-day event the end is EXCLUSIVE: a single day on 2026-05-25 is start_date \"2026-05-25\" and end_date \"2026-05-26\"."
+          },
+          "all_day": {
+            "type": "boolean",
+            "description": "Optional. All-day is inferred from the date format, so this is only needed to state the intent explicitly; it must agree with the format of start_date/end_date. This is the supported way to convert an event between all-day and timed."
+          }
+        },
+        "required": [
+          "event_url",
+          "event_etag"
+        ]
+      },
+      "annotations": {
+        "title": "Update event fields",
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "update_event_raw",
+      "description": "ADVANCED: Update event with raw iCal data. Requires manual iCal formatting - use update_event instead for simple field updates (summary, description). Only use this if you have complete pre-formatted iCal data or need to update advanced iCal properties.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "event_url": {
+            "type": "string",
+            "description": "The URL of the event to update"
+          },
+          "event_etag": {
+            "type": "string",
+            "description": "The etag of the event"
+          },
+          "updated_ical_data": {
+            "type": "string",
+            "description": "The complete updated iCal data"
+          }
+        },
+        "required": [
+          "event_url",
+          "event_etag",
+          "updated_ical_data"
+        ]
+      },
+      "annotations": {
+        "title": "Replace event iCalendar data",
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "delete_event",
+      "description": "Permanently delete a calendar event. WARNING: This action cannot be undone — the event is removed from the server immediately. Use only when the user explicitly requests deletion. Obtain the event URL and etag from list_events or calendar_query first. The etag ensures no conflicting changes occurred since the event was last retrieved.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "event_url": {
+            "type": "string",
+            "description": "Full URL of the event to delete. Obtain from list_events or calendar_query response."
+          },
+          "event_etag": {
+            "type": "string",
+            "description": "ETag of the event for conflict detection. Obtain from the same response as the event URL. Ensures no changes were made since retrieval."
+          }
+        },
+        "required": [
+          "event_url",
+          "event_etag"
+        ]
+      },
+      "annotations": {
+        "title": "Delete event",
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "calendar_query",
+      "description": "⭐ PREFERRED: Search and filter calendar events efficiently. Use instead of list_events to avoid loading thousands of entries. Omit calendar_url to search across ALL calendars automatically.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "calendar_url": {
+            "type": "string",
+            "description": "Optional: Specific calendar URL. Omit to search ALL calendars (recommended for \"find events with X\" queries). Only provide if user explicitly names a calendar. DO NOT use list_calendars first - that defeats cross-calendar search."
+          },
+          "time_range_start": {
+            "type": "string",
+            "description": "Start datetime (ISO 8601, e.g., 2025-10-30T00:00:00Z). If provided, time_range_end is REQUIRED. Calculate dates for \"today\", \"this week\", etc. Can be used alone (with end date) as sufficient filter."
+          },
+          "time_range_end": {
+            "type": "string",
+            "description": "End datetime (ISO 8601). If provided, time_range_start is REQUIRED. Both dates together form a complete filter. Do not omit if start is provided."
+          },
+          "summary_filter": {
+            "type": "string",
+            "description": "Search event titles/summaries containing this text (case-insensitive). Example: \"meeting with Elena\" or \"standup\". Can be used alone as sufficient filter."
+          },
+          "location_filter": {
+            "type": "string",
+            "description": "Search event locations containing this text. Example: \"Berlin\", \"Office\", \"Zoom\". Can be used alone as sufficient filter."
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of events to return (default 20, max 500). You get the earliest by start date, and the response states how many matched in total."
+          }
+        },
+        "required": []
+      },
+      "annotations": {
+        "title": "Search events",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "freebusy_query",
+      "description": "Find free and busy time in a date range — use for \"when am I free?\", \"am I available Tuesday afternoon?\" or finding a slot for a new meeting. Searches all calendars unless one is given. Events marked TRANSPARENT (does not block time) and cancelled events are ignored; recurring events are expanded.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "time_range_start": {
+            "type": "string",
+            "description": "Start of the window to examine (ISO 8601, e.g. 2026-05-25T00:00:00Z). Required."
+          },
+          "time_range_end": {
+            "type": "string",
+            "description": "End of the window to examine (ISO 8601). Required."
+          },
+          "calendar_url": {
+            "type": "string",
+            "description": "Optional: restrict to one calendar. Omit to consider every calendar, which is usually what \"am I free\" means."
+          },
+          "include_event_details": {
+            "type": "boolean",
+            "description": "Optional: also list the events behind each busy block, with titles. Off by default — the answer to \"when am I free\" is the slots, not the meetings."
+          }
+        },
+        "required": [
+          "time_range_start",
+          "time_range_end"
+        ]
+      },
+      "annotations": {
+        "title": "Check free/busy",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "make_calendar",
+      "description": "Create a new calendar collection on the CalDAV server with optional color, description, and component types. A timezone is accepted but not applied yet (the result says so). The URL is derived from display_name. If a calendar already exists at that URL, nothing is created and the error names the existing calendar — use it instead of creating another. If the URL is only held by something else (e.g. a deleted calendar in the trash bin), a numeric suffix is added (-2, -3, ...). Always use the URL returned in the response.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "display_name": {
+            "type": "string",
+            "description": "Display name for the new calendar"
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional: Calendar description"
+          },
+          "color": {
+            "type": "string",
+            "description": "Optional: Calendar color in hex format (e.g., #FF5733)"
+          },
+          "timezone": {
+            "type": "string",
+            "description": "Currently NOT applied: the calendar is created with the server's default timezone and the result says so (issue #78). Timezone ID (e.g., Europe/Berlin)."
+          },
+          "components": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "VEVENT",
+                "VTODO",
+                "VJOURNAL"
+              ]
+            },
+            "description": "Optional: Supported component types. If omitted, nothing is sent and the server applies its own default. Use [\"VEVENT\"] for events only, [\"VTODO\"] for tasks only, [\"VEVENT\", \"VTODO\"] for both."
+          }
+        },
+        "required": [
+          "display_name"
+        ]
+      },
+      "annotations": {
+        "title": "Create calendar",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "update_calendar",
+      "description": "Update an existing calendar's properties (display name, description, color, timezone). Use this when user asks to \"rename calendar\", \"change calendar color\", or \"update calendar properties\"",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "calendar_url": {
+            "type": "string",
+            "description": "The URL of the calendar to update (get from list_calendars)"
+          },
+          "display_name": {
+            "type": "string",
+            "description": "Optional: New display name for the calendar"
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional: New description for the calendar"
+          },
+          "color": {
+            "type": "string",
+            "description": "Optional: New calendar color in hex format (e.g., #FF5733)"
+          },
+          "timezone": {
+            "type": "string",
+            "description": "Optional: New timezone ID (e.g., Europe/Berlin). Sent to the server as a bare timezone ID, not as the VTIMEZONE the CalDAV standard asks for, so a server may reject or ignore it (issue #78)."
+          }
+        },
+        "required": [
+          "calendar_url"
+        ]
+      },
+      "annotations": {
+        "title": "Update calendar properties",
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "delete_calendar",
+      "description": "Delete a calendar and all its events. WARNING: on servers without a trash bin this cannot be undone; servers with one (e.g. Nextcloud) keep the calendar in the trash for a while. Use this when user explicitly asks to \"delete calendar\" or \"remove calendar\"",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "calendar_url": {
+            "type": "string",
+            "description": "The URL of the calendar to delete (get from list_calendars)"
+          }
+        },
+        "required": [
+          "calendar_url"
+        ]
+      },
+      "annotations": {
+        "title": "Delete calendar",
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "calendar_multi_get",
+      "description": "Batch fetch multiple specific calendar events by their URLs. Use when you have exact event URLs and want to retrieve their details",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "calendar_url": {
+            "type": "string",
+            "description": "The URL of the calendar"
+          },
+          "event_urls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of event URLs to fetch"
+          }
+        },
+        "required": [
+          "calendar_url",
+          "event_urls"
+        ]
+      },
+      "annotations": {
+        "title": "Get events by URL",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "list_addressbooks",
+      "description": "List all available address books from the CardDAV server. Use this to get address book URLs needed for other contact operations",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "annotations": {
+        "title": "List address books",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "list_contacts",
+      "description": "List ALL contacts from an address book without filtering. WARNING: Returns all contacts which can be thousands - use addressbook_query instead when searching for specific contacts by name, email, or organization to save tokens",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "addressbook_url": {
+            "type": "string",
+            "description": "The URL of the address book to fetch contacts from"
+          }
+        },
+        "required": [
+          "addressbook_url"
+        ]
+      },
+      "annotations": {
+        "title": "List contacts",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "create_contact",
+      "description": "Create a new contact (vCard) with name, email, phone, organization, and other details",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "addressbook_url": {
+            "type": "string",
+            "description": "The URL of the address book to create the contact in"
+          },
+          "full_name": {
+            "type": "string",
+            "description": "Full name of the contact"
+          },
+          "family_name": {
+            "type": "string",
+            "description": "Family/last name"
+          },
+          "given_name": {
+            "type": "string",
+            "description": "Given/first name"
+          },
+          "email": {
+            "type": "string",
+            "description": "Email address (optional)"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Phone number (optional)"
+          },
+          "organization": {
+            "type": "string",
+            "description": "Organization/company (optional)"
+          },
+          "note": {
+            "type": "string",
+            "description": "Additional notes (optional)"
+          }
+        },
+        "required": [
+          "addressbook_url",
+          "full_name"
+        ]
+      },
+      "annotations": {
+        "title": "Create contact",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "update_contact",
+      "description": "PREFERRED: Update contact fields without vCard formatting. Supports: FN (full name), N (structured name), EMAIL, TEL (phone), ORG (organization), TITLE (job title), NOTE, URL, ADR (address), BDAY (birthday), and any RFC 6350 vCard property including custom X-* properties.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "vcard_url": {
+            "type": "string",
+            "description": "The URL of the vCard to update"
+          },
+          "vcard_etag": {
+            "type": "string",
+            "description": "The etag of the vCard (required for conflict detection)"
+          },
+          "fields": {
+            "type": "object",
+            "description": "Fields to update, keyed by bare UPPERCASE property name (e.g., FN, EMAIL, TEL). Any RFC 6350 vCard property or custom X-* property is supported. Property parameters such as \"TEL;TYPE=CELL\" are not accepted here, and values must not contain line breaks.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "properties": {
+              "FN": {
+                "type": "string",
+                "description": "Full formatted name (e.g., \"John Doe\")"
+              },
+              "N": {
+                "type": "string",
+                "description": "Structured name (format: \"Family;Given;Additional;Prefix;Suffix\")"
+              },
+              "EMAIL": {
+                "type": "string",
+                "description": "Email address"
+              },
+              "TEL": {
+                "type": "string",
+                "description": "Phone number"
+              },
+              "ORG": {
+                "type": "string",
+                "description": "Organization/company name"
+              },
+              "TITLE": {
+                "type": "string",
+                "description": "Job title"
+              },
+              "NOTE": {
+                "type": "string",
+                "description": "Notes/comments"
+              },
+              "URL": {
+                "type": "string",
+                "description": "Web URL"
+              },
+              "ADR": {
+                "type": "string",
+                "description": "Address (format: \"POBox;Extended;Street;City;Region;PostalCode;Country\")"
+              },
+              "BDAY": {
+                "type": "string",
+                "description": "Birthday (ISO 8601 format: 1990-01-01)"
+              }
+            }
+          }
+        },
+        "required": [
+          "vcard_url",
+          "vcard_etag"
+        ]
+      },
+      "annotations": {
+        "title": "Update contact fields",
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "update_contact_raw",
+      "description": "ADVANCED: Update contact with raw vCard data. Requires manual vCard formatting - use update_contact instead for simple field updates (name, email, phone). Only use this if you have complete pre-formatted vCard data or need to update advanced vCard properties.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "vcard_url": {
+            "type": "string",
+            "description": "The URL of the vCard to update"
+          },
+          "vcard_etag": {
+            "type": "string",
+            "description": "The etag of the vCard"
+          },
+          "updated_vcard_data": {
+            "type": "string",
+            "description": "The complete updated vCard data"
+          }
+        },
+        "required": [
+          "vcard_url",
+          "vcard_etag",
+          "updated_vcard_data"
+        ]
+      },
+      "annotations": {
+        "title": "Replace contact vCard data",
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "delete_contact",
+      "description": "Permanently delete a contact (vCard) from the address book. WARNING: This action cannot be undone — the contact is removed from the server immediately. Use only when the user explicitly requests deletion. Obtain the vCard URL and etag from list_contacts or addressbook_query first. The etag ensures no conflicting changes occurred since the contact was last retrieved.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "vcard_url": {
+            "type": "string",
+            "description": "Full URL of the vCard to delete. Obtain from list_contacts or addressbook_query response."
+          },
+          "vcard_etag": {
+            "type": "string",
+            "description": "ETag of the vCard for conflict detection. Obtain from the same response as the vCard URL. Ensures no changes were made since retrieval."
+          }
+        },
+        "required": [
+          "vcard_url",
+          "vcard_etag"
+        ]
+      },
+      "annotations": {
+        "title": "Delete contact",
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "addressbook_query",
+      "description": "⭐ PREFERRED: Search and filter contacts efficiently (name, email, organization). Use for \"find contacts with...\", \"search for email...\", \"contacts at company...\" queries. Use instead of list_contacts when ANY filter is specified. Omit addressbook_url to search across ALL addressbooks automatically.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "addressbook_url": {
+            "type": "string",
+            "description": "Optional: Specific addressbook URL. Omit to search ALL addressbooks (recommended for \"find contact X\" queries). Only provide if user explicitly names an addressbook."
+          },
+          "name_filter": {
+            "type": "string",
+            "description": "Search contact names (full/given/family name). Example: \"John Smith\" or \"Smith\". At least one filter (name, email, or org) is required."
+          },
+          "email_filter": {
+            "type": "string",
+            "description": "Search contact email addresses. Use for queries like \"Gmail contacts\" → \"@gmail.com\", \"work emails\" → \"@company.com\", or specific addresses. At least one filter (name, email, or org) is required."
+          },
+          "organization_filter": {
+            "type": "string",
+            "description": "Search contact organizations/companies. Example: \"Google\" or \"Acme Corp\". At least one filter (name, email, or org) is required."
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of contacts to return (default 20, max 500). You get them alphabetically by name, and the response states how many matched in total."
+          }
+        },
+        "required": []
+      },
+      "annotations": {
+        "title": "Search contacts",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "addressbook_multi_get",
+      "description": "Batch fetch multiple specific contacts by their URLs. Use when you have exact contact URLs and want to retrieve their details",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "addressbook_url": {
+            "type": "string",
+            "description": "The URL of the address book"
+          },
+          "contact_urls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of contact URLs to fetch"
+          }
+        },
+        "required": [
+          "addressbook_url",
+          "contact_urls"
+        ]
+      },
+      "annotations": {
+        "title": "Get contacts by URL",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "list_todos",
+      "description": "List ALL todos/tasks from a calendar. WARNING: Returns all todos without filtering - use todo_query for searches with filters by status, summary, or due date.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "calendar_url": {
+            "type": "string",
+            "description": "The URL of the calendar containing todos"
+          }
+        },
+        "required": [
+          "calendar_url"
+        ]
+      },
+      "annotations": {
+        "title": "List to-dos",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "create_todo",
+      "description": "Create a new todo/task in a calendar. Use this when user wants to add a task, todo item, or reminder with optional due date, priority, and status.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "calendar_url": {
+            "type": "string",
+            "description": "The URL of the calendar to create the todo in"
+          },
+          "summary": {
+            "type": "string",
+            "description": "The title/summary of the todo (required)"
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional detailed description"
+          },
+          "due_date": {
+            "type": "string",
+            "description": "Optional due date in ISO 8601: with a zone (2025-12-31T23:59:59+02:00), without one (read in the timezone of the computer running dav-mcp), or a date (2025-12-31) for a todo due that day"
+          },
+          "priority": {
+            "type": "number",
+            "description": "Optional priority: 0=none, 1-3=high, 4-6=medium, 7-9=low"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "NEEDS-ACTION",
+              "IN-PROCESS",
+              "COMPLETED",
+              "CANCELLED"
+            ],
+            "description": "Optional status (default: NEEDS-ACTION)"
+          },
+          "percent_complete": {
+            "type": "number",
+            "description": "Optional completion percentage (0-100)"
+          }
+        },
+        "required": [
+          "calendar_url",
+          "summary"
+        ]
+      },
+      "annotations": {
+        "title": "Create to-do",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "update_todo",
+      "description": "PREFERRED: Update todo fields without iCal formatting. Supports: SUMMARY (title), DESCRIPTION (details), STATUS (NEEDS-ACTION/IN-PROCESS/COMPLETED/CANCELLED), PRIORITY (0-9), DUE (due date), PERCENT-COMPLETE (0-100), and any RFC 5545 VTODO property including custom X-* properties.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "todo_url": {
+            "type": "string",
+            "description": "The URL of the todo to update"
+          },
+          "todo_etag": {
+            "type": "string",
+            "description": "The etag of the todo (required for conflict detection)"
+          },
+          "fields": {
+            "type": "object",
+            "description": "Fields to update, keyed by bare UPPERCASE property name (e.g., SUMMARY, STATUS, PRIORITY). Any RFC 5545 VTODO property or custom X-* property is supported. Property parameters such as \"DUE;VALUE=DATE\" are not accepted here, and values must not contain line breaks.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "properties": {
+              "SUMMARY": {
+                "type": "string",
+                "description": "Todo title/summary"
+              },
+              "DESCRIPTION": {
+                "type": "string",
+                "description": "Todo description/details"
+              },
+              "STATUS": {
+                "type": "string",
+                "description": "Todo status: NEEDS-ACTION, IN-PROCESS, COMPLETED, or CANCELLED"
+              },
+              "PRIORITY": {
+                "type": "string",
+                "description": "Priority level: 0 (undefined), 1 (highest) to 9 (lowest)"
+              },
+              "DUE": {
+                "type": "string",
+                "description": "Due date: ISO 8601 with a zone (\"2026-10-26T18:00:00Z\", \"2026-10-26T14:00:00-04:00\"), without one (kept in the todo's own timezone if it has one, else read in the timezone of the computer running dav-mcp), or a date (\"2026-10-26\") for an all-day value. Must be later than DTSTART and of the same kind (both dates or both with a time). Replaces a DURATION."
+              },
+              "DTSTART": {
+                "type": "string",
+                "description": "Start date: ISO 8601 with a zone (\"2026-10-26T18:00:00Z\", \"2026-10-26T14:00:00-04:00\"), without one (kept in the todo's own timezone if it has one, else read in the timezone of the computer running dav-mcp), or a date (\"2026-10-26\") for an all-day value"
+              },
+              "COMPLETED": {
+                "type": "string",
+                "description": "When the todo was completed, with a time: \"2026-10-26T18:00:00Z\" or with an offset"
+              },
+              "PERCENT-COMPLETE": {
+                "type": "string",
+                "description": "Completion percentage: 0-100"
+              }
+            }
+          }
+        },
+        "required": [
+          "todo_url",
+          "todo_etag"
+        ]
+      },
+      "annotations": {
+        "title": "Update to-do fields",
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "update_todo_raw",
+      "description": "ADVANCED: Update todo with raw VTODO iCal data. Requires manual iCal formatting - use update_todo instead for simple field updates (summary, description, status). Only use this if you have complete pre-formatted VTODO data or need to update advanced iCal properties.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "todo_url": {
+            "type": "string",
+            "description": "The URL of the todo to update"
+          },
+          "todo_etag": {
+            "type": "string",
+            "description": "The current ETag of the todo (required for conflict detection)"
+          },
+          "updated_ical_data": {
+            "type": "string",
+            "description": "Complete updated VTODO iCalendar data"
+          }
+        },
+        "required": [
+          "todo_url",
+          "todo_etag",
+          "updated_ical_data"
+        ]
+      },
+      "annotations": {
+        "title": "Replace to-do iCalendar data",
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "delete_todo",
+      "description": "Permanently delete a todo/task from the calendar. WARNING: This action cannot be undone — the todo is removed from the server immediately. Use only when the user explicitly requests deletion. Obtain the todo URL and etag from list_todos or todo_query first. The etag ensures no conflicting changes occurred since the todo was last retrieved.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "todo_url": {
+            "type": "string",
+            "description": "Full URL of the todo to delete. Obtain from list_todos or todo_query response."
+          },
+          "todo_etag": {
+            "type": "string",
+            "description": "ETag of the todo for conflict detection. Obtain from the same response as the todo URL. Ensures no changes were made since retrieval."
+          }
+        },
+        "required": [
+          "todo_url",
+          "todo_etag"
+        ]
+      },
+      "annotations": {
+        "title": "Delete to-do",
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "todo_query",
+      "description": "⭐ PREFERRED: Search and filter todos efficiently. Use instead of list_todos to conserve tokens. Omit calendar_url to search across ALL calendars automatically.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "calendar_url": {
+            "type": "string",
+            "description": "Optional: Specific calendar URL. Omit to search ALL calendars (recommended)."
+          },
+          "summary_filter": {
+            "type": "string",
+            "description": "Search todo summaries/titles containing this text (case-insensitive). Example: \"write report\" or \"review PR\". Can be used alone as sufficient filter."
+          },
+          "status_filter": {
+            "type": "string",
+            "enum": [
+              "NEEDS-ACTION",
+              "IN-PROCESS",
+              "COMPLETED",
+              "CANCELLED"
+            ],
+            "description": "Filter by todo status. Use \"NEEDS-ACTION\" for pending tasks, \"COMPLETED\" for done tasks. Can be used alone as sufficient filter."
+          },
+          "time_range_start": {
+            "type": "string",
+            "description": "Start datetime for due date filtering (ISO 8601). If provided, time_range_end is REQUIRED. Both dates together form a complete filter."
+          },
+          "time_range_end": {
+            "type": "string",
+            "description": "End datetime for due date filtering (ISO 8601). If provided, time_range_start is REQUIRED. Both dates together form a complete filter."
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of todos to return (default 20, max 500). You get the earliest by due date, and the response states how many matched in total."
+          }
+        },
+        "required": []
+      },
+      "annotations": {
+        "title": "Search to-dos",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "todo_multi_get",
+      "description": "Batch fetch multiple specific todos by their URLs. More efficient than fetching one by one when you have exact todo URLs.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "todo_urls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of todo URLs to fetch"
+          }
+        },
+        "required": [
+          "todo_urls"
+        ]
+      },
+      "annotations": {
+        "title": "Get to-dos by URL",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    }
+  ]
+}

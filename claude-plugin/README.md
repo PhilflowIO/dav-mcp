@@ -34,7 +34,9 @@ When you enable the plugin, Claude Code asks for:
 | Authentication method | `Basic` works almost everywhere. Choose `Digest` if your server only accepts Digest and the connection isn't HTTPS |
 
 The password is kept in your system's secure credential store, not in a
-settings file. Change any value later with `/config`.
+settings file. Change any value later in `/plugin`: **Installed** tab →
+dav-mcp → **Configure options**. (`/config` lists the other settings but not
+the password.)
 
 Google Calendar uses OAuth instead of a password; set it up with the manual
 configuration in the [main README](https://github.com/PhilflowIO/dav-mcp#google-calendar-oauth2).
@@ -60,7 +62,8 @@ version for chat is tracked in
   install Node.js from [nodejs.org](https://nodejs.org) if not, then restart
   Claude Code. `/mcp` shows whether the dav-mcp server is connected.
 - **Login fails** (tool calls end in an authentication error):
-  re-enter username and password with `/config`. iCloud accepts only an
+  re-enter username and password in `/plugin` → **Installed** → dav-mcp →
+  **Configure options**. iCloud accepts only an
   app-specific password, never your Apple ID password; Nextcloud with
   two-factor login needs an app password too.
 - **Server not found or no calendars**: the Server URL must be the DAV
