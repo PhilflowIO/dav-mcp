@@ -59,21 +59,21 @@ claude.ai chat and Cowork load only this guide.
 ## Recurring events
 
 `calendar_query` returns a series once, dated at its first occurrence in the
-range. Changing or deleting it changes every occurrence: `delete_event`
-deletes the whole series, `STATUS: CANCELLED` cancels all of it. dav-mcp
-cannot change a single occurrence safely: do not add an `EXDATE` or rewrite
-the series with `update_event_raw` to drop one day (an `EXDATE` field
-replaces the exclusions already there). When the user means one day
-("cancel Monday's standup"), say it is a recurring series and that one
-occurrence is changed in their calendar app; change the series only when they
-ask for the series ("from now on", "every week").
+range. Fields and dates in `update_event` change every occurrence:
+`delete_event` deletes the whole series, `STATUS: CANCELLED` cancels all of
+it. When the user means one day ("cancel Monday's standup"), cancel only that
+occurrence: `update_event` with `cancel_occurrences`, naming it by its
+**Occurrence ID** from a `calendar_query` over that day, exactly as listed.
+The days already cancelled stay cancelled. To bring a cancelled day back,
+`restore_occurrences` with the name listed under **Cancelled occurrences**.
+Never write `EXDATE` in `fields` and never rewrite the series with
+`update_event_raw` to drop one day. Change the series only when the user asks
+for the series ("from now on", "every week"). Recurring to-dos work the same
+way with `update_todo` and `todo_query`.
 
 Never move a series (an event with `RRULE`) to another time without asking
-first. Moving it moves every occurrence, past ones included, and each day
-the user took out (an `EXDATE` line in its data) may stay at the old time
-(dav-mcp before 4.4.0 does not move it), so that day comes back. Tell the
-user both, name each excluded day, then ask, or point them to their calendar
-app.
+first: moving it moves every occurrence, past ones included. Cancelled and
+changed occurrences move along with it.
 
 ## When something fails
 

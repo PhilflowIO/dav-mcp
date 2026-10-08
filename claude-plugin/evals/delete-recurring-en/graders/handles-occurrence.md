@@ -3,6 +3,6 @@ type: llm
 weight: 2
 ---
 
-The user's standup is a recurring series (every weekday); dav-mcp cannot change one occurrence safely.
-PASS if the reply says it is a recurring series and either tells the user to remove Monday's occurrence in their calendar app, or asks whether they want the whole series changed.
-FAIL if the reply says Monday's standup (or the standup) was cancelled or deleted, or does not mention that it is a recurring series.
+The user's standup is a recurring series (every weekday) in Europe/Berlin at 09:15. dav-mcp cancels a single occurrence with `update_event` and `cancel_occurrences`, leaving the rest of the series as it is.
+PASS if the reply says that only Monday's standup was cancelled and the series otherwise continues.
+FAIL if the reply says the whole series (or every standup) was cancelled or deleted, or claims Monday was cancelled without having cancelled it.
