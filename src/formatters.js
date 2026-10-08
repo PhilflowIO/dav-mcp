@@ -13,6 +13,7 @@ import ICAL from 'ical.js';
 import { readVCard, nameComponents, organizationText } from './vcard.js';
 import { readSeries, shownEvent, todoStatus } from './ical-components.js';
 import { shareTimezones } from './tools/shared/ical-dates.js';
+import { blocksTime } from './tools/shared/freebusy.js';
 
 /**
  * Parse iCal data string to extract event properties (RFC 5545 compliant)
@@ -1036,7 +1037,10 @@ export function formatFreeBusy({ busy, free, range, calendarCount = 1, events = 
     output += `\n### Events behind the busy blocks (${events.length})\n\n`;
     events.forEach((event, index) => {
       output += `#### ${index + 1}. `;
-      output += formatEvent(event, 'Calendar').replace(/^## /, '') + '\n';
+      // a recurring event as an occurrence in the window that blocks time,
+      // not as its series start or a cancelled occurrence
+      const window = { start: range.start.toISOString(), end: range.end.toISOString() };
+      output += formatEvent(event, 'Calendar', window, blocksTime).replace(/^## /, '') + '\n';
     });
   }
 

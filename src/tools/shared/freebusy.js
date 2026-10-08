@@ -1,6 +1,6 @@
 import ICAL from 'ical.js';
 import { toInstant } from './ical-dates.js';
-import { readSeries } from '../../ical-components.js';
+import { readSeries, seriesOccurrences } from '../../ical-components.js';
 
 /**
  * Client-side free/busy calculation.
@@ -12,16 +12,12 @@ import { readSeries } from '../../ical-components.js';
  * the calendar rather than only free/busy access, and more data on the wire.
  */
 
-// An unbounded RRULE can produce occurrences forever; the range gives us an end
-// to walk to, but the walk from DTSTART to the range can still be long. See the
-// equivalent cap in src/formatters.js.
-const MAX_RECURRENCE_ITERATIONS = 10000;
-
 /**
  * Busy intervals contributed by a single calendar object.
  *
- * Skips anything that does not actually occupy time (see blocksTime). All-day
- * events count as busy for their whole span.
+ * Skips anything that does not actually occupy time (see blocksTime) — for a
+ * recurring event, judged per occurrence. All-day events count as busy for
+ * their whole span.
  */
 function busyIntervalsOf(calendarObject, range) {
   const intervals = [];
@@ -55,29 +51,24 @@ function busyIntervalsOf(calendarObject, range) {
   }
 
   const { master } = series;
-  if (!blocksTime(master)) return intervals;
-
   const event = new ICAL.Event(master);
   for (const override of series.overrides) {
     event.relateException(override);
   }
 
   if (!event.isRecurring()) {
-    add(event.startDate, event.endDate);
+    if (blocksTime(master)) add(event.startDate, event.endDate);
     return intervals;
   }
 
-  const expansion = new ICAL.RecurExpansion({
-    component: master,
-    dtstart: event.startDate,
-  });
-
-  const rangeEnd = ICAL.Time.fromJSDate(range.end, true);
-  for (let step = 0; step < MAX_RECURRENCE_ITERATIONS; step++) {
-    const next = expansion.next();
-    if (!next || next.compare(rangeEnd) > 0) break;
-
-    const occurrence = event.getOccurrenceDetails(next);
+  // Each occurrence as it now stands: an override's own time, and its own
+  // STATUS and TRANSP — a cancelled occurrence of a busy series is free, a
+  // moved one is busy where it moved to (see seriesOccurrences)
+  const window = { start: range.start.getTime() / 1000, end: range.end.getTime() / 1000 };
+  const busy = (occurrence) => blocksTime(occurrence.item.component)
+    && toInstant(occurrence.startDate) < range.end.getTime()
+    && toInstant(occurrence.endDate) > range.start.getTime();
+  for (const occurrence of seriesOccurrences(event, window, busy).occurrences) {
     add(occurrence.startDate, occurrence.endDate);
   }
 
@@ -88,7 +79,7 @@ function busyIntervalsOf(calendarObject, range) {
  * Does a VEVENT occupy time? TRANSP:TRANSPARENT is the RFC 5545 way of saying
  * "this does not block me", and a cancelled event does not either.
  */
-function blocksTime(vevent) {
+export function blocksTime(vevent) {
   return vevent.getFirstPropertyValue('transp') !== 'TRANSPARENT' &&
     vevent.getFirstPropertyValue('status') !== 'CANCELLED';
 }
@@ -121,12 +112,17 @@ function mergeIntervals(intervals) {
  *
  * @param {Array} calendarObjects - DAV objects with a `data` property
  * @param {{ start: Date, end: Date }} range
- * @returns {{ busy: Array<{start: Date, end: Date}>, free: Array<{start: Date, end: Date}> }}
+ * @returns {{
+ *   busy: Array<{start: Date, end: Date}>,
+ *   free: Array<{start: Date, end: Date}>,
+ *   blocking: Array,
+ * }} blocking: the objects that make up the busy time, in input order — not
+ *   the ones the server returned for the range but that block none of it
+ *   (transparent, cancelled, or only their cancelled occurrences in range)
  */
 export function calculateFreeBusy(calendarObjects, range) {
-  const busy = mergeIntervals(
-    calendarObjects.flatMap(object => busyIntervalsOf(object, range))
-  );
+  const perObject = calendarObjects.map(object => busyIntervalsOf(object, range));
+  const busy = mergeIntervals(perObject.flat());
 
   const free = [];
   let cursor = range.start.getTime();
@@ -144,5 +140,6 @@ export function calculateFreeBusy(calendarObjects, range) {
   return {
     busy: busy.map(i => ({ start: new Date(i.start), end: new Date(i.end) })),
     free,
+    blocking: calendarObjects.filter((_, index) => perObject[index].length > 0),
   };
 }
