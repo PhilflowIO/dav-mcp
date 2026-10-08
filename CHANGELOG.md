@@ -31,17 +31,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `RANGE=THISANDFUTURE` override in that form moved the later occurrences by
   the wrong amount. A THISANDFUTURE override applies to every later
   occurrence; one whose RECURRENCE-ID is no occurrence of the series, or an
-  EXDATEd one, is ignored like any such override.
-- **Recurring events are expanded from just before the range** (#98), also
-  for HOURLY, MINUTELY and SECONDLY rules and for a COUNT rule without BY
-  parts; an override moved into the range from years away is found from the
-  overrides themselves, all checked in one pass. `freebusy_query` used to
-  walk every series from its start.
-- **The expansion cap is never silent** (#98). A series too dense to expand
-  within the step cap used to leave its busy time out of `freebusy_query`,
-  which then answered "Nothing blocks this window". The answer now names it
-  and says its busy time may be missing; an event list says an earlier
-  occurrence may exist.
+  EXDATEd one, is ignored like any such override. A date-time
+  RECURRENCE-ID on an all-day series names the date it is written on (a
+  Berlin-midnight id for the 13th used to cancel the 12th), and EXDATEs are
+  matched by instant like RECURRENCE-IDs, so a floating series reads both on
+  the server's clock.
+- **Recurring events are expanded from the range, not from their start**
+  (#98): from the start of the period that holds the range, for SECONDLY to
+  WEEKLY rules (BYDAY, BYMONTH, BYHOUR, BYMINUTE, BYSECOND) and for a COUNT
+  rule without BY parts. An override moved into the range from years away
+  is found from the overrides themselves, each checked in a few steps from
+  the period it names. `freebusy_query` used to walk every series from its
+  start.
+- **One step budget per series and query** (#98). The cap of 10 000 steps
+  applied to each walk through a series, so a series with many overrides
+  could take minutes; 25 000 steps now bound everything one query does with
+  a series. A series that needs more is never reported wrong, only
+  incomplete: `freebusy_query`, which used to answer "Nothing blocks this
+  window" for it, names it and says its busy time may be missing, and an
+  event list says an earlier occurrence may exist.
 - **Listed events show their STATUS** (e.g. CANCELLED; for a series, the
   occurrence listed), and `freebusy_query`'s event details list exactly the
   occurrences that make up the busy time.
