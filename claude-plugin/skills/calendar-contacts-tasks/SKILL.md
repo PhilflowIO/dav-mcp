@@ -27,9 +27,14 @@ guide). Never invent entries.
 ## Dates and time zones
 
 - Resolve relative dates ("morgen", "next Friday") from today's date.
-- A time the user gives ("3 pm", "um 10") is local time. Send it with the
-  user's UTC offset (`2026-10-15T15:00:00+02:00`) or without a zone, never
-  with `Z`. If the zone matters and you don't know it, ask.
+- A time the user gives ("3 pm", "um 10") is wall-clock time. Send it
+  without a zone (`2026-10-15T15:00:00`). On an update this keeps the
+  event's own time zone; on a new event dav-mcp reads it in the zone of the
+  computer it runs on, which is the user's when dav-mcp runs there (the
+  plugin, the Desktop bundle). Add an offset only when the user names another
+  zone. Never `Z` or an offset on an update of an existing event: it pins the
+  event to UTC, and a recurring one shifts by an hour after the next
+  daylight-saving change.
 - All-day events take bare dates and the end is exclusive: vacation from 19
   to 23 October is one event, start `2026-10-19`, end `2026-10-24`.
 
