@@ -5,7 +5,9 @@ import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
 import { z } from 'zod';
 import { writeEventFields } from '../shared/ical-dates.js';
 import { assertFieldUpdatable } from '../../ical-components.js';
-import { occurrenceEditSchema, refineOccurrenceEdits, editOccurrences, notChanged } from '../shared/occurrence-edits.js';
+import {
+  occurrenceEditSchema, refineOccurrenceEdits, editOccurrences, notChanged, explainFieldRefusal,
+} from '../shared/occurrence-edits.js';
 
 /**
  * Schema for field-based event updates
@@ -189,11 +191,16 @@ export const updateEventFields = {
     if (!writesFields && occurrences.data === calendarObject.data) {
       return notChanged('Event', 'the occurrences were already as asked', occurrences.change);
     }
-    const updatedData = writesFields
-      ? writeEventFields(occurrences.data, fields, moving
-        ? { startDate: validated.start_date, endDate: validated.end_date }
-        : undefined)
-      : occurrences.data;
+    let updatedData = occurrences.data;
+    if (writesFields) {
+      try {
+        updatedData = writeEventFields(occurrences.data, fields, moving
+          ? { startDate: validated.start_date, endDate: validated.end_date }
+          : undefined);
+      } catch (error) {
+        throw explainFieldRefusal(error, 'vevent');
+      }
+    }
     const changedFields = Object.keys(fields);
     if (moving) changedFields.push('DTSTART', 'DTEND');
 

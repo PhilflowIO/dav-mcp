@@ -5,7 +5,9 @@ import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
 import { z } from 'zod';
 import { writeFields, reconcileTodoDates } from '../shared/ical-dates.js';
 import { assertFieldUpdatable } from '../../ical-components.js';
-import { occurrenceEditSchema, refineOccurrenceEdits, editOccurrences, notChanged } from '../shared/occurrence-edits.js';
+import {
+  occurrenceEditSchema, refineOccurrenceEdits, editOccurrences, notChanged, explainFieldRefusal,
+} from '../shared/occurrence-edits.js';
 
 /**
  * Schema for field-based todo updates
@@ -163,9 +165,14 @@ export const updateTodoFields = {
     if (!writesFields && occurrences.data === todoObject.data) {
       return notChanged('Todo', 'the occurrences were already as asked', occurrences.change);
     }
-    const updatedData = writesFields
-      ? reconcileTodoDates(writeFields(occurrences.data, fields), Object.keys(fields))
-      : occurrences.data;
+    let updatedData = occurrences.data;
+    if (writesFields) {
+      try {
+        updatedData = reconcileTodoDates(writeFields(occurrences.data, fields), Object.keys(fields));
+      } catch (error) {
+        throw explainFieldRefusal(error, 'vtodo');
+      }
+    }
 
     // Step 4: Send the updated todo back to server
     const updateResponse = await client.updateTodo({

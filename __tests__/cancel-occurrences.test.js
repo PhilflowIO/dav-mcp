@@ -189,7 +189,7 @@ describe('cancel_occurrences adds to the exclusions (#126)', () => {
     const reply = await errorReply(setEvent({ cancel_occurrences: ['2026-12-10T10:00:00', '2026-12-17T09:00:00'] }));
     expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
     expect(reply.message).toBe('cancel_occurrences: "2026-12-17T09:00:00" is no occurrence of this series ' +
-      '(that day it has 2026-12-17T10:00:00). Occurrences are named by their original start as wall-clock time ' +
+      '(that day it has "2026-12-17T10:00:00"). Occurrences are named by their original start as wall-clock time ' +
       'in Europe/Berlin (e.g. "2026-10-01T10:00:00"). Use the name exactly as calendar_query, list_events or ' +
       'calendar_multi_get list it ("Occurrence ID"), and call again.');
     expect(reply.data.details).toMatchObject({
@@ -202,7 +202,7 @@ describe('cancel_occurrences adds to the exclusions (#126)', () => {
     storedEvent = calendar('VEVENT', SERIES);
     const reply = await errorReply(setEvent({ restore_occurrences: ['2026-12-17T10:00:00'] }));
     expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
-    expect(reply.message).toMatch(/^restore_occurrences: "2026-12-17T10:00:00" is not cancelled \(cancelled are: 2026-12-24T10:00:00, 2026-12-31T10:00:00\)\./);
+    expect(reply.message).toMatch(/^restore_occurrences: "2026-12-17T10:00:00" is not cancelled \(cancelled are: "2026-12-24T10:00:00", "2026-12-31T10:00:00"\)\./);
     expect(reply.message).toMatch(/list it \("Cancelled occurrences"\), and call again\.$/);
     expect(reply.data.details).toMatchObject({ code: 'NOT_IN_LIST', parameter: 'restore_occurrences' });
   });
@@ -218,12 +218,14 @@ describe('cancel_occurrences adds to the exclusions (#126)', () => {
     ]);
   });
 
-  test('the same name in both lists is refused before anything is fetched', async () => {
+  test('one occurrence in both lists is refused, also when named in two forms', async () => {
     storedEvent = calendar('VEVENT', SERIES);
     await expect(setEvent({
-      cancel_occurrences: ['2026-12-17T10:00:00'], restore_occurrences: ['2026-12-17T10:00:00'],
-    })).rejects.toThrow(/both in cancel_occurrences and restore_occurrences/);
+      cancel_occurrences: ['2026-12-17T10:00:00'], restore_occurrences: ['2026-12-17T09:00:00Z'],
+    })).rejects.toThrow('restore_occurrences: "2026-12-17T09:00:00Z" names an occurrence that cancel_occurrences names too');
+    expect(updateCalendarObject).not.toHaveBeenCalled();
   });
+
 });
 
 describe('EXDATE and RDATE are not fields (#126)', () => {
@@ -303,5 +305,96 @@ describe('a call that asks for nothing writes nothing (#126)', () => {
       'Occurrences are named by their original start as the date (e.g. "2026-10-05"). ' +
       'Use the name exactly as calendar_query, list_events or calendar_multi_get list it ("Occurrence ID"), and call again.');
     expect(reply.message).not.toMatch(/EXDATE|cancelOccurrences/);
+  });
+});
+
+// Review of #127: names come from instants, exclusions that cancel nothing
+// are not listed as cancelled, and the edits refuse what they cannot mean.
+describe('names, inert exclusions and refusals (#126 review)', () => {
+  const listed = (data, range) => formatEvent({ url: EVENT_URL, data }, 'Work', range);
+  const idIn = (text) => /\*\*Occurrence ID\*\*: (\S+)/.exec(text)[1];
+
+  test('an RDATE stored in UTC next to a Berlin series is named on the Berlin wall clock', async () => {
+    storedEvent = calendar('VEVENT', [
+      'UID:rdate@test', 'SUMMARY:Daily', 'DTSTART;TZID=Europe/Berlin:20261012T090000',
+      'DTEND;TZID=Europe/Berlin:20261012T093000', 'RRULE:FREQ=DAILY;COUNT=5', 'RDATE:20261014T090000Z',
+    ]);
+    const text = listed(storedEvent, { start: '2026-10-14T08:30:00Z', end: '2026-10-14T09:30:00Z' });
+    expect(idIn(text)).toBe('2026-10-14T11:00:00');
+
+    await setEvent({ cancel_occurrences: [idIn(text)] });
+    // the extra 11:00 occurrence goes, the regular 09:00 one stays
+    expect(occurrenceIds(written(), '2026-10-14T00:00:00Z', '2026-10-15T00:00:00Z')).toEqual(['2026-10-14T09:00:00']);
+  });
+
+  test('a whole-day exclusion is restored by the text the listing shows', async () => {
+    storedEvent = calendar('VEVENT', [
+      'UID:twice@test', 'SUMMARY:Check',
+      'DTSTART;TZID=Europe/Berlin:20261005T090000', 'DTEND;TZID=Europe/Berlin:20261005T093000',
+      'RRULE:FREQ=DAILY;BYHOUR=9,17', 'EXDATE;VALUE=DATE:20261006',
+    ]);
+    const cancelled = /\*\*Cancelled occurrences\*\*: (.*)\n/.exec(listed(storedEvent))[1];
+    expect(cancelled).toBe('2026-10-06 (whole day)');
+    await setEvent({ restore_occurrences: [cancelled] });
+    expect(occurrenceIds(written(), '2026-10-06T00:00:00Z', '2026-10-07T00:00:00Z'))
+      .toEqual(['2026-10-06T09:00:00', '2026-10-06T17:00:00']);
+  });
+
+  test.each([['update_event', () => setEvent], ['update_todo', () => setTodo]])(
+    '%s refuses cancel/restore on an item that does not recur, and writes nothing', async (tool, call) => {
+      storedEvent = calendar('VEVENT', [
+        'UID:once@test', 'SUMMARY:Once', 'DTSTART:20261005T090000Z', 'DTEND:20261005T100000Z',
+      ]);
+      storedTodo = calendar('VTODO', ['UID:t@test', 'SUMMARY:Once', 'DTSTART:20261005T090000Z']);
+      const reply = await errorReply(call()({ cancel_occurrences: ['2026-10-05T09:00:00Z'] }));
+      expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+      expect(reply.message).toMatch(tool === 'update_event'
+        ? /^cancel_occurrences: this event does not recur .* use delete_event/
+        : /^cancel_occurrences: this todo does not recur .* use delete_todo/);
+      expect(updateCalendarObject).not.toHaveBeenCalled();
+      expect(updateTodo).not.toHaveBeenCalled();
+    });
+
+  test('exclusions that name no occurrence are listed apart, not as cancelled', () => {
+    const text = listed(calendar('VEVENT', [
+      'UID:inert@test', 'SUMMARY:Planning',
+      'DTSTART;TZID=Europe/Berlin:20261001T100000', 'DTEND;TZID=Europe/Berlin:20261001T110000', 'RRULE:FREQ=WEEKLY',
+      'EXDATE;TZID=Europe/Berlin:20261008T100000', // a real one
+      'EXDATE:20261015T100000', // floating next to a zoned series: names nothing
+      'EXDATE;TZID=Europe/Berlin:20261016T100000', // a Friday: the rule never yields it
+    ]));
+    expect(text).toContain('- **Cancelled occurrences**: 2026-10-08T10:00:00\n');
+    expect(text).toContain('- **Exclusions that match no occurrence** (they cancel nothing): 2026-10-15T10:00:00, 2026-10-16T10:00:00\n');
+  });
+
+  test('an RRULE change that would orphan an exclusion names the working path; restore in the same call works', async () => {
+    storedEvent = calendar('VEVENT', SERIES);
+    const reply = await errorReply(setEvent({ fields: { RRULE: 'FREQ=WEEKLY;BYDAY=FR' } }));
+    expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+    expect(reply.message).toContain('Bring those occurrences back with restore_occurrences in this same update_event call');
+    expect(reply.message).not.toMatch(/list mode|complete EXDATE/);
+    expect(reply.data.details).toMatchObject({ code: 'ORPHANED_EXCEPTIONS' });
+
+    await setEvent({
+      fields: { RRULE: 'FREQ=WEEKLY;BYDAY=FR' },
+      restore_occurrences: ['2026-12-24T10:00:00', '2026-12-31T10:00:00'],
+    });
+    expect(written()).toContain('RRULE:FREQ=WEEKLY;BYDAY=FR');
+    expect(written()).not.toContain('EXDATE');
+  });
+
+  test('a floating twin of a real exclusion does not hide it', async () => {
+    storedEvent = calendar('VEVENT', [
+      'UID:twin@test', 'SUMMARY:Daily', 'DTSTART;TZID=Europe/Berlin:20271010T011500',
+      'DTEND;TZID=Europe/Berlin:20271010T014500', 'RRULE:FREQ=DAILY;COUNT=5',
+      'EXDATE:20271011T011500', 'EXDATE;TZID=Europe/Berlin:20271011T011500',
+      'EXDATE:20271012T011500',
+    ]);
+    const text = listed(storedEvent);
+    expect(text).toContain('- **Cancelled occurrences**: 2027-10-11T01:15:00\n');
+    expect(text).toContain('(they cancel nothing): 2027-10-12T01:15:00\n');
+    // cancelling the occurrence the inert one seemed to name is reported as a cancel
+    const reply = await setEvent({ cancel_occurrences: ['2027-10-12T01:15:00'] });
+    expect(reply.content[0].text).toContain('- **Occurrences**: cancelled 2027-10-12T01:15:00\n');
   });
 });

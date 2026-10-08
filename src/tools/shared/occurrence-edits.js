@@ -54,8 +54,8 @@ export const occurrenceEditSchema = {
 
 /**
  * The superRefine part shared by update_event and update_todo: the lists of
- * dates are not fields, and one occurrence is not cancelled and restored at
- * once.
+ * dates are not fields. (One occurrence named in both lists is refused once
+ * the series is known, by the occurrence it names; see editOccurrences.)
  *
  * @param {Object} data - the parsed arguments
  * @param {z.RefinementCtx} ctx
@@ -78,15 +78,6 @@ export function refineOccurrenceEdits(data, ctx, tool) {
       message: `RDATE is not set through fields: written there it replaces every extra date already in the series. ` +
         `To cancel an occurrence use cancel_occurrences; to add or remove extra dates of a series, ` +
         `fetch it with ${tool === 'update_todo' ? 'todo_multi_get' : 'calendar_multi_get'} and send the edited object with ${tool}_raw`,
-    });
-  }
-  const cancel = new Set(data.cancel_occurrences ?? []);
-  const both = (data.restore_occurrences ?? []).filter((name) => cancel.has(name));
-  if (both.length) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['restore_occurrences'],
-      message: `${both.join(', ')} is both in cancel_occurrences and restore_occurrences; name each occurrence in one of them`,
     });
   }
 }
@@ -112,7 +103,7 @@ function seriesOf(data, type) {
     const all = calendar.getAllSubcomponents(type);
     const master = all.find((c) => !c.hasProperty('recurrence-id'));
     if (!master) return null;
-    return seriesNames(master, all.filter((c) => c !== master && c.hasProperty('recurrence-id')));
+    return seriesNames(master, all.filter((c) => c !== master && c.hasProperty('recurrence-id')), type);
   } catch {
     return null;
   }
@@ -201,6 +192,54 @@ export function explainOccurrenceRefusal(error, parameter, { data, names, type }
 }
 
 /**
+ * The key a name gives an occurrence: its instant where it names one (with
+ * Z or an offset, or a wall clock in the series' zone), else its text — so
+ * "2026-12-17T10:00:00" and "2026-12-17T09:00:00Z" on a Berlin series are
+ * the same occurrence.
+ */
+function occurrenceKey(name, naming) {
+  const date = /^(\d{4})-?(\d{2})-?(\d{2})$/.exec(name);
+  if (date) return `D:${date[1]}-${date[2]}-${date[3]}`;
+  const compact = name.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})/, '$1-$2-$3T$4:$5:$6');
+  if (/(Z|[+-]\d{2}:?\d{2})$/i.test(compact)) {
+    const at = Date.parse(compact);
+    return Number.isNaN(at) ? `T:${name}` : `I:${at}`;
+  }
+  const wall = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(compact)
+    ? (compact.length === 16 ? `${compact}:00` : compact) : null;
+  const at = wall && naming.instantOfWall(wall);
+  return at !== null && at !== undefined && wall ? `I:${at}` : `T:${wall ?? name}`;
+}
+
+/** names that are in both lists, compared by the occurrence they name */
+function sameOccurrences(cancel, restore, naming) {
+  const cancelled = new Set(cancel.map((name) => occurrenceKey(name, naming)));
+  return restore.filter((name) => cancelled.has(occurrenceKey(name, naming)));
+}
+
+/**
+ * A field write the library refused because the series would keep an
+ * exclusion or override naming no occurrence (a new RRULE, say). Its message
+ * suggests a complete EXDATE list, which update_event/update_todo do not
+ * take; the working paths are restore_occurrences in the same call, or the
+ * raw tool. Any other error is returned as it is.
+ *
+ * @param {Error} error
+ * @param {'vevent'|'vtodo'} type
+ */
+export function explainFieldRefusal(error, type) {
+  if (!isUpdateFieldsError(error, 'ORPHANED_EXCEPTIONS')) return error;
+  const [tool, fetch] = type === 'vtodo' ? ['update_todo', 'todo_multi_get'] : ['update_event', 'calendar_multi_get'];
+  const reason = error.message.replace(/\.$/, '').split(/\. (?=Give |Leave |Or )/)[0];
+  return new ValidationError(
+    `${reason}. Bring those occurrences back with restore_occurrences in this same ${tool} call ` +
+    `(restores are applied before the fields), or cancel them first; to rewrite the series ` +
+    `with its exclusions, fetch it with ${fetch} and send the edited object with ${tool}_raw.`,
+    { code: error.code, remedy: error.remedy, ...(error.property && { property: error.property }) },
+  );
+}
+
+/**
  * Apply restore_occurrences, then cancel_occurrences, to a calendar object.
  *
  * @param {string} data - the object as fetched
@@ -211,6 +250,26 @@ export function explainOccurrenceRefusal(error, parameter, { data, names, type }
  */
 export function editOccurrences(data, { cancel = [], restore = [] }, type) {
   if (!cancel.length && !restore.length) return { data, change: null };
+  const series = seriesOf(data, type);
+  if (!series) {
+    // the library would take the start of a single event as its one
+    // occurrence and exclude it: an event that never happens, not a cancel
+    const [noun, remove] = type === 'vtodo' ? ['todo', 'delete_todo'] : ['event', 'delete_event'];
+    throw new ValidationError(
+      `${cancel.length ? 'cancel_occurrences' : 'restore_occurrences'}: this ${noun} does not recur ` +
+      `(no RRULE or RDATE), so it has no occurrences to cancel or restore. To remove it, use ${remove}; ` +
+      `to mark it cancelled, set fields.STATUS "CANCELLED".`,
+      { code: 'NOT_RECURRING', parameter: cancel.length ? 'cancel_occurrences' : 'restore_occurrences' },
+    );
+  }
+  const both = sameOccurrences(cancel, restore, series.naming);
+  if (both.length) {
+    throw new ValidationError(
+      `restore_occurrences: ${both.map((name) => `"${name}"`).join(', ')} name${both.length === 1 ? 's' : ''} ` +
+      `an occurrence that cancel_occurrences names too; name each occurrence in one of them`,
+      { code: 'CANCEL_AND_RESTORE', names: both },
+    );
+  }
   let edited = data;
   if (restore.length) {
     try {
