@@ -5,9 +5,14 @@ description: Reads and changes the user's own calendars, contacts and to-dos on 
 
 # Calendars, contacts and tasks with dav-mcp
 
-The dav-mcp tools read and write the user's own CalDAV/CardDAV server. Every
-change lands in the calendar apps the user and the people they share calendars
-with see. Work so that nothing surprising happens there.
+The tools named here belong to the dav-mcp MCP server (in Claude Code:
+`mcp__plugin_dav-mcp_dav-mcp__<name>`). They read and write the user's own
+server, so every change shows up in the calendar apps the user and anyone
+sharing their calendars see.
+
+If no dav-mcp tools are available in this session, say so: they run only in
+Claude Code with the dav-mcp plugin (claude.ai chat and Cowork load just this
+guide). Never invent entries.
 
 ## Find before you list
 
