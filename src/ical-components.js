@@ -1,7 +1,7 @@
 import ICAL from 'ical.js';
 import { seriesMaster, isUpdateFieldsError } from 'tsdav-utils';
 import { ValidationError, CalDAVError, CardDAVError, MCP_ERROR_CODES } from './error-handler.js';
-import { listedDates } from './occurrence-names.js';
+import { listedDates, wholeDayExclusions } from './occurrence-names.js';
 import { relateSeries, seriesOccurrences, spanOf, touchesRange } from './occurrences.js';
 
 /**
@@ -264,7 +264,11 @@ function inToolTerms(message, error, tools) {
     .replace(/\bcancelOccurrences\b/g, 'cancel_occurrences')
     .replace(/\brestoreOccurrences\b/g, 'restore_occurrences')
     .replace(/, which removes the override too/g, ', which removes its changed version (override) too')
-    .replace(/, or leave absoluteTime "as-given"/g, '');
+    .replace(/, or leave absoluteTime "as-given"/g, '')
+    // EXDATE and RDATE are no fields of the update tools; the hint says what is
+    .replace(/: give (EXDATE|RDATE) in the same call/g, '')
+    .replace(/Give RRULE, UNTIL and EXDATE explicitly in the same call/g,
+      'Give RRULE and UNTIL explicitly in the same call (and the exclusions through restore_occurrences/cancel_occurrences)');
   // the remedy sentences of a refused rule change ask for a complete EXDATE
   // list, which these tools do not take: orphanHint says what works instead
   if (error.code === 'ORPHANED_EXCEPTIONS') {
@@ -281,9 +285,42 @@ function orphanHint({ update, raw, fetch }) {
     `${fetch} and send the edited whole with ${raw}.`;
 }
 
-/** The hint for a refusal, in this tool's terms, chosen by the library's remedy */
-function remedyHint(error, type, tools) {
+/**
+ * A move refused because a list of dates cannot follow it. EXDATE and RDATE
+ * are no fields of the update tools, so the hint names what works: for
+ * whole-day exclusions, bring each day back and cancel the occurrences it
+ * held by their time, in the same call (the move then takes them along),
+ * with the names spelled out; for extra dates, the raw tool.
+ */
+function listHint(error, object, tools) {
   const { update, raw, fetch } = tools;
+  if (error.property === 'RDATE') {
+    return `Extra dates (RDATE) are not edited by ${update}: fetch the object with ${fetch}, give each ` +
+      `RDATE the time of day of the new start (or remove it), and send the whole object with ${raw}; ` +
+      `then move the series.`;
+  }
+  const type = update === 'update_todo' ? 'vtodo' : 'vevent';
+  const data = typeof object === 'string' ? object : object?.data;
+  const days = data ? wholeDayExclusions(data, type) : [];
+  const restore = days.map(({ date }) => `"${date}"`);
+  const cancel = days.flatMap(({ occurrences }) => occurrences.map((name) => `"${name}"`));
+  if (!restore.length) {
+    return `Bring back the whole-day exclusions it names with restore_occurrences and cancel the ` +
+      `occurrences of those days by their time with cancel_occurrences, in this same ${update} call ` +
+      `with the move; the move then takes them along.`;
+  }
+  return `A whole-day exclusion cannot move by a time of day, but an exclusion of each occurrence can: ` +
+    `in this same ${update} call with the move, give restore_occurrences [${restore.join(', ')}]` +
+    `${cancel.length ? ` and cancel_occurrences [${cancel.join(', ')}]` : ''} (names as the series is now, ` +
+    `added to any you give already); the move then takes them along.`;
+}
+
+/** The hint for a refusal, in this tool's terms, chosen by the library's remedy */
+function remedyHint(error, type, tools, object) {
+  const { update, raw, fetch } = tools;
+  if (type && ['EXDATE', 'RDATE'].includes(error.property) && error.remedy === 'same-call') {
+    return listHint(error, object, tools);
+  }
   switch (error.remedy) {
     case 'same-call': {
       // the message names what to give (RRULE, UNTIL, EXDATE, RDATE);
@@ -323,9 +360,11 @@ function remedyHint(error, type, tools) {
  *
  * @param {Error} error - what updateFields threw
  * @param {'vevent'|'vtodo'} [type] - the component the tool writes; none for a vCard
+ * @param {string|{data: string}} [object] - what was written to, so a hint can
+ *   name the occurrences concerned
  * @returns {Error} the error to throw
  */
-export function explainWriteRefusal(error, type) {
+export function explainWriteRefusal(error, type, object = null) {
   if (!isUpdateFieldsError(error)) return error;
 
   const tools = WRITE_TOOLS[type ?? 'vcard'];
@@ -349,7 +388,7 @@ export function explainWriteRefusal(error, type) {
     ? wrongTypeHint(error.message, tools)
     : error.code === 'ORPHANED_EXCEPTIONS' && type
       ? orphanHint(tools)
-      : remedyHint(error, type, tools);
+      : remedyHint(error, type, tools, object);
   return new ValidationError(hint ? `${message}. ${hint}` : message, {
     code: error.code, remedy: error.remedy,
     ...(error.property && { property: error.property }),

@@ -279,6 +279,35 @@ export function listedDates(master, overrides = []) {
   };
 }
 
+/**
+ * The whole-day exclusions of a timed series (a date in EXDATE), each with
+ * the original starts of the occurrences it excludes that day — the names
+ * restore_occurrences and cancel_occurrences take. A move that changes the
+ * time of day cannot carry such a date along; replacing it by exclusions of
+ * the occurrences themselves can.
+ *
+ * @param {string} data - the calendar object
+ * @param {'vevent'|'vtodo'} type
+ * @returns {Array<{date: string, occurrences: string[]}>}
+ */
+export function wholeDayExclusions(data, type) {
+  try {
+    const calendar = new ICAL.Component(ICAL.parse(data));
+    const all = calendar.getAllSubcomponents(type);
+    const master = all.find((c) => !c.hasProperty('recurrence-id'));
+    const names = master && seriesNames(master, [], null);
+    const days = (names?.exclusions ?? []).filter(({ wholeDay }) => wholeDay);
+    if (!days.length) return [];
+    const live = occurrenceValues(master, days, type) ?? new Set();
+    return days.map(({ text }) => ({
+      date: text,
+      occurrences: [...live].filter((value) => !value.startsWith('@') && value.startsWith(`${text}T`)).sort(),
+    }));
+  } catch {
+    return [];
+  }
+}
+
 /** the exclusions of a calendar object's series, by name; empty if none */
 function exclusionTexts(data, type) {
   try {

@@ -42,7 +42,7 @@ export function writeFields(object, fields, type) {
   try {
     return updateFields(object, fields, { floatingTime: 'local', absoluteTime: 'keep-zone', type });
   } catch (error) {
-    throw explainWriteRefusal(error, type);
+    throw explainWriteRefusal(error, type, object);
   }
 }
 
