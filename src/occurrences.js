@@ -36,40 +36,52 @@ import { toInstant, timezoneFor } from './tools/shared/ical-dates.js';
  */
 
 /**
- * The work one tool call may spend expanding recurring events, across all of
- * them, in tsdav-utils units. The library charges one per rule candidate
- * ical.js tests; a request budget (requestBudget, budgetPool) is also charged
- * the measured time of everything seriesOccurrences does, at US_PER_UNIT:
- * what the library does not count (reading the object's VTIMEZONEs anew on
- * every call), the copies made here, and the work on each occurrence. So
- * 400 000 units bound the expansion of one tool call to about 2 s (the
- * charge is measured time, so that holds on slower hardware too; what is
- * expanded there is less). A year of a calendar of 100 ordinary series
- * (daily, weekly, monthly, yearly, with overrides) needs about 1-1.5 s of it.
+ * What one tool call may spend expanding recurring events, across all of
+ * them, in two measures:
+ *
+ *  - candidates: tsdav-utils units, one per rule candidate ical.js tests
+ *    (deterministic): 300 000 per tool call, at most CALL_UNITS of them in
+ *    any one call into the library (about 0.5 s here), since a call cannot
+ *    be stopped once it runs.
+ *  - time: what a request budget (requestBudget, budgetPool) has left of
+ *    REQUEST_MS, charged with the measured time of everything
+ *    seriesOccurrences does — the library's calls, including what it does not
+ *    count (reading the object's VTIMEZONEs anew on every call), the copies
+ *    made here, the work on each occurrence.
+ *
+ * Whichever runs out first ends the expansion, as incomplete. Checked before
+ * each call into the library, so the time can be overrun by one call's
+ * CALL_UNITS at most: about 1.5 s of expansion per tool call, 2-2.5 s at
+ * worst on slow hardware. A year of a calendar of 100 ordinary series
+ * (daily, weekly, monthly, yearly, with overrides) takes about 1 s and some
+ * 280 000 candidates.
  */
-const REQUEST_BUDGET = 400000;
-const US_PER_UNIT = 5;
+const REQUEST_UNITS = 300000;
+const CALL_UNITS = 100000;
+const REQUEST_MS = 1500;
 
 /**
- * What one call into the library costs on top of its candidates when the
- * budget is not a timed request budget (tests, diagnostics): deterministic.
+ * What one call into the library costs in candidates on top of those it
+ * tests: bounds the number of calls deterministically too.
  */
 const CALL_COST = 100;
 
 /**
- * Each calendar object of a tool call gets at least this share, whatever
- * the objects before it spent: one heavy series cannot starve the rest.
+ * Each calendar object of a tool call gets at least this much, whatever the
+ * objects before it spent: one heavy series cannot starve the rest.
  */
-const MIN_SHARE = 2000;
+const MIN_SHARE = { units: 2000, ms: 20 };
 
 // Overrides whose recurrence ids lie at most this many periods apart are
 // checked in one call: walking the periods between (a few units each) costs
 // less than another call (CALL_COST).
 const CLUSTER_PERIODS = 20;
 
+const timedBudget = (units, ms) => Object.assign(createRecurrenceBudget(units), { timed: true, timeLeft: ms, granted: { units, ms } });
+
 /** A fresh budget for one tool call that expands one object */
 export function requestBudget() {
-  return Object.assign(createRecurrenceBudget(REQUEST_BUDGET), { timed: true });
+  return timedBudget(REQUEST_UNITS, REQUEST_MS);
 }
 
 /**
@@ -81,15 +93,19 @@ export function requestBudget() {
  * @returns {{take: () => Object, give: (budget: Object) => void}}
  */
 export function budgetPool(count) {
-  let remaining = REQUEST_BUDGET;
+  let units = REQUEST_UNITS;
+  let ms = REQUEST_MS;
   let left = Math.max(1, count);
   return {
     take() {
-      const units = Math.max(MIN_SHARE, Math.floor(remaining / left));
-      return Object.assign(createRecurrenceBudget(units), { timed: true, granted: units });
+      return timedBudget(
+        Math.max(MIN_SHARE.units, Math.floor(units / left)),
+        Math.max(MIN_SHARE.ms, ms / left),
+      );
     },
     give(budget) {
-      remaining -= budget.granted - Math.max(0, budget.remaining);
+      units -= budget.granted.units - Math.max(0, budget.remaining);
+      ms -= budget.granted.ms - Math.max(0, budget.timeLeft);
       left = Math.max(1, left - 1);
     },
   };
@@ -342,13 +358,12 @@ export function seriesOccurrences(series, range, { filter = null, first = false,
   if (!series.frame) return { occurrences: [], truncated: false };
   if (!budget.timed) return occurrencesWithin(series, range, filter, first, budget);
   // a request budget pays for all the time spent here, not only in the library
-  const before = budget.remaining;
+  const timeLeft = budget.timeLeft;
   const started = performance.now();
   try {
     return occurrencesWithin(series, range, filter, first, budget);
   } finally {
-    const spent = before - budget.remaining;
-    budget.remaining -= Math.max(0, Math.ceil(((performance.now() - started) * 1000) / US_PER_UNIT) - spent);
+    budget.timeLeft = timeLeft - (performance.now() - started);
   }
 }
 
@@ -481,7 +496,7 @@ function durationOf(event) {
  */
 function expand(series, from, to, overrides, budget) {
   const { frame, plan } = series;
-  if (budget.remaining <= 0) {
+  if (budget.remaining <= 0 || budget.timeLeft <= 0) {
     budget.exhausted = true;
     return { occurrences: [], complete: false, reached: from };
   }
@@ -503,8 +518,9 @@ function expand(series, from, to, overrides, budget) {
     dtstart = calendarAnchor(plan, startWall, from) ?? startWall;
   }
 
-  const before = budget.remaining;
   const started = performance.now();
+  const slice = createRecurrenceBudget(Math.min(budget.remaining, CALL_UNITS));
+  const sliced = slice.remaining;
   // toJSON is ical.js' live jCal: clone it, or the copy's DTSTART would move
   // the series itself
   const clone = (component) => new ICAL.Component(structuredClone(component.toJSON()));
@@ -541,7 +557,7 @@ function expand(series, from, to, overrides, budget) {
   let result;
   try {
     result = expandOccurrences(copy, {
-      budget,
+      budget: slice,
       from: bound(from),
       until: bound(to + lookahead + (frame.kind === 'date' ? 86400000 : 1000)),
       limit: Number.MAX_SAFE_INTEGER,
@@ -549,10 +565,8 @@ function expand(series, from, to, overrides, budget) {
   } catch (error) {
     return { unreadable: error?.message || String(error) };
   } finally {
-    // what the call cost beyond the candidates the library charged
-    const spent = before - budget.remaining;
-    const cost = budget.timed ? Math.ceil(((performance.now() - started) * 1000) / US_PER_UNIT) : spent + CALL_COST;
-    budget.remaining -= Math.max(0, cost - spent);
+    budget.remaining -= sliced - slice.remaining + CALL_COST;
+    if (budget.timed) budget.timeLeft -= performance.now() - started;
   }
   if (!result.complete) budget.exhausted = true;
 
