@@ -1,6 +1,6 @@
 ---
 name: calendar-contacts-tasks
-description: How to work with the user's calendars, contacts and to-dos through the dav-mcp tools - finding events and free time, scheduling, updating and deleting safely, and handling dates, time zones and all-day events correctly. Use when the user asks about their schedule, availability, meetings, contacts, or tasks.
+description: Reads and changes the user's own calendars, contacts and to-dos on their CalDAV/CardDAV server (Nextcloud, iCloud, Baikal, Radicale and others) through the dav-mcp tools - finding events, free time, phone numbers and tasks, and creating, moving or deleting them safely. Use whenever the user asks about their schedule, appointments, meetings, availability, a contact's details or their to-do list, in any language, e.g. "Was steht morgen an?", "Bin ich Dienstag frei?", "Trag mir einen Termin ein", "Wie ist die Nummer von Lena?", "meine Aufgaben diese Woche", "when am I free?".
 ---
 
 # Calendars, contacts and tasks with dav-mcp
