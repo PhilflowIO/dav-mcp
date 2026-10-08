@@ -1,26 +1,53 @@
 name: Publish to MCP Registry
 
+# Called by release.yml after the npm publish: the registry entry names the
+# npm package and version, and the registry refuses a version npm does not
+# serve. It does not react to `release: published`; see publish-mcpb.yml.
 on:
-  release:
-    types: [published]
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Release tag whose server.json to publish, e.g. v4.3.1'
+        required: true
+        type: string
+  # Republishes the entry of a released version, e.g. after this workflow
+  # failed. The version must already be on npm.
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag whose server.json to publish, e.g. v4.3.1'
+        required: true
 
-permissions:
-  id-token: write
+permissions: {}
 
 jobs:
   publish:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: read
+      id-token: write # GitHub OIDC login to the MCP Registry
+
     env:
+      TAG: ${{ inputs.tag }}
       # Pinned with its checksum: this job holds an OIDC token that publishes.
       MCP_PUBLISHER_VERSION: '1.8.1'
       MCP_PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
 
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Checkout release tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          ref: ${{ env.TAG }}
           persist-credentials: false
+
+      # A tag that does not match server.json would publish another version's
+      # entry under this release.
+      - name: Tag matches server.json version
+        run: |
+          for version in "$(jq -r '.version' server.json)" "$(jq -r '.packages[0].version' server.json)"; do
+            [ "$TAG" = "v${version}" ] || { echo "::error::tag ${TAG} does not match server.json version ${version}"; exit 1; }
+          done
 
       - name: Install mcp-publisher
         run: |
