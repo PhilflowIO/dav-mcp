@@ -5,7 +5,7 @@ import {
 } from 'tsdav-utils';
 import { ValidationError } from '../../error-handler.js';
 import { formatSuccess } from '../../formatters.js';
-import { describeOccurrenceEdit, seriesNames, labelled } from '../../occurrence-names.js';
+import { describeOccurrenceEdit, seriesNames } from '../../occurrence-names.js';
 
 /**
  * Cancelling and restoring single occurrences of a recurring event or todo,
@@ -40,7 +40,11 @@ import { describeOccurrenceEdit, seriesNames, labelled } from '../../occurrence-
  */
 
 /** one occurrence name, as the listings show it */
-const occurrenceName = z.string().trim().min(1, 'an occurrence is named by its original start, e.g. "2026-12-24T09:00:00"');
+// A listing marks a date that excludes a whole day of a timed series as
+// "2026-10-06 (whole day)"; that text, copied whole, is the date.
+const occurrenceName = z.string().trim()
+  .transform((name) => name.replace(/\s*\(whole day\)$/i, ''))
+  .pipe(z.string().min(1, 'an occurrence is named by its original start, e.g. "2026-12-24T09:00:00"'));
 
 /** schema of the two parameters, for the update tools' zod objects */
 export const occurrenceEditSchema = {
@@ -175,12 +179,13 @@ export function explainOccurrenceRefusal(error, parameter, { data, names, type }
 
   const reasons = refused.map(({ name, code }) => {
     if (code === 'NOT_IN_LIST') {
-      const cancelled = (series?.exclusions ?? []).map(labelled);
+      // the values as restore_occurrences takes them, quoted: copyable
+      const cancelled = (series?.exclusions ?? []).map(({ text }) => `"${text}"`);
       return `"${name}" is not cancelled (${cancelled.length ? `cancelled are: ${cancelled.slice(0, 10).join(', ')}${cancelled.length > 10 ? ', ...' : ''}` : 'nothing is cancelled'})`;
     }
     if (code === 'UNKNOWN_OCCURRENCE' || code === 'UNMATCHED_EXDATE') {
       const thatDay = occurrencesThatDay(data, name, type);
-      return `"${name}" is no occurrence of this series${thatDay.length ? ` (that day it has ${thatDay.join(', ')})` : ''}`;
+      return `"${name}" is no occurrence of this series${thatDay.length ? ` (that day it has ${thatDay.map((id) => `"${id}"`).join(', ')})` : ''}`;
     }
     return `"${name}" is not an occurrence name of this series`;
   });
