@@ -49,12 +49,14 @@ import { toInstant, timezoneFor } from './tools/shared/ical-dates.js';
  *    count (reading the object's VTIMEZONEs anew on every call), the copies
  *    made here, the work on each occurrence.
  *
- * Whichever runs out first ends the expansion, as incomplete. Checked before
- * each call into the library, so the time can be overrun by one call's
- * CALL_UNITS at most: about 1.5 s of expansion per tool call, 2-2.5 s at
- * worst on slow hardware. A year of a calendar of 100 ordinary series
- * (daily, weekly, monthly, yearly, with overrides) takes about 1 s and some
- * 280 000 candidates.
+ * Whichever runs out first ends the expansion, as incomplete. The clock is
+ * checked before each call into the library, and every object gets at least
+ * MIN_SHARE: so about 1.5 s per tool call plus up to one call per remaining
+ * object, which grows with the size of the answer; machine load can make a
+ * series incomplete. A year of a calendar of 100 ordinary series (daily,
+ * weekly, monthly, yearly, with overrides) takes about 1 s and some 280 000
+ * candidates. A walk that needs more than CALL_UNITS is incomplete even for
+ * a lone series.
  */
 const REQUEST_UNITS = 300000;
 const CALL_UNITS = 100000;
@@ -321,8 +323,7 @@ export function relateSeries(master, overrides) {
     .filter((o) => String(o.component.getFirstProperty('recurrence-id').getParameter('range') ?? '').toUpperCase() === 'THISANDFUTURE')
     .sort((a, b) => a.wall - b.wall);
   series.plan = shiftPlan(series);
-  const rule = master.getFirstPropertyValue('rrule');
-  series.unordered = rule?.freq === 'MONTHLY' && Boolean(rule.parts?.BYMONTH);
+  series.lookahead = lookaheadOf(master.getFirstPropertyValue('rrule'));
   return series;
 }
 
@@ -549,11 +550,8 @@ function expand(series, from, to, overrides, budget) {
   for (const { component } of overrides) copy.addSubcomponent(clone(component));
 
   const bound = (wall) => (frame.kind === 'date' ? wallText(wall).slice(0, 10) : wallText(wall));
-  // ical.js yields MONTHLY;BYMONTH candidates of a year in the order of the
-  // BYMONTH list (November before February), and the library stops at the
-  // first one past `until`, reporting the list complete: a year beyond the
-  // window lets every occurrence in it come out
-  const lookahead = series.unordered ? 366 * 864e5 : 0;
+  // candidates out of order: look one period past the window (lookaheadOf)
+  const lookahead = series.lookahead;
   let result;
   try {
     result = expandOccurrences(copy, {
@@ -755,17 +753,14 @@ function shiftPlan({ event, master, frame }) {
  * time parts) is evaluated within each month or year, from its calendar and
  * the defaults DTSTART gives: day of the month, month, time of day — all
  * kept when DTSTART moves by whole periods on the wall calendar
- * (calendarAnchor). Not the weekday: YEARLY;BYWEEKNO without BYDAY takes
- * DTSTART's weekday, which a year later is another, so that is not shifted;
- * nor MONTHLY;BYMONTH, which ical.js does not repeat by INTERVAL.
- * COUNT only without BY parts and on a day every month has (1-28): its last
+ * (calendarAnchor) — provided every period holds an occurrence
+ * (everyPeriodHasOne), as ical.js otherwise shifts its INTERVAL grid. Not
+ * the weekday: YEARLY;BYWEEKNO without BYDAY takes DTSTART's weekday, which
+ * a year later is another, so that is not shifted. COUNT only without BY parts and on a day every month has (1-28): its last
  * occurrence is then DTSTART plus COUNT-1 periods.
  */
 function calendarPlan(event, rule, parts) {
-  if (rule.freq === 'YEARLY' && parts.includes('BYWEEKNO') && !parts.includes('BYDAY')) return null;
-  // ical.js expands MONTHLY;BYMONTH into every listed month of every year,
-  // not every INTERVAL-th month: that does not repeat by whole periods
-  if (rule.freq === 'MONTHLY' && parts.includes('BYMONTH')) return null;
+  if (!everyPeriodHasOne(rule, parts, wallOfTime(event.startDate))) return null;
   const plan = {
     kind: 'calendar',
     unit: rule.freq === 'MONTHLY' ? 'month' : 'year',
@@ -780,6 +775,75 @@ function calendarPlan(event, rule, parts) {
     plan.lastWall = calendarShift(plan, start, rule.count - 1);
   }
   return plan;
+}
+
+/**
+ * Does every month (MONTHLY) or year (YEARLY) provably hold an occurrence?
+ * Only then does ical.js keep its INTERVAL grid from a moved start: where a
+ * period can be empty (the 31st, 29 February, a fifth Monday, week 53, day
+ * 366 of the year, a BYSETPOS past the set) it shifts the grid, rolls into
+ * the next month or stops, so such rules are walked from DTSTART (cheap for
+ * monthly and yearly series). Provably non-empty: a BYMONTHDAY within ±28;
+ * an ordinal BYDAY within ±4 of a month (±52 of a year); a plain BYDAY; a
+ * BYYEARDAY within ±365; a BYWEEKNO within ±52 with BYDAY; DTSTART's day
+ * when it is 1-28; BYSETPOS only over plain weekdays, within the four of
+ * each a month surely has. Combinations that intersect (BYMONTHDAY with
+ * BYDAY, ...) can be empty; so can MONTHLY;BYMONTH, which ical.js also does
+ * not repeat by INTERVAL.
+ */
+function everyPeriodHasOne(rule, parts, startWall) {
+  const yearly = rule.freq === 'YEARLY';
+  const has = (part) => parts.includes(part);
+  const values = (part) => (rule.parts[part] ?? []).map(String);
+  const numbers = (part) => values(part).map(Number);
+  const known = ['BYMONTHDAY', 'BYDAY', 'BYMONTH', 'BYSETPOS', 'BYYEARDAY', 'BYWEEKNO', 'BYHOUR', 'BYMINUTE', 'BYSECOND', 'WKST'];
+  if (parts.some((part) => !known.includes(part))) return false;
+  if (!yearly && has('BYMONTH')) return false;
+  const dayParts = ['BYMONTHDAY', 'BYDAY', 'BYYEARDAY', 'BYWEEKNO'].filter(has);
+  if (dayParts.length > 1 && dayParts.join() !== 'BYDAY,BYWEEKNO') return false;
+  const within = (part, limit) => numbers(part).every((v) => Number.isInteger(v) && v !== 0 && Math.abs(v) <= limit);
+  if (has('BYMONTHDAY') && !within('BYMONTHDAY', 28)) return false;
+  const ordinals = values('BYDAY').map((day) => Number(day.slice(0, -2)) || 0);
+  const ordinalLimit = !yearly || has('BYMONTH') ? 4 : 52;
+  if (ordinals.some((n) => Math.abs(n) > ordinalLimit)) return false;
+  if (has('BYYEARDAY') && (has('BYMONTH') || !within('BYYEARDAY', 365))) return false;
+  if (has('BYWEEKNO') && (!has('BYDAY') || has('BYMONTH') || !within('BYWEEKNO', 52))) return false;
+  if (dayParts.length === 0 && new Date(startWall).getUTCDate() > 28) return false;
+  if (has('BYSETPOS')) {
+    if (dayParts.join() !== 'BYDAY' || ordinals.some((n) => n !== 0)) return false;
+    if (!within('BYSETPOS', 4 * values('BYDAY').length)) return false;
+  }
+  return true;
+}
+
+/**
+ * How far past a window an expansion must look so that every occurrence in
+ * it comes out. ical.js yields the values of a BY list in the order the list
+ * gives them (BYHOUR=17,9: 17:00 before 09:00) and MONTHLY;BYMONTH a year's
+ * months in list order, while the library stops at the first candidate past
+ * `until` and reports the list complete. Where a list is out of ascending
+ * order (or mixes signs, or BYDAY has ordinals), one period of the rule is
+ * enough: candidates come out of order only within it.
+ */
+function lookaheadOf(rule) {
+  if (!rule) return 0;
+  const p = rule.parts ?? {};
+  const order = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
+  const ascending = (list) => list.every((v, i) => i === 0 || v > list[i - 1]);
+  const numeric = ['BYSECOND', 'BYMINUTE', 'BYHOUR', 'BYMONTHDAY', 'BYYEARDAY', 'BYWEEKNO', 'BYMONTH', 'BYSETPOS']
+    .some((part) => {
+      const list = (p[part] ?? []).map(Number);
+      const signs = new Set(list.map(Math.sign));
+      return signs.size > 1 || !ascending(list);
+    });
+  const days = (p.BYDAY ?? []).map(String);
+  const weekdays = days.some((d) => d.length > 2) || !ascending(days.map((d) => order.indexOf(d.slice(-2))));
+  const monthlyByMonth = rule.freq === 'MONTHLY' && Boolean(p.BYMONTH);
+  if (!numeric && !weekdays && !monthlyByMonth) return 0;
+  const interval = rule.interval || 1;
+  if (rule.freq === 'YEARLY' || monthlyByMonth) return 366 * 864e5 * (rule.freq === 'YEARLY' ? interval : 1);
+  if (rule.freq === 'MONTHLY') return 31 * 864e5 * interval;
+  return (UNIT_SECONDS[rule.freq] ?? 86400) * 1000 * interval;
 }
 
 /**

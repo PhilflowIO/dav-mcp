@@ -86,7 +86,8 @@ function series() {
       if (days.length) parts.push(`BYDAY=${days.join(',')}`);
     }
     if (freq === 'DAILY' && chance(0.15)) parts.push(`BYMONTH=${int(1, 12)},${int(1, 12)}`);
-    if (freq !== 'MONTHLY' && !allDay && chance(0.15)) parts.push(`BYHOUR=${int(0, 11)},${int(12, 23)}`);
+    // ical.js yields a BY list in the order given: sometimes not ascending
+    if (freq !== 'MONTHLY' && !allDay && chance(0.15)) parts.push(chance(0.5) ? `BYHOUR=${int(0, 11)},${int(12, 23)}` : `BYHOUR=${int(12, 23)},${int(0, 11)}`);
     const end = random();
     if (end < 0.2) parts.push(`COUNT=${int(5, 400)}`);
     // RFC 5545: a floating series' UNTIL is floating too; now and then not,
@@ -101,11 +102,22 @@ function series() {
     parts.push(yearly ? 'FREQ=YEARLY' : 'FREQ=MONTHLY');
     if (chance(0.4)) parts.push(`INTERVAL=${int(2, 3)}`);
     const wd = () => pick(['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU']);
-    const variant = pick(['plain', 'plain', 'ordinal', 'monthday', 'setpos', 'bymonth', ...(yearly ? ['weekno'] : [])]);
+    const variant = pick(['plain', 'plain', 'ordinal', 'monthday', 'setpos', 'bymonth', 'sparse', 'sparse', ...(yearly ? ['weekno'] : [])]);
+    // periods that can be empty: the 31st, 29 February, a fifth weekday,
+    // day 366, week 53, BYSETPOS past the set; and DTSTART on the 29th-31st
+    if (variant === 'sparse') {
+      if (chance(0.3)) start = Date.UTC(1995 + int(0, 20), pick([0, 1, 2, 4, 6, 7, 9, 11]), int(29, 31)) / 1000 + (allDay ? 0 : int(0, 47) * 1800);
+      parts.push(yearly
+        ? pick(['BYMONTH=2;BYMONTHDAY=29', 'BYMONTH=2;BYMONTHDAY=-29', 'BYYEARDAY=366', 'BYYEARDAY=-366', `BYWEEKNO=53;BYDAY=${wd()}`, 'BYMONTH=4,6;BYMONTHDAY=31', '', ''])
+        : pick(['BYMONTHDAY=29', 'BYMONTHDAY=31', 'BYMONTHDAY=-31', 'BYMONTHDAY=31,-31', 'BYMONTHDAY=30,31', `BYDAY=5${wd()}`, `BYDAY=-5${wd()}`,
+          'BYDAY=MO;BYSETPOS=5', 'BYDAY=MO,TU,WE,TH,FR;BYSETPOS=23', '']));
+      if (parts[parts.length - 1] === '') parts.pop();
+    }
     if (variant === 'ordinal') parts.push(`BYDAY=${pick(['1', '2', '3', '-1', '-2'])}${wd()}`, ...(yearly ? [`BYMONTH=${int(1, 12)}`] : []));
     if (variant === 'monthday') parts.push(`BYMONTHDAY=${pick(['-1', '-2', '1', '15', '31', '30,-1'])}`, ...(yearly ? [`BYMONTH=${int(1, 12)}`] : []));
     if (variant === 'setpos') parts.push('BYDAY=MO,TU,WE,TH,FR', `BYSETPOS=${pick(['1', '-1', '2', '1,-1'])}`, ...(yearly ? [`BYMONTH=${int(1, 12)}`] : []));
     if (variant === 'bymonth') parts.push(`BYMONTH=${int(1, 12)},${int(1, 12)}`);
+    if (!allDay && chance(0.15)) parts.push(`BYHOUR=${int(12, 23)},${int(0, 11)}`);
     if (variant === 'weekno') parts.push(`BYWEEKNO=${int(1, 52)}`, ...(chance(0.5) ? [`BYDAY=${wd()}`] : []));
     const end = random();
     if (end < 0.15) parts.push(`COUNT=${int(5, 400)}`);

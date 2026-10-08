@@ -25,7 +25,7 @@ const { calculateFreeBusy } = await import('../src/tools/shared/freebusy.js');
 const { formatEvent } = await import('../src/formatters.js');
 const { readSeries, shownEvent } = await import('../src/ical-components.js');
 const { relateSeries, seriesOccurrences } = await import('../src/occurrences.js');
-const { createRecurrenceBudget } = await import('tsdav-utils');
+const { createRecurrenceBudget, expandOccurrences } = await import('tsdav-utils');
 const { calendarQuery } = await import('../src/tools/calendar/calendar-query.js');
 const { listEvents } = await import('../src/tools/calendar/list-events.js');
 const { freeBusyQuery } = await import('../src/tools/calendar/freebusy-query.js');
@@ -401,6 +401,44 @@ describe('times are shown as tsdav-utils converts them', () => {
     })());
     const range = { start: Date.UTC(2024, 11, 14), end: Date.UTC(2024, 11, 15) };
     expect(seriesOccurrences(series, range).occurrences.map((o) => o.item.summary)).toEqual(['Moved']);
+  });
+});
+
+describe('periods that can be empty, and BY lists out of order (review of #110)', () => {
+  // the library's own expansion from DTSTART, no shortcut: the reference
+  const full = (text, range) => expandOccurrences(text, {
+    budget: createRecurrenceBudget(1e8), until: new Date(range.end + 400 * 864e5).toISOString().slice(0, 19), limit: Number.MAX_SAFE_INTEGER,
+  }).occurrences.map((o) => Date.parse(o.start.instant ?? `${o.start.value}T00:00:00Z`))
+    .filter((at) => at >= range.start && at < range.end);
+  const fast = (text, range) => {
+    const { master, overrides } = readSeries(new ICAL.Component(ICAL.parse(text)), 'vevent');
+    const result = seriesOccurrences(relateSeries(master, overrides), range);
+    expect(result.truncated).toBe(false);
+    return result.occurrences.map((o) => o.startAt);
+  };
+
+  test.each([
+    ['29 February', ['DTSTART:20040118T094500Z'], 'FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=29;UNTIL=20290622T120000Z', [1803686400000, 1811635200000]],
+    ['the 31st every fifth month', ['DTSTART;VALUE=DATE:19920630'], 'FREQ=MONTHLY;INTERVAL=5;BYMONTHDAY=31,-31', [1779321600000, 1787270400000]],
+    ['a fifth Monday by BYSETPOS', ['DTSTART;TZID=Europe/Berlin:19711005T233000'], 'FREQ=MONTHLY;INTERVAL=2;BYDAY=5MO;BYSETPOS=5', [1855094400000, 1857772800000]],
+  ])('%s: a moved start would shift ical.js\' grid, so it walks from DTSTART', (_, [dtstart], rule, [start, end]) => {
+    const text = object(BERLIN, vevent('SUMMARY:x', dtstart, 'DURATION:PT1H', `RRULE:${rule}`)).data;
+    const range = { start, end };
+    expect(fast(text, range)).toEqual(full(text, range));
+  });
+
+  test.each([
+    ['FREQ=MONTHLY;BYMONTHDAY=1;BYHOUR=17,9', '20260201T090000Z'],
+    ['FREQ=DAILY;BYHOUR=17,9', '20260201T090000Z'],
+    ['FREQ=WEEKLY;BYDAY=WE;BYHOUR=17,9', '20260204T090000Z'],
+    ['FREQ=HOURLY;INTERVAL=4;BYMINUTE=45,15', '20260201T091500Z'],
+  ])('%s: an override of a candidate yielded out of order is found', (rule, rid) => {
+    const text = object(vevent('SUMMARY:Series', 'DTSTART:20260101T090000Z', 'DURATION:PT30M', `RRULE:${rule}`),
+      vevent('SUMMARY:Moved', `RECURRENCE-ID:${rid}`, 'DTSTART:20261020T120000Z', 'DURATION:PT30M')).data;
+    const { master, overrides } = readSeries(new ICAL.Component(ICAL.parse(text)), 'vevent');
+    const range = { start: Date.UTC(2026, 9, 20, 11), end: Date.UTC(2026, 9, 20, 13) };
+    const names = seriesOccurrences(relateSeries(master, overrides), range).occurrences.map((o) => o.item.summary);
+    expect(names).toContain('Moved');
   });
 });
 
