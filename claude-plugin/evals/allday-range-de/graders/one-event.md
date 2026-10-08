@@ -1,0 +1,6 @@
+---
+type: tool_used
+tool: mcp__plugin_dav-mcp_dav-mcp__create_event
+min: 1
+max: 1
+---

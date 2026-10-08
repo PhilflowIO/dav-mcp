@@ -23,7 +23,10 @@
     "test:integration": "node tests/integration/mcp-test-runner.js",
     "test:setup-data": "node tests/integration/setup-test-data.js",
     "mcpb:sync": "node scripts/sync-mcpb-manifest.js",
-    "plugin:sync": "node scripts/sync-claude-plugin.js"
+    "plugin:sync": "node scripts/sync-claude-plugin.js",
+    "eval:mocks": "node scripts/generate-eval-mocks.js",
+    "eval:plugin": "claude plugin eval claude-plugin",
+    "eval:skill-without-tools": "node scripts/eval-skill-without-tools.js"
   },
   "author": "dav-mcp contributors",
   "license": "MIT",

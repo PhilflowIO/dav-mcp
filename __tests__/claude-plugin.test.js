@@ -35,7 +35,12 @@ const filesIn = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap(entry
   const path = join(dir, entry.name);
   return entry.isDirectory() ? filesIn(path) : [path];
 });
-const pluginFiles = filesIn(pluginDir).map(path => relative(pluginDir, path));
+// evals/results/ is what `claude plugin eval` writes on a local run (HTML
+// report, JSON); it is gitignored and never part of the plugin. The eval
+// cases and mocks themselves are checked like every other plugin file.
+const pluginFiles = filesIn(pluginDir)
+  .map(path => relative(pluginDir, path))
+  .filter(file => !file.startsWith('evals/results/'));
 
 describe('Claude plugin version', () => {
   test('plugin.json and .mcp.json are formatted the way scripts/sync-claude-plugin.js writes them', () => {
