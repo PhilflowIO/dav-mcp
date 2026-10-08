@@ -20,7 +20,8 @@
  */
 
 import { createServer } from 'node:http';
-import { mkdirSync, rmSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -218,10 +219,27 @@ async function captureLoginFailure(toolName, args) {
   });
   await new Promise(resolve => listener.listen(0, '127.0.0.1', resolve));
   const url = `http://127.0.0.1:${listener.address().port}/remote.php/dav/`;
+  // The server reads ../.env next to its own files, and an inherited
+  // AUTH_METHOD=OAuth or LOG_TOOL_CALLS=true would reach a real token
+  // endpoint or write a log. So it runs from a copy with no .env, with only
+  // the variables set here.
+  const copy = mkdtempSync(join(tmpdir(), 'dav-mcp-mockgen-'));
+  cpSync(join(root, 'src'), join(copy, 'src'), { recursive: true });
+  cpSync(join(root, 'package.json'), join(copy, 'package.json'));
+  symlinkSync(join(root, 'node_modules'), join(copy, 'node_modules'), 'junction');
   const transport = new StdioClientTransport({
     command: process.execPath,
-    args: [join(root, 'src', 'server-stdio.js')],
-    env: { ...process.env, NODE_ENV: 'production', CALDAV_SERVER_URL: url, CALDAV_USERNAME: 'alex', CALDAV_PASSWORD: 'wrong-password', LOG_LEVEL: 'silent' },
+    args: [join(copy, 'src', 'server-stdio.js')],
+    env: {
+      PATH: process.env.PATH,
+      NODE_ENV: 'production',
+      AUTH_METHOD: 'Basic',
+      CALDAV_SERVER_URL: url,
+      CALDAV_USERNAME: 'alex',
+      CALDAV_PASSWORD: 'wrong-password',
+      LOG_TOOL_CALLS: 'false',
+      LOG_LEVEL: 'silent',
+    },
     stderr: 'ignore',
   });
   const client = new Client({ name: 'eval-mock-generator', version: '1.0.0' });
@@ -237,6 +255,7 @@ async function captureLoginFailure(toolName, args) {
   } finally {
     await client.close();
     listener.close();
+    rmSync(copy, { recursive: true, force: true });
   }
 }
 
