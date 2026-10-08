@@ -20,7 +20,8 @@ guide). Never invent entries.
   `calendar_url` it searches every calendar; no `list_calendars` first.
   Never `list_events` to look something up: it returns a whole calendar.
 - "When am I free", "am I available", finding a slot: `freebusy_query`,
-  not `calendar_query`. It expands recurring events.
+  not `calendar_query`. It expands recurring events. It prints times in UTC:
+  convert them to the user's time zone before answering.
 - Contacts: `addressbook_query` by name, email or organization, never
   `list_contacts`. To-dos: `todo_query`, never `list_todos`.
 
