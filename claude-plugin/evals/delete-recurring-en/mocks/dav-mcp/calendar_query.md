@@ -4,8 +4,6 @@ Found events: **1**
 
 - **When**: January 5, 2026, 09:15 AM GMT+1 to January 5, 2026, 09:30 AM GMT+1
 - **Recurring**: FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR
-- **Occurrence ID**: 2026-01-05T09:15:00 (series start, the first occurrence; occurrences are named by their original start as wall-clock time in Europe/Berlin, for cancel_occurrences/restore_occurrences)
-- **Cancelled occurrences**: 2026-12-24T09:15:00
 - **Calendar**: All Calendars (2)
 - **URL**: https://dav.example.com/calendars/alex/work/standup.ics
 

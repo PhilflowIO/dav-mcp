@@ -371,8 +371,6 @@ const cases = {
   },
   'delete-recurring-en': {
     calendar_query: [{ summary_filter: 'standup' }, { events: [EVENTS.standup] }],
-    // the coming Monday from the fixed clock (Thursday 8 October 2026)
-    update_event: [{ event_url: EVENTS.standup.url, event_etag: '"etag-standup-3"', cancel_occurrences: ['2026-10-12T09:15:00'] }, { events: [EVENTS.standup] }],
   },
   'conflict-en': {
     calendar_multi_get: [{ calendar_url: `${CAL}/work/`, event_urls: [EVENTS.budgetV2.url] }, { events: [EVENTS.budgetV2] }],
