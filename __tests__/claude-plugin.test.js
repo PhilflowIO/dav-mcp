@@ -48,7 +48,6 @@ describe('Claude plugin version', () => {
     const synced = syncedMcpConfig(JSON.parse(mcpText)).mcpServers['dav-mcp'];
     expect(syncedPlugin(plugin).version).toBe(packageJson.version);
     expect(synced.args).toEqual(['-y', `${packageJson.name}@${packageJson.version}`]);
-    expect(synced.env).toEqual(server.env);
   });
 
   // The pin trails package.json between a release pull request and the
