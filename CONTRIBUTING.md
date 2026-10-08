@@ -140,7 +140,10 @@ The version lives in `package.json`; four other files repeat it.
    image's `latest`.
 3. Approve the `npm-publish` deployment when the run asks for it.
 4. Once the run is green, pin the Claude plugin to the new version in a
-   pull request: `npm run plugin:sync`, commit `claude-plugin/`.
+   pull request: `npm run plugin:sync`, commit `claude-plugin/`. Until then
+   the daily `plugin-pin-current.yml` run fails, because the pin is older
+   than npm's `latest`. A prerelease does not move `latest` and needs no
+   pin.
 
 A failed run is re-run with "Re-run failed jobs", which keeps the tarball that
 was already packed. A version that is on npm is never replaced. The bundle,
