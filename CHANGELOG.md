@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Internal
+- **Releases are published to npm from CI with provenance** (#112), via trusted publishing from a `v<version>` tag on `main`.
+
 ### Fixed
 - **Quoted-printable contacts are decoded** (#103). vCard 2.1 cards from
   Outlook and Android exports encode non-ASCII text as
