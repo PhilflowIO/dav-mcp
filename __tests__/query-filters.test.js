@@ -223,7 +223,7 @@ describe('calendar_query', () => {
       expect(await when({ summary_filter: 'water', ...OCTOBER })).toMatch(/^October 2, 2026, 09:00 AM/);
     });
 
-    test('a COUNT series is still walked from its start', async () => {
+    test('a COUNT series ends where its COUNT does', async () => {
       // 2020-01-06 + 352 weeks = Monday 5 October 2026: the 353rd and last occurrence
       storedEvents = [ics('counted', vevent('c', 'DTSTART:20200106T090000Z', 'DURATION:PT1H',
         'RRULE:FREQ=WEEKLY;COUNT=353', 'SUMMARY:Counted'))];
@@ -239,15 +239,17 @@ describe('calendar_query', () => {
       expect(await urls(calendarQuery, { ...OCTOBER, limit: 1 })).toEqual(['weekly.ics']);
     });
 
-    // A floating 00:30 becomes an instant on the host clock, so the order
-    // depends on the server's zone; setting process.env.TZ inside a running
-    // test does not reliably move it, so each case runs in a child process
-    // with the zone fixed. In Berlin (UTC+2) the 00:30 occurrence on the 8th
-    // is 22:30Z on the 7th — before the range start and before a UTC event at
-    // 23:00Z, so it must win the cap; in New York it is 04:30Z and loses.
+    // A floating 00:30 becomes an instant on the host clock, so which
+    // occurrence is in the range, and where it sorts, depends on the server's
+    // zone; setting process.env.TZ inside a running test does not reliably
+    // move it, so each case runs in a child process with the zone fixed. In
+    // Berlin (UTC+2) the 00:30 occurrence on the 8th is 22:30Z on the 7th —
+    // outside the range, as free/busy reads it too — so the one listed is the
+    // 9th's, 22:30Z on the 8th, after the event at 20:00Z; in New York it is
+    // 04:30Z on the 8th and sorts after the UTC event at 23:00Z on the 7th.
     test.each([
-      ['Europe/Berlin', ['float0030.ics'], ['float0030.ics', 'utc2300.ics']],
-      ['Pacific/Kiritimati', ['float0030.ics'], ['float0030.ics', 'utc2300.ics']],
+      ['Europe/Berlin', ['utc2300.ics'], ['utc2300.ics', 'late.ics']],
+      ['Pacific/Kiritimati', ['utc2300.ics'], ['utc2300.ics', 'float0030.ics']],
       ['America/New_York', ['utc2300.ics'], ['utc2300.ics', 'float0030.ics']],
       ['UTC', ['utc2300.ics'], ['utc2300.ics', 'float0030.ics']],
     ])('a floating series sorts by its host-zone instant (host %s)', (zone, limitOne, limitTwo) => {

@@ -22,7 +22,7 @@ export const freeBusyQuery = {
     idempotentHint: true,
     openWorldHint: true,
   },
-  description: 'Find free and busy time in a date range — use for "when am I free?", "am I available Tuesday afternoon?" or finding a slot for a new meeting. Searches all calendars unless one is given. Events marked TRANSPARENT (does not block time) and cancelled events are ignored; recurring events are expanded.',
+  description: 'Find free and busy time in a date range — use for "when am I free?", "am I available Tuesday afternoon?" or finding a slot for a new meeting. Searches all calendars unless one is given. Events marked TRANSPARENT (does not block time) and cancelled events are ignored; recurring events are expanded, each occurrence at its own time and status, so a single cancelled occurrence is free and a moved one is busy where it moved to. A recurring event too dense to expand fully is named in a warning.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -40,7 +40,7 @@ export const freeBusyQuery = {
       },
       include_event_details: {
         type: 'boolean',
-        description: 'Optional: also list the events behind each busy block, with titles. Off by default — the answer to "when am I free" is the slots, not the meetings.',
+        description: 'Optional: also list the events behind the busy blocks, with titles (a recurring one as its occurrence in the range). Off by default — the answer to "when am I free" is the slots, not the meetings.',
       },
     },
     required: ['time_range_start', 'time_range_end'],
@@ -80,14 +80,15 @@ export const freeBusyQuery = {
       end: new Date(validated.time_range_end),
     };
 
-    const { busy, free } = calculateFreeBusy(events, range);
+    const { busy, free, blocking, incomplete } = calculateFreeBusy(events, range);
 
     return formatFreeBusy({
       busy,
       free,
       range,
       calendarCount: calendarsToSearch.length,
-      events: validated.include_event_details ? events : null,
+      events: validated.include_event_details ? blocking : null,
+      incomplete,
     });
   },
 };

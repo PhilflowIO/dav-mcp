@@ -25,6 +25,12 @@ jest.unstable_mockModule('tsdav-utils', () => ({
   // imported by the master selection (src/ical-components.js); these tests
   // never read a component back
   seriesMaster: jest.fn(),
+  // imported by the occurrence expansion (src/occurrences.js); these tests
+  // expand no series
+  createRecurrenceBudget: jest.fn(() => ({ remaining: 0 })),
+  expandOccurrences: jest.fn(),
+  resolvePropertyZone: jest.fn(),
+  resolveZone: jest.fn(),
 }));
 
 // --- Mock tsdavManager ---

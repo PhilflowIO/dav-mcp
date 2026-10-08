@@ -7,6 +7,93 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **tsdav-utils 0.7.0** (`@philflow/tsdav-utils`), for its bounded,
+  zone-correct occurrence expansion. Its write semantics change too: moving a
+  series' DTSTART now moves its overrides with it, and an `EXDATE` or
+  `RDATE` given in `update_event`'s fields is the whole list, replacing the
+  one stored rather than adding to it (#126 tracks cancelling a single
+  occurrence).
+
+### Fixed
+- **Free/busy and event queries judge each occurrence as it now stands**
+  (#98). A recurring series was expanded from its original dates, and every
+  occurrence counted with the series' own STATUS and TRANSP. So a single
+  occurrence cancelled (or marked transparent) still showed as busy, one
+  moved from the 20th to the 14th was missing from the 14th and still
+  reported on the 20th, and an opaque occurrence of a transparent series was
+  free. Each occurrence is now taken at its effective time with its own
+  STATUS and TRANSP (compared case-insensitively), in `freebusy_query`,
+  `calendar_query` and `list_events` alike. An override is a full component:
+  one without STATUS of a cancelled series is not cancelled, and blocks time.
+- **One definition of "in the range"** (#98). Free/busy counted an
+  occurrence that overlaps the window, the event lists one that starts in it
+  (end included): a meeting running into the window was busy, yet listed as
+  "no occurrence falls inside the queried range". All of them now use the
+  CalDAV time-range test (RFC 4791 9.9): it starts before the range ends and
+  ends after it starts; one without duration counts when it starts in
+  [start, end). A floating time is read on the server's clock throughout.
+- **Recurring events are expanded by tsdav-utils** (#98), the reader the
+  write side uses, so dav-mcp and the library agree on which occurrences a
+  series has. An override replaces the occurrence its RECURRENCE-ID names,
+  read in the series' frame by the instant it names: an id written in UTC
+  for a series in Europe/Berlin used not to match, and at a DST change a
+  local time shown twice is its first pass (RFC 5545 3.3.5; ical.js was up
+  to an hour off there). A floating id is read by its digits, a date-time id
+  on an all-day series by its date (a Berlin-midnight id for the 13th used
+  to cancel the 12th), a date id on a timed series names that day's
+  midnight, and a UTC id on a floating series names nothing. An EXDATE
+  excludes by instant, a date on a timed series its whole day; a floating
+  EXDATE in a zoned series, or a UTC one in a floating series, names
+  nothing. A series the library cannot read (a UTC `UNTIL` on a floating
+  series, say) is reported incomplete, with the reason, rather than guessed
+  at. An all-day occurrence without DTEND or DURATION lasts its day, a timed
+  one no time (RFC 5545 3.6.1); a recurring all-day event without an end
+  used to block nothing. Times are shown as the library converts them, so a
+  time a DST change shows twice reads with the offset of its first pass.
+- **THISANDFUTURE and moved overrides** (#98). A `RANGE=THISANDFUTURE`
+  override moves every later occurrence by its own move, on its own wall
+  clock; one whose RECURRENCE-ID is no occurrence, or an EXDATEd one, is
+  ignored like any such override. An override moved into the range from
+  anywhere in the series is found from the overrides themselves.
+- **Recurring events are expanded from the range, not from their start**
+  (#98): from the start of the period that holds the range, for SECONDLY to
+  WEEKLY rules with BYDAY, BYMONTH or a BYHOUR/BYMINUTE/BYSECOND that
+  expands the rule (BYHOUR on DAILY, BYMINUTE on HOURLY); from a whole
+  number of months or years later for MONTHLY and YEARLY rules where every
+  month or year surely has an occurrence (a BYMONTHDAY within ±28, an
+  ordinal BYDAY within ±4 of a month, BYSETPOS over the weekdays every month
+  has, ...); and for a COUNT rule without BY parts. Other rules — a limiting
+  BYHOUR (on HOURLY), the 31st, 29 February, a fifth Monday, week 53,
+  MONTHLY with BYMONTH — are walked from DTSTART, as ical.js shifts its
+  INTERVAL grid where a period is empty. `freebusy_query` used to walk
+  every series from its start.
+- **No series can stall a tool call** (#98). ical.js tests rule candidates
+  one by one without a bound of its own: `FREQ=SECONDLY;BYHOUR=9` from 1950
+  took 27 s, fifty `MINUTELY;BYHOUR=10` series 45 s per call, and
+  `FREQ=DAILY;BYMONTH=2;BYMONTHDAY=30` never returned. Each tool call now
+  has one budget of rule candidates (300 000, at most 100 000 per call into
+  the library) and of time (1.5 s of expansion), whichever runs out first;
+  each calendar object gets a fair share of both and at least 20 ms, so one
+  heavy series cannot leave the others unexpanded. The clock is checked
+  before each call into the library, so expansion takes about 1.5 s plus up
+  to one call per remaining object: it grows with the number of objects and
+  overrides in an answer (20 objects with 4 000 overrides each in range:
+  about 10 s), and under machine load a series may come back incomplete
+  where it otherwise would not. A year of 100 ordinary series takes about
+  1.5 s in all. A walk that needs more than 100 000 candidates is
+  incomplete even for a lone series (`FREQ=DAILY;BYMONTHDAY=1,15` from
+  1970, which cannot start near the range). ical.js yields a BY list in the
+  order it is written (`BYHOUR=17,9`) and the library stops at the first
+  candidate past its window, so such rules are read one period further. A
+  series that needs more is never reported wrong, only incomplete:
+  `freebusy_query`, which used to answer "Nothing blocks this window" for
+  it, names it and says its busy time may be missing, and an event list
+  says the series could not be expanded fully.
+- **Listed events show their STATUS** (e.g. CANCELLED; for a series, the
+  occurrence listed), and `freebusy_query`'s event details list exactly the
+  occurrences that make up the busy time.
+
 ## [4.3.1] - 2026-10-08
 
 ### Internal
