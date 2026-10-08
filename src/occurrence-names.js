@@ -40,6 +40,7 @@ function kindOf(time, tzid) {
  *   tzid: string|null,
  *   describe: string,
  *   name: (time: ICAL.Time, tzid?: string|null) => {text: string, wholeDay: boolean},
+ *   master: ICAL.Component,
  * } | null} null for a component without DTSTART
  */
 export function seriesNaming(master) {
@@ -101,7 +102,7 @@ export function seriesNaming(master) {
     floating: 'local time, without a zone',
   }[form];
 
-  return { form, tzid, describe, name };
+  return { form, tzid, describe, name, master };
 }
 
 /**

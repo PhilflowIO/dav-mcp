@@ -170,9 +170,12 @@ describe('cancel_occurrences adds to the exclusions (#126)', () => {
     const reply = await errorReply(setEvent({ cancel_occurrences: ['2026-10-12T09:00:00'] }));
 
     expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
-    expect(reply.message).toMatch(/^cancel_occurrences: /);
-    expect(reply.message).toContain('exactly as calendar_query lists it');
-    expect(reply.data.details).toMatchObject({ code: 'ZONE_MISMATCH', parameter: 'cancel_occurrences' });
+    expect(reply.message).toBe('cancel_occurrences: "2026-10-12T09:00:00" is not an occurrence name of this series. ' +
+      'Occurrences are named by their original start as UTC, with Z (e.g. "2026-10-05T09:00:00Z"). ' +
+      'Use the name exactly as calendar_query, list_events or calendar_multi_get list it ("Occurrence ID"), and call again.');
+    expect(reply.data.details).toMatchObject({
+      code: 'ZONE_MISMATCH', parameter: 'cancel_occurrences', names: ['2026-10-12T09:00:00'],
+    });
     expect(updateCalendarObject).not.toHaveBeenCalled();
 
     // the name the listing gives works
@@ -182,11 +185,16 @@ describe('cancel_occurrences adds to the exclusions (#126)', () => {
 
   test('a name that is no occurrence is refused with the library reason and the listing to use', async () => {
     storedEvent = calendar('VEVENT', SERIES);
-    const reply = await errorReply(setEvent({ cancel_occurrences: ['2026-12-17T09:00:00'] }));
+    // one good name and one in the wrong hour: only the wrong one is named, in ISO form
+    const reply = await errorReply(setEvent({ cancel_occurrences: ['2026-12-10T10:00:00', '2026-12-17T09:00:00'] }));
     expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
-    expect(reply.message).toMatch(/^cancel_occurrences: .*names no occurrence of the series.*at 20261217T100000/);
-    expect(reply.message).toMatch(/Use the occurrence's original start exactly as calendar_query lists it \("Occurrence ID"\), and call again\.$/);
-    expect(reply.data.details).toMatchObject({ code: 'UNKNOWN_OCCURRENCE', remedy: 'fix-value' });
+    expect(reply.message).toBe('cancel_occurrences: "2026-12-17T09:00:00" is no occurrence of this series ' +
+      '(that day it has 2026-12-17T10:00:00). Occurrences are named by their original start as wall-clock time ' +
+      'in Europe/Berlin (e.g. "2026-10-01T10:00:00"). Use the name exactly as calendar_query, list_events or ' +
+      'calendar_multi_get list it ("Occurrence ID"), and call again.');
+    expect(reply.data.details).toMatchObject({
+      code: 'UNKNOWN_OCCURRENCE', remedy: 'fix-value', names: ['2026-12-17T09:00:00'],
+    });
     expect(updateCalendarObject).not.toHaveBeenCalled();
   });
 
@@ -194,8 +202,8 @@ describe('cancel_occurrences adds to the exclusions (#126)', () => {
     storedEvent = calendar('VEVENT', SERIES);
     const reply = await errorReply(setEvent({ restore_occurrences: ['2026-12-17T10:00:00'] }));
     expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
-    expect(reply.message).toMatch(/^restore_occurrences: .*is not cancelled/);
-    expect(reply.message).toContain('"Cancelled occurrences"');
+    expect(reply.message).toMatch(/^restore_occurrences: "2026-12-17T10:00:00" is not cancelled \(cancelled are: 2026-12-24T10:00:00, 2026-12-31T10:00:00\)\./);
+    expect(reply.message).toMatch(/list it \("Cancelled occurrences"\), and call again\.$/);
     expect(reply.data.details).toMatchObject({ code: 'NOT_IN_LIST', parameter: 'restore_occurrences' });
   });
 
@@ -286,4 +294,14 @@ describe('a call that asks for nothing writes nothing (#126)', () => {
     expect(reply.content[0].text).toContain('✅ **Todo not changed**');
   });
 
+  test('a cancel on a VALUE_TYPE refusal (time on an all-day series) is phrased in parameter terms', async () => {
+    storedEvent = calendar('VEVENT', [
+      'UID:d@test', 'SUMMARY:Bins', 'DTSTART;VALUE=DATE:20261005', 'DTEND;VALUE=DATE:20261006', 'RRULE:FREQ=WEEKLY',
+    ]);
+    const reply = await errorReply(setEvent({ cancel_occurrences: ['2026-10-12T09:00:00'] }));
+    expect(reply.message).toBe('cancel_occurrences: "2026-10-12T09:00:00" is not an occurrence name of this series. ' +
+      'Occurrences are named by their original start as the date (e.g. "2026-10-05"). ' +
+      'Use the name exactly as calendar_query, list_events or calendar_multi_get list it ("Occurrence ID"), and call again.');
+    expect(reply.message).not.toMatch(/EXDATE|cancelOccurrences/);
+  });
 });

@@ -1,8 +1,11 @@
 import { z } from 'zod';
-import { cancelOccurrences, restoreOccurrences, isUpdateFieldsError } from 'tsdav-utils';
+import ICAL from 'ical.js';
+import {
+  cancelOccurrences, restoreOccurrences, isUpdateFieldsError, expandOccurrences, createRecurrenceBudget,
+} from 'tsdav-utils';
 import { ValidationError } from '../../error-handler.js';
 import { formatSuccess } from '../../formatters.js';
-import { describeOccurrenceEdit } from '../../occurrence-names.js';
+import { describeOccurrenceEdit, seriesNames, labelled } from '../../occurrence-names.js';
 
 /**
  * Cancelling and restoring single occurrences of a recurring event or todo,
@@ -61,7 +64,7 @@ export function refineOccurrenceEdits(data, ctx, tool) {
       path: ['fields', 'EXDATE'],
       message: `EXDATE is not set through fields: written there it replaces every exclusion already in the series. ` +
         `Cancel occurrences with cancel_occurrences and bring them back with restore_occurrences, ` +
-        `each named by its original start as ${tool === 'update_todo' ? 'todo_query' : 'calendar_query'} lists it`,
+        `each named by its original start as ${SOURCES[tool === 'update_todo' ? 'vtodo' : 'vevent']} list it`,
     });
   }
   if (data.fields && 'RDATE' in data.fields) {
@@ -90,31 +93,106 @@ const NAME_REFUSALS = new Set([
   'ZONE_MISMATCH', 'VALUE_TYPE_MISMATCH', 'INVALID_VALUE',
 ]);
 
+const EDITS = { cancel_occurrences: cancelOccurrences, restore_occurrences: restoreOccurrences };
+
+/** where a model finds the names, per component type */
+const SOURCES = {
+  vevent: 'calendar_query, list_events or calendar_multi_get',
+  vtodo: 'todo_query, list_todos or todo_multi_get',
+};
+
+/** the master of an object and what it excludes, named; null if unreadable */
+function seriesOf(data, type) {
+  try {
+    const calendar = new ICAL.Component(ICAL.parse(data));
+    const all = calendar.getAllSubcomponents(type);
+    const master = all.find((c) => !c.hasProperty('recurrence-id'));
+    if (!master) return null;
+    return seriesNames(master, all.filter((c) => c !== master && c.hasProperty('recurrence-id')));
+  } catch {
+    return null;
+  }
+}
+
+/** the original starts of the occurrences on the day a name gives, in the series' form */
+function occurrencesThatDay(data, name, type) {
+  const day = /^(\d{4})-?(\d{2})-?(\d{2})/.exec(name);
+  if (!day) return [];
+  const date = `${day[1]}-${day[2]}-${day[3]}`;
+  const at = Date.parse(`${date}T00:00:00Z`);
+  if (Number.isNaN(at)) return [];
+  try {
+    const { occurrences } = expandOccurrences(data, {
+      budget: createRecurrenceBudget(), type,
+      // a day on any wall clock lies within a day either side of the UTC day
+      from: new Date(at - 86400000).toISOString().replace(/\.\d{3}Z$/, 'Z'),
+      until: new Date(at + 2 * 86400000).toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    });
+    return occurrences.map((o) => o.recurrenceId.value).filter((value) => value.startsWith(date));
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Turn a refusal of cancelOccurrences/restoreOccurrences into the error the
- * client gets: one about a name given becomes a ValidationError saying to use
- * the occurrence's start exactly as listed, in this parameter; any other
- * refusal is the library's message as a ValidationError; anything else a
- * failure of the library, passed on as it is.
+ * client gets.
+ *
+ * A refusal about the names given is composed here, in dav-mcp's terms only:
+ * which names, why (no occurrence — with the ones that day; not cancelled —
+ * with the ones that are; not in the series' form), and the one remedy, to
+ * use the name exactly as the listings show it. The library's own message
+ * names its functions, a remedy of its own and values in the compact iCalendar
+ * form, so it is not passed on for these. The names at fault are found by
+ * trying each on its own. Any other refusal is the library's message as a
+ * ValidationError; anything else a failure of the library, passed on as it is.
  *
  * @param {Error} error
  * @param {'cancel_occurrences'|'restore_occurrences'} parameter
- * @param {string} listing - the tool that lists the names
+ * @param {{data: string, names: string[], type: 'vevent'|'vtodo'}} call - the object
+ *   the edit was applied to, the names given, the component type
  */
-export function explainOccurrenceRefusal(error, parameter, listing) {
+export function explainOccurrenceRefusal(error, parameter, { data, names, type }) {
   if (!isUpdateFieldsError(error)) return error;
-  // the library names its own functions; the caller knows the parameters
-  const message = error.message.replace(/\.$/, '')
-    .replace(/\bcancelOccurrences\b/g, 'cancel_occurrences')
-    .replace(/\brestoreOccurrences\b/g, 'restore_occurrences');
   const details = { code: error.code, remedy: error.remedy, parameter };
-  if (NAME_REFUSALS.has(error.code)) {
-    const what = parameter === 'restore_occurrences'
-      ? `a cancelled occurrence exactly as ${listing} lists it under "Cancelled occurrences"`
-      : `the occurrence's original start exactly as ${listing} lists it ("Occurrence ID")`;
-    return new ValidationError(`${parameter}: ${message}. Use ${what}, and call again.`, details);
+  if (!NAME_REFUSALS.has(error.code)) {
+    const message = error.message.replace(/\.$/, '')
+      .replace(/\bcancelOccurrences\b/g, 'cancel_occurrences')
+      .replace(/\brestoreOccurrences\b/g, 'restore_occurrences');
+    return new ValidationError(`${parameter}: ${message}`, details);
   }
-  return new ValidationError(`${parameter}: ${message}`, details);
+
+  const series = seriesOf(data, type);
+  const refused = names.map((name) => {
+    try {
+      EDITS[parameter](data, [name], { type });
+      return null;
+    } catch (each) {
+      return isUpdateFieldsError(each) && NAME_REFUSALS.has(each.code) ? { name, code: each.code } : null;
+    }
+  }).filter(Boolean);
+  if (!refused.length) refused.push({ name: names.join(', '), code: error.code });
+
+  const reasons = refused.map(({ name, code }) => {
+    if (code === 'NOT_IN_LIST') {
+      const cancelled = (series?.exclusions ?? []).map(labelled);
+      return `"${name}" is not cancelled (${cancelled.length ? `cancelled are: ${cancelled.slice(0, 10).join(', ')}${cancelled.length > 10 ? ', ...' : ''}` : 'nothing is cancelled'})`;
+    }
+    if (code === 'UNKNOWN_OCCURRENCE' || code === 'UNMATCHED_EXDATE') {
+      const thatDay = occurrencesThatDay(data, name, type);
+      return `"${name}" is no occurrence of this series${thatDay.length ? ` (that day it has ${thatDay.join(', ')})` : ''}`;
+    }
+    return `"${name}" is not an occurrence name of this series`;
+  });
+  const form = series?.naming
+    ? ` Occurrences are named by their original start as ${series.naming.describe}` +
+      ` (e.g. "${series.naming.name(series.naming.master.getFirstPropertyValue('dtstart'), series.naming.tzid).text}").`
+    : '';
+  const listed = parameter === 'restore_occurrences' ? '"Cancelled occurrences"' : '"Occurrence ID"';
+  return new ValidationError(
+    `${parameter}: ${reasons.join('; ')}.${form} Use the name exactly as ${SOURCES[type]} list it (${listed}), and call again.`,
+    { ...details, names: refused.map(({ name }) => name) },
+  );
 }
 
 /**
@@ -128,20 +206,19 @@ export function explainOccurrenceRefusal(error, parameter, listing) {
  */
 export function editOccurrences(data, { cancel = [], restore = [] }, type) {
   if (!cancel.length && !restore.length) return { data, change: null };
-  const listing = type === 'vtodo' ? 'todo_query' : 'calendar_query';
   let edited = data;
   if (restore.length) {
     try {
       edited = restoreOccurrences(edited, restore, { type });
     } catch (error) {
-      throw explainOccurrenceRefusal(error, 'restore_occurrences', listing);
+      throw explainOccurrenceRefusal(error, 'restore_occurrences', { data: edited, names: restore, type });
     }
   }
   if (cancel.length) {
     try {
       edited = cancelOccurrences(edited, cancel, { type });
     } catch (error) {
-      throw explainOccurrenceRefusal(error, 'cancel_occurrences', listing);
+      throw explainOccurrenceRefusal(error, 'cancel_occurrences', { data: edited, names: cancel, type });
     }
   }
   return { data: edited, change: describeOccurrenceEdit(data, edited, type) };
