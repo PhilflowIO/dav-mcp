@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { cancelOccurrences, restoreOccurrences, isUpdateFieldsError } from 'tsdav-utils';
 import { ValidationError } from '../../error-handler.js';
+import { formatSuccess } from '../../formatters.js';
 import { describeOccurrenceEdit } from '../../occurrence-names.js';
 
 /**
@@ -144,4 +145,20 @@ export function editOccurrences(data, { cancel = [], restore = [] }, type) {
     }
   }
   return { data: edited, change: describeOccurrenceEdit(data, edited, type) };
+}
+
+/**
+ * The reply for an update that writes nothing: the object is left as it is,
+ * so its etag stays valid and no new one is reported.
+ *
+ * @param {'Event'|'Todo'} noun
+ * @param {string} why
+ * @param {Object|null} [change] - what editOccurrences found, if it ran
+ */
+export function notChanged(noun, why, change = null) {
+  return formatSuccess(`${noun} not changed`, {
+    written: false,
+    message: `Not written: ${why}; nothing was sent to the server`,
+    ...(change && { occurrences: change }),
+  });
 }

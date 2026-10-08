@@ -30,6 +30,8 @@ jest.unstable_mockModule('tsdav-utils', () => ({
   cancelOccurrences: jest.fn(),
   restoreOccurrences: jest.fn(),
   resolveZone: jest.fn(() => null),
+  expandOccurrences: jest.fn(),
+  createRecurrenceBudget: jest.fn(),
   isUpdateFieldsError: jest.fn(() => false),
 }));
 
@@ -181,7 +183,8 @@ describe('Error propagation (no internal try-catch)', () => {
       await updateTodoFields.handler({
         todo_url: 'http://example.com/cal/todo.ics',
         todo_etag: '"etag-123"',
-        fields: {},
+        // a call that asks for nothing returns before any fetch
+        fields: { SUMMARY: 'Test' },
       });
     } catch (e) {
       caught = e;

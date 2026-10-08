@@ -143,7 +143,9 @@ describe('cancel_occurrences adds to the exclusions (#126)', () => {
   test('cancelling an occurrence already cancelled changes nothing and says so', async () => {
     storedEvent = calendar('VEVENT', SERIES);
     const reply = await setEvent({ cancel_occurrences: ['2026-12-24T10:00:00'] });
-    expect(written()).toBe(storedEvent);
+    // nothing to write, so nothing is written (no new etag on the server)
+    expect(updateCalendarObject).not.toHaveBeenCalled();
+    expect(reply.content[0].text).toContain('✅ **Event not changed**');
     expect(reply.content[0].text).toContain('- **Occurrences**: no change: already as asked\n');
   });
 
@@ -263,4 +265,25 @@ describe('listed names round-trip through the handlers (#126)', () => {
     expect(writtenTodo()).toContain('EXDATE;TZID=Europe/Berlin:20261019T080000');
     expect(reply.content[0].text).toContain('- **Occurrences**: cancelled 2026-10-19T08:00:00\n');
   });
+});
+
+describe('a call that asks for nothing writes nothing (#126)', () => {
+  test.each([
+    [{}],
+    [{ cancel_occurrences: [], restore_occurrences: [] }],
+    [{ fields: {}, cancel_occurrences: [] }],
+  ])('update_event %j: no fetch, no write, a clear reply', async (args) => {
+    storedEvent = calendar('VEVENT', SERIES);
+    const reply = await setEvent(args);
+    expect(updateCalendarObject).not.toHaveBeenCalled();
+    expect(reply.content[0].text).toContain('✅ **Event not changed**');
+    expect(reply.content[0].text).toContain('- **Message**: Not written: nothing to change');
+  });
+
+  test('update_todo with empty lists: no write', async () => {
+    const reply = await setTodo({ cancel_occurrences: [] });
+    expect(updateTodo).not.toHaveBeenCalled();
+    expect(reply.content[0].text).toContain('✅ **Todo not changed**');
+  });
+
 });

@@ -5,7 +5,7 @@ import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
 import { z } from 'zod';
 import { writeFields, reconcileTodoDates } from '../shared/ical-dates.js';
 import { assertFieldUpdatable } from '../../ical-components.js';
-import { occurrenceEditSchema, refineOccurrenceEdits, editOccurrences } from '../shared/occurrence-edits.js';
+import { occurrenceEditSchema, refineOccurrenceEdits, editOccurrences, notChanged } from '../shared/occurrence-edits.js';
 
 /**
  * Schema for field-based todo updates
@@ -128,6 +128,12 @@ export const updateTodoFields = {
   },
   handler: async (args) => {
     const validated = validateInput(updateTodoFieldsSchema, args);
+    const fields = validated.fields || {};
+    const writesFields = Object.keys(fields).length > 0;
+    // empty lists are no request; a call that asks for nothing writes nothing
+    if (!writesFields && !validated.cancel_occurrences?.length && !validated.restore_occurrences?.length) {
+      return notChanged('Todo', 'nothing to change: no fields, cancel_occurrences or restore_occurrences were given');
+    }
     const client = tsdavManager.getCalDavClient();
 
     // Step 1: Fetch the current todo from server
@@ -154,8 +160,10 @@ export const updateTodoFields = {
 
     // Step 3: Update fields (field-agnostic; date-typed values such as DUE
     // are encoded by tsdav-utils), then keep DUE/DTSTART/DURATION coherent
-    const fields = validated.fields || {};
-    const updatedData = Object.keys(fields).length > 0 || !occurrences.change
+    if (!writesFields && occurrences.data === todoObject.data) {
+      return notChanged('Todo', 'the occurrences were already as asked', occurrences.change);
+    }
+    const updatedData = writesFields
       ? reconcileTodoDates(writeFields(occurrences.data, fields), Object.keys(fields))
       : occurrences.data;
 
@@ -172,7 +180,7 @@ export const updateTodoFields = {
     return formatSuccess('Todo updated successfully', {
       ...etagAfterWrite(updateResponse),
       updated_fields: Object.keys(validated.fields || {}),
-      message: Object.keys(fields).length || !occurrences.change
+      message: writesFields
         ? `Updated ${Object.keys(fields).length} field(s): ${Object.keys(fields).join(', ')}`
         : 'Updated occurrences only; no fields changed',
       ...(occurrences.change && { occurrences: occurrences.change }),

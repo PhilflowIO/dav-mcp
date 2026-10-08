@@ -5,7 +5,7 @@ import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
 import { z } from 'zod';
 import { writeEventFields } from '../shared/ical-dates.js';
 import { assertFieldUpdatable } from '../../ical-components.js';
-import { occurrenceEditSchema, refineOccurrenceEdits, editOccurrences } from '../shared/occurrence-edits.js';
+import { occurrenceEditSchema, refineOccurrenceEdits, editOccurrences, notChanged } from '../shared/occurrence-edits.js';
 
 /**
  * Schema for field-based event updates
@@ -151,6 +151,13 @@ export const updateEventFields = {
   },
   handler: async (args) => {
     const validated = validateInput(updateEventFieldsSchema, args);
+    const fields = validated.fields || {};
+    const moving = validated.start_date !== undefined;
+    const writesFields = moving || Object.keys(fields).length > 0;
+    // empty lists are no request; a call that asks for nothing writes nothing
+    if (!writesFields && !validated.cancel_occurrences?.length && !validated.restore_occurrences?.length) {
+      return notChanged('Event', 'nothing to change: no fields, dates, cancel_occurrences or restore_occurrences were given');
+    }
     const client = tsdavManager.getCalDavClient();
 
     // Step 1: Fetch the current event from server
@@ -179,10 +186,10 @@ export const updateEventFields = {
     // updateFields call on the series master, so an RRULE UNTIL in fields
     // follows the new DTSTART (date-typed values such as RECURRENCE-ID are
     // encoded by tsdav-utils). An explicit end replaces a stored DURATION.
-    const fields = validated.fields || {};
-    const moving = validated.start_date !== undefined;
-    const writesFields = moving || Object.keys(fields).length > 0;
-    const updatedData = writesFields || !occurrences.change
+    if (!writesFields && occurrences.data === calendarObject.data) {
+      return notChanged('Event', 'the occurrences were already as asked', occurrences.change);
+    }
+    const updatedData = writesFields
       ? writeEventFields(occurrences.data, fields, moving
         ? { startDate: validated.start_date, endDate: validated.end_date }
         : undefined)
@@ -203,7 +210,7 @@ export const updateEventFields = {
     return formatSuccess('Event updated successfully', {
       ...etagAfterWrite(updateResponse),
       updated_fields: changedFields,
-      message: changedFields.length || !occurrences.change
+      message: changedFields.length
         ? `Updated ${changedFields.length} field(s): ${changedFields.join(', ')}`
         : 'Updated occurrences only; no fields changed',
       ...(occurrences.change && { occurrences: occurrences.change }),
