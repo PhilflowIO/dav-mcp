@@ -44,9 +44,9 @@ guide). Never invent entries.
   the etag exactly as returned, quotes included. Use
   `update_event`/`update_contact`/`update_todo`; the `*_raw` tools only for a
   complete object the user supplies.
-- On a conflict (412, "modified in the meantime"), do not retry with the
-  same etag. Read the item again, tell the user what changed, and ask before
-  applying the change to the new version.
+- If an update fails with `412 Precondition Failed`, the item changed since
+  you read it. Do not retry with the same etag. Read it again, tell the user
+  what changed, and ask before applying the change to the new version.
 - Delete only what the user named, after checking it is the exact item.
   `delete_calendar` removes every event in the calendar.
 - `create_event` adds no attendees and sends no invitations. When the user
@@ -67,9 +67,10 @@ only that day or the whole series before changing anything.
 Tell the user the cause in plain words and what to do, instead of repeating
 the call:
 
-- Authentication error: the server rejected the username or password. They
-  re-enter it with `/config`; iCloud, and Nextcloud with two-factor login,
-  need an app password.
-- Not found: the URL changed; search again.
+- `Invalid credentials` / `401 Unauthorized`: the server rejected the
+  username or password. In Claude Code they re-enter it in `/plugin` →
+  Installed → dav-mcp → Configure options; iCloud, and Nextcloud with
+  two-factor login, need an app password.
+- `404` / not found: the URL changed; search again.
 - Server not reachable or no calendars: the server URL must be the DAV
   address (e.g. ending in `/remote.php/dav/` for Nextcloud).
