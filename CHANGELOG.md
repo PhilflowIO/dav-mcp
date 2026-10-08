@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.4.0] - 2026-10-09
+
 ### Breaking changes
 - **Write tools refuse parameters they do not take.** A create, update or
   delete call with an unknown parameter is a validation error naming it,
@@ -114,9 +116,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with the occurrences that day (or the cancelled ones) and how the series
   names occurrences, and saying to use the name exactly as listed. Names
   refer to the series as it is before the call; restores, then cancels, then
-  fields and dates are applied, so a move in the same call takes the new exclusions along. On an
-  event or todo that does not recur both are refused (instead of excluding
-  its only occurrence). A new RRULE that would leave an exclusion naming no
+  fields and dates are applied, so a move in the same call takes the new
+  exclusions along. On an event or todo that does not recur both are refused
+  (instead of excluding its only occurrence). A new RRULE that would leave an exclusion naming no
   occurrence is refused as a validation error that names the way out:
   `restore_occurrences` in the same call, or the raw tool.
 - **`update_todo` writes into the to-do, not an event next to it** (#107).
@@ -128,14 +130,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   error** (#107). The refusals above reached the client as an internal error
   (-32603). They now come back as a validation error (-32002) that keeps the
   reason and the suggested rule, and names the tools to use instead.
-- **Date-order mistakes are reported as invalid input** (refs #115, in part). An event
-  ending before it starts, or a todo moved by `DTSTART` alone past its due
-  date, answered with an internal error; it is now a validation error, and the
-  todo case says to give `DTSTART` and `DUE` together.
-- **Unreadable values are reported as invalid input** (refs #115, in part). A date or rule
-  the update tools cannot read (`EXDATE: "garbage"`, an unknown rule part) is
-  now a validation error that names the property to correct, for events,
-  to-dos and contacts alike. A stored object that cannot be parsed is reported
+- **Date-order mistakes are reported as invalid input** (refs #115, in
+  part). An event ending before it starts, or a todo moved by `DTSTART` alone
+  past its due date, answered with an internal error; it is now a validation
+  error, and the todo case says to give `DTSTART` and `DUE` together.
+- **Unreadable values are reported as invalid input** (refs #115, in part).
+  A date or rule the update tools cannot read (`EXDATE: "garbage"`, an
+  unknown rule part) is now a validation error that names the property to
+  correct, for events, to-dos and contacts alike. A stored object that cannot be parsed is reported
   as a CalDAV/CardDAV error, with the raw tool that can replace it.
 - **Free/busy and event queries judge each occurrence as it now stands**
   (#98). A recurring series was expanded from its original dates, and every
@@ -153,8 +155,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "no occurrence falls inside the queried range". All of them now use the
   CalDAV time-range test (RFC 4791 9.9): it starts before the range ends and
   ends after it starts; one without duration counts when it starts in
-  [start, end). A floating time is read on the clock of the machine running dav-mcp
-  throughout.
+  [start, end). A floating time is read on the clock of the machine running
+  dav-mcp throughout.
 - **Recurring events are expanded by tsdav-utils** (#98), the reader the
   write side uses, so dav-mcp and the library agree on which occurrences a
   series has. An override replaces the occurrence its RECURRENCE-ID names,
