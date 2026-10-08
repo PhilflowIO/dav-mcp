@@ -118,12 +118,22 @@ jobs:
           echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
           echo "✅ Tag $GITHUB_REF_NAME matches $NAME@$VERSION (prerelease: $PRERELEASE)"
 
-      # Only for `node` and `npm pack`; nothing is installed in this job, so
-      # no dependency code runs before the tarball and its sha256 exist.
+      # Only for `node` and `npm pack`; no dependency is installed in this
+      # job, so no dependency code runs before the tarball and its sha256
+      # exist.
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: '22.x'
+          node-version: 24
+
+      # npm 10 runs a `prepare` script on `npm pack` even with
+      # --ignore-scripts; npm 12 runs none. The same pinned npm as the
+      # publish job.
+      - name: Use npm 12.2.0
+        run: |
+          npm install --global --ignore-scripts --no-audit --no-fund npm@12.2.0
+          echo "node $(node --version), npm $(npm --version)"
+          [ "$(npm --version)" = 12.2.0 ] || { echo "❌ ERROR: expected npm 12.2.0"; exit 1; }
 
       # The tarball must hold the files committed under the tag. In a fresh
       # checkout with nothing installed nothing should differ; --ignored also
@@ -144,6 +154,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           # --ignore-scripts: nothing has to run to produce the package.
+          npm --version
           npm pack --ignore-scripts
           ASSET="dav-mcp-$VERSION.tgz"
           mkdir -p "$RUNNER_TEMP/release"
