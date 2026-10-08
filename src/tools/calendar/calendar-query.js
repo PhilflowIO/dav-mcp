@@ -2,7 +2,9 @@ import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, calendarQuerySchema } from '../../validation.js';
 import { formatEventList } from '../../formatters.js';
 import { buildTimeRangeOptions, limitResults, DEFAULT_RESULT_LIMIT } from '../shared/helpers.js';
+import ICAL from 'ical.js';
 import { shownEvent } from '../../ical-components.js';
+import { ZONE_SLACK_MS } from '../../occurrences.js';
 import { instantOf, hasAbsoluteInstant } from '../shared/ical-dates.js';
 import { parseObjects, textValues, containsText, dateKey, orNull } from '../shared/query-objects.js';
 
@@ -167,7 +169,7 @@ function shownOf(parsed, matches, timeRange) {
 function listedStart(shown, rangeStart) {
   if (!shown) return null;
   if (!shown.occurrence && shown.event.isRecurring()) {
-    return seriesBound(shown.vevent, rangeStart);
+    return seriesBound(shown.vevent, rangeStart, longestIn(shown.vevent.parent));
   }
   return startOf(shown.item.component, shown.occurrence?.startDate);
 }
@@ -175,38 +177,44 @@ function listedStart(shown, rangeStart) {
 /**
  * A cheap key never later than listedStart, so limitResults only has to
  * resolve the occurrences that can still make the cut. A series' occurrence
- * in the range starts no earlier than the later of the series start and the
- * range start — unless an override moved it earlier, so its overrides' own
- * starts count too. Detached instances: the earliest of them.
+ * touches the range (src/occurrences.js), so it starts no earlier than the
+ * later of the series start and the range start less the longest duration
+ * in the object — unless an override moved it earlier, so the overrides' own
+ * starts count too (a THISANDFUTURE override's later occurrences start no
+ * earlier than it does). Detached instances: the earliest of them.
  */
 function startLowerBound(parsed, rangeStart) {
   if (!parsed.root || !parsed.main) return null;
   const all = parsed.root.getAllSubcomponents('vevent');
   const recurring = parsed.main.hasProperty('rrule') || parsed.main.hasProperty('rdate');
+  const longest = recurring ? longestIn(parsed.root) : 0;
   const starts = all
-    .map((vevent) => (recurring && vevent === parsed.main ? seriesBound(vevent, rangeStart) : startOf(vevent)))
+    .map((vevent) => (recurring && vevent === parsed.main ? seriesBound(vevent, rangeStart, longest) : startOf(vevent)))
     .filter((start) => start !== null);
   return starts.length ? Math.min(...starts) : null;
 }
 
-// The widest gap between a wall-clock time read in the host's zone and UTC:
-// offsets run from UTC-12 to UTC+14.
-const HOST_ZONE_SLACK = 26 * 3600 * 1000;
-
 /**
- * The bound for a series: no occurrence in the range starts before the range
- * does — as an instant. A floating DTSTART (or a TZID without its VTIMEZONE)
- * is compared with the range as wall-clock time but keyed by instantOf in the
- * host's zone, so its occurrence can key up to a zone offset earlier than the
- * range start; the bound gives it that slack. Slack only means a few more
+ * The bound for a series: no occurrence touching the range starts before the
+ * range does, less its duration — as an instant. A floating DTSTART (or a
+ * TZID without its VTIMEZONE) is keyed by instantOf in the host's zone, so
+ * the bound gives it a zone offset of slack. Slack only means a few more
  * candidates are resolved at the boundary.
  */
-function seriesBound(master, rangeStart) {
+function seriesBound(master, rangeStart, longest) {
   const start = startOf(master);
   if (start === null) return null;
   const dtstart = master.getFirstProperty('dtstart');
   const absolute = orNull(() => hasAbsoluteInstant(dtstart)) === true;
-  return Math.max(start, absolute ? rangeStart : rangeStart - HOST_ZONE_SLACK);
+  return Math.max(start, rangeStart - longest - (absolute ? 0 : ZONE_SLACK_MS));
+}
+
+/** The longest duration of any VEVENT in the object, in ms (0 if unreadable) */
+function longestIn(root) {
+  const durations = (root?.getAllSubcomponents('vevent') ?? [])
+    .map((vevent) => orNull(() => new ICAL.Event(vevent, { exceptions: [] }).duration.toSeconds() * 1000))
+    .filter(Number.isFinite);
+  return Math.max(0, ...durations);
 }
 
 function startOf(vevent, time) {

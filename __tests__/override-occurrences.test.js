@@ -1,5 +1,6 @@
 import { describe, test, expect, jest, beforeEach } from '@jest/globals';
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import ICAL from 'ical.js';
 import { connectTo } from './support/request-origins.js';
@@ -22,8 +23,10 @@ jest.unstable_mockModule('../src/tsdav-client.js', () => ({
 
 const { calculateFreeBusy } = await import('../src/tools/shared/freebusy.js');
 const { formatEvent } = await import('../src/formatters.js');
-const { readSeries, seriesOccurrences } = await import('../src/ical-components.js');
+const { readSeries, shownEvent } = await import('../src/ical-components.js');
+const { relateSeries, seriesOccurrences } = await import('../src/occurrences.js');
 const { calendarQuery } = await import('../src/tools/calendar/calendar-query.js');
+const { listEvents } = await import('../src/tools/calendar/list-events.js');
 const { freeBusyQuery } = await import('../src/tools/calendar/freebusy-query.js');
 
 // Issue #98: a daily 09:00-10:00 UTC series from the 1st of October 2026
@@ -37,6 +40,11 @@ const object = (...vevents) => ({
   etag: '"1"',
   data: ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//test//EN', ...vevents.flat(), 'END:VCALENDAR'].join('\r\n'),
 });
+const BERLIN = ['BEGIN:VTIMEZONE', 'TZID:Europe/Berlin',
+  'BEGIN:DAYLIGHT', 'TZOFFSETFROM:+0100', 'TZOFFSETTO:+0200', 'DTSTART:19700329T020000',
+  'RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU', 'END:DAYLIGHT',
+  'BEGIN:STANDARD', 'TZOFFSETFROM:+0200', 'TZOFFSETTO:+0100', 'DTSTART:19701025T030000',
+  'RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU', 'END:STANDARD', 'END:VTIMEZONE'];
 
 const day = (date) => ({ start: new Date(`${date}T00:00:00Z`), end: new Date(`${date}T23:59:59Z`) });
 const iso = (d) => d.toISOString().slice(0, 16);
@@ -142,6 +150,119 @@ describe('queries and display list occurrences by their effective time (#98)', (
   });
 });
 
+describe('one definition of "in the range" everywhere (RFC 4791 9.9)', () => {
+  const tools = async (range) => {
+    const text = async (tool, args) => (await tool.handler({ ...args, ...range })).content[0].text;
+    return {
+      freebusy: await text(freeBusyQuery, { include_event_details: true }),
+      query: await text(calendarQuery, {}),
+      list: await text(listEvents, { calendar_url: CALENDAR_URL }),
+    };
+  };
+  const WINDOW = { time_range_start: '2026-10-14T10:00:00Z', time_range_end: '2026-10-14T12:00:00Z' };
+
+  test('a meeting running into the window is in it for free/busy, calendar_query and list_events alike', async () => {
+    stored = [object(vevent('SUMMARY:Workshop', 'DTSTART:20261001T090000Z', 'DTEND:20261001T110000Z', 'RRULE:FREQ=DAILY'))];
+    const { freebusy, query, list } = await tools(WINDOW);
+    expect(freebusy).toContain('### Busy (1)');
+    for (const text of [freebusy, query, list]) {
+      expect(text).toContain('Workshop');
+      expect(text).toContain('October 14, 2026, 09:00 AM UTC to October 14, 2026, 11:00 AM UTC');
+      expect(text).not.toContain('no occurrence');
+    }
+  });
+
+  test('one starting exactly at the window end is in none of them', async () => {
+    stored = [object(vevent('SUMMARY:Edge', 'DTSTART:20261001T120000Z', 'DTEND:20261001T130000Z', 'RRULE:FREQ=DAILY'))];
+    const { freebusy, query, list } = await tools(WINDOW);
+    expect(freebusy).toContain('Nothing blocks this window');
+    expect(freebusy).toContain('Events behind the busy blocks (0)');
+    for (const text of [query, list]) {
+      expect(text).toContain('no occurrence of this series falls inside the queried range');
+      expect(text).not.toContain('October 14');
+    }
+  });
+
+  test('an occurrence without duration is in [start, end)', () => {
+    const series = (root) => relateSeries(readSeries(root, 'vevent').master, []);
+    const root = new ICAL.Component(ICAL.parse(object(vevent('SUMMARY:Tick', 'DTSTART:20261001T100000Z', 'RRULE:FREQ=DAILY')).data));
+    const at = (from, to) => seriesOccurrences(series(root), { start: Date.parse(from), end: Date.parse(to) })
+      .occurrences.map((o) => o.startDate.toString());
+    expect(at('2026-10-14T10:00:00Z', '2026-10-14T11:00:00Z')).toEqual(['2026-10-14T10:00:00Z']);
+    expect(at('2026-10-14T09:00:00Z', '2026-10-14T10:00:00Z')).toEqual([]);
+  });
+});
+
+describe('RECURRENCE-ID is matched by the instant it names', () => {
+  test('a THISANDFUTURE override with a UTC RECURRENCE-ID on a Berlin series moves it by its own move', () => {
+    const series = object(BERLIN,
+      vevent('SUMMARY:Daily', 'DTSTART;TZID=Europe/Berlin:20261001T100000', 'DTEND;TZID=Europe/Berlin:20261001T103000', 'RRULE:FREQ=DAILY'),
+      vevent('SUMMARY:Daily moved', 'RECURRENCE-ID;RANGE=THISANDFUTURE:20261005T080000Z',
+        'DTSTART;TZID=Europe/Berlin:20261005T110000', 'DTEND;TZID=Europe/Berlin:20261005T113000'));
+    // 11:00 CEST
+    expect(busyOn(series, '2026-10-07')).toEqual(['2026-10-07T09:00-09:30']);
+    expect(busyOn(series, '2026-10-04')).toEqual(['2026-10-04T08:00-08:30']);
+  });
+
+  test('a UTC RECURRENCE-ID on a floating series names the host-clock occurrence', () => {
+    // the override of 13 October 09:00 on this host's clock, written in UTC
+    const recurrenceId = new Date(2026, 9, 13, 9).toISOString().replace(/[-:]|\.000/g, '');
+    const series = object(
+      vevent('SUMMARY:Floating', 'DTSTART:20261001T090000', 'DTEND:20261001T100000', 'RRULE:FREQ=DAILY'),
+      vevent('SUMMARY:Floating', `RECURRENCE-ID:${recurrenceId}`, 'DTSTART:20261013T090000', 'DTEND:20261013T100000',
+        'STATUS:CANCELLED'));
+    const local = (h) => new Date(2026, 9, 13, h);
+    const { busy } = calculateFreeBusy([series], { start: local(0), end: local(23) });
+    expect(busy).toEqual([]);
+  });
+
+  test('a THISANDFUTURE override of no occurrence, or of an EXDATEd one, is ignored', () => {
+    for (const extra of [[], ['EXDATE:20261005T100000Z']]) {
+      const rid = extra.length ? '20261005T100000Z' : '20261005T100700Z';
+      const series = object(
+        vevent('SUMMARY:x', 'DTSTART:20261001T100000Z', 'DTEND:20261001T103000Z', 'RRULE:FREQ=DAILY', ...extra),
+        vevent('SUMMARY:x', `RECURRENCE-ID;RANGE=THISANDFUTURE:${rid}`, `DTSTART:${rid}`, 'DURATION:PT30M', 'STATUS:CANCELLED'));
+      expect(busyOn(series, '2026-10-07')).toEqual(['2026-10-07T10:00-10:30']);
+    }
+  });
+});
+
+describe('STATUS and TRANSP', () => {
+  test('are compared case-insensitively', () => {
+    const series = object(MASTER(), override('20261013T090000Z', '20261013T090000Z', '20261013T100000Z', 'STATUS:cancelled'),
+      override('20261014T090000Z', '20261014T090000Z', '20261014T100000Z', 'TRANSP:transparent'));
+    expect(busyOn(series, '2026-10-13')).toEqual([]);
+    expect(busyOn(series, '2026-10-14')).toEqual([]);
+  });
+
+  test('an override without STATUS of a cancelled series is not cancelled: it is a full component', () => {
+    const series = object(MASTER('STATUS:CANCELLED'), override('20261013T090000Z', '20261013T120000Z', '20261013T130000Z'));
+    expect(busyOn(series, '2026-10-13')).toEqual(['2026-10-13T12:00-13:00']);
+    expect(busyOn(series, '2026-10-12')).toEqual([]);
+  });
+});
+
+describe('the step cap is never silent', () => {
+  const window = { time_range_start: '2026-10-12T00:00:00Z', time_range_end: '2026-10-12T12:00:00Z' };
+
+  test('free/busy names a series it could not expand fully instead of reporting the time free', async () => {
+    // COUNT with BYDAY cannot start near the range: ~400 000 steps to get there
+    stored = [object(vevent('SUMMARY:Polling', 'DTSTART:20260101T000000Z', 'DURATION:PT10M',
+      'RRULE:FREQ=MINUTELY;BYDAY=MO,TU,WE,TH,FR;COUNT=999999'))];
+    const text = (await freeBusyQuery.handler(window)).content[0].text;
+    expect(text).toContain('**Warning**');
+    expect(text).toContain(`Polling (${CALENDAR_URL}standup.ics)`);
+    expect(text).not.toContain('Nothing blocks this window');
+  });
+
+  test('hourly and minutely series start near the range like daily ones', async () => {
+    stored = [object(vevent('SUMMARY:Hourly', 'DTSTART:20250101T000000Z', 'DURATION:PT10M', 'RRULE:FREQ=HOURLY'))];
+    const text = (await freeBusyQuery.handler(window)).content[0].text;
+    expect(text).toContain('### Busy (12)');
+    expect(text).not.toContain('Warning');
+  });
+});
+
 describe('the expansion still starts near the range', () => {
   beforeEach(() => jest.restoreAllMocks());
 
@@ -151,33 +272,60 @@ describe('the expansion still starts near the range', () => {
       override('20310601T090000Z', '20261014T150000Z', '20261014T160000Z'),
     ).data));
     const { master, overrides } = readSeries(root, 'vevent');
-    const event = new ICAL.Event(master);
-    overrides.forEach((o) => event.relateException(o));
 
     const next = jest.spyOn(ICAL.RecurExpansion.prototype, 'next');
-    const start = Date.UTC(2026, 9, 14) / 1000;
-    const { occurrences, truncated } = seriesOccurrences(event, { start, end: start + 86400 },
-      (o) => o.startDate.toUnixTime() >= start && o.startDate.toUnixTime() < start + 86400);
+    const start = Date.UTC(2026, 9, 14);
+    const { occurrences, truncated } = seriesOccurrences(relateSeries(master, overrides), { start, end: start + 86400000 });
 
     expect(truncated).toBe(false);
     expect(occurrences.map((o) => o.item.summary)).toEqual(['Daily', 'Standup (01)']);
     // ~9700 days since DTSTART, ~1800 more to the override: a walk covers neither
     expect(next.mock.calls.length).toBeLessThan(100);
   });
+
+  test('200 overrides moved in from years away are checked in one pass', () => {
+    // DAILY;COUNT=20000 from 2000, overrides of 2027-2030 moved into one week of 2026
+    const lines = [...BERLIN, ...vevent('SUMMARY:Daily', 'DTSTART;TZID=Europe/Berlin:20000101T100000',
+      'DTEND;TZID=Europe/Berlin:20000101T110000', 'RRULE:FREQ=DAILY;COUNT=20000')];
+    for (let i = 0; i < 200; i++) {
+      const rid = new Date(Date.UTC(2027, 0, 1) + i * 7 * 86400000).toISOString().slice(0, 10).replace(/-/g, '');
+      lines.push(...vevent(`SUMMARY:ov ${i}`, `RECURRENCE-ID;TZID=Europe/Berlin:${rid}T100000`,
+        `DTSTART;TZID=Europe/Berlin:202610${12 + (i % 5)}T${String(6 + (i % 10)).padStart(2, '0')}${String(i % 60).padStart(2, '0')}00`,
+        'DURATION:PT1H'));
+    }
+    const heavy = object(lines);
+    const week = { start: new Date('2026-10-12T00:00:00Z'), end: new Date('2026-10-19T00:00:00Z') };
+
+    const started = performance.now();
+    const { busy, incomplete } = calculateFreeBusy([heavy], week);
+    const shown = shownEvent(new ICAL.Component(ICAL.parse(heavy.data)),
+      { start: week.start.toISOString(), end: week.end.toISOString() });
+    const elapsed = performance.now() - started;
+
+    expect(incomplete).toEqual([]);
+    expect(busy.length).toBeGreaterThan(7);
+    expect(shown.item.summary).toMatch(/^ov /);
+    expect(elapsed).toBeLessThan(1000);
+  });
 });
 
 describe('differential: fast path against a full expansion from DTSTART', () => {
-  test.each(['UTC', 'America/New_York', 'Asia/Kolkata', 'Pacific/Kiritimati'])(
-    'random series, overrides and ranges agree (host %s)', (zone) => {
-      const script = fileURLToPath(new URL('./fixtures/override-differential.mjs', import.meta.url));
-      const out = execFileSync(process.execPath, [script, '80', '98'], {
+  test('random series, overrides and ranges agree in four host zones', async () => {
+    const script = fileURLToPath(new URL('./fixtures/override-differential.mjs', import.meta.url));
+    const zones = ['UTC', 'America/New_York', 'Asia/Kolkata', 'Pacific/Kiritimati'];
+    // one child per zone, in parallel: the zone is fixed per process
+    const results = await Promise.all(zones.map(async (zone) => {
+      const { stdout } = await promisify(execFile)(process.execPath, [script, '100', '98'], {
         env: { ...process.env, TZ: zone, LOG_LEVEL: 'silent' },
         encoding: 'utf8',
       });
-      const result = JSON.parse(out.trim().split('\n').pop());
+      return { zone, ...JSON.parse(stdout.trim().split('\n').pop()) };
+    }));
+    for (const result of results) {
       expect(result.examples).toEqual([]);
-      expect(result).toMatchObject({ compared: 320, deviations: 0, truncated: 0 });
-    },
-    60000,
-  );
+      expect(result).toMatchObject({ compared: 400, deviations: 0 });
+      // the step cap is exercised, and only ever drops occurrences
+      expect(result.truncated).toBeGreaterThan(0);
+    }
+  }, 90000);
 });

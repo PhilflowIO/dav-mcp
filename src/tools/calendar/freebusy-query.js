@@ -80,7 +80,7 @@ export const freeBusyQuery = {
       end: new Date(validated.time_range_end),
     };
 
-    const { busy, free, blocking } = calculateFreeBusy(events, range);
+    const { busy, free, blocking, incomplete } = calculateFreeBusy(events, range);
 
     return formatFreeBusy({
       busy,
@@ -88,6 +88,7 @@ export const freeBusyQuery = {
       range,
       calendarCount: calendarsToSearch.length,
       events: validated.include_event_details ? blocking : null,
+      incomplete,
     });
   },
 };

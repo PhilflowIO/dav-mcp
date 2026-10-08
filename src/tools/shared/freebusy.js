@@ -1,6 +1,7 @@
 import ICAL from 'ical.js';
-import { toInstant } from './ical-dates.js';
-import { readSeries, seriesOccurrences } from '../../ical-components.js';
+import { shareTimezones } from './ical-dates.js';
+import { readSeries, blocksTime } from '../../ical-components.js';
+import { relateSeries, seriesOccurrences, spanOf, touchesRange } from '../../occurrences.js';
 
 /**
  * Client-side free/busy calculation.
@@ -13,75 +14,66 @@ import { readSeries, seriesOccurrences } from '../../ical-components.js';
  */
 
 /**
- * Busy intervals contributed by a single calendar object.
+ * What a calendar object contributes to free/busy: the occurrences of it that
+ * block time in the range — the same occurrences calendar_query lists
+ * (src/occurrences.js), less those that do not block (see blocksTime) or
+ * last no time at all. All-day events block their whole span.
  *
- * Skips anything that does not actually occupy time (see blocksTime) — for a
- * recurring event, judged per occurrence. All-day events count as busy for
- * their whole span.
+ * `shown` is the view the event details print (formatEvent's `shown`), built
+ * from these occurrences rather than by expanding the series a second time.
+ *
+ * @param {ICAL.Component} root - the parsed VCALENDAR
+ * @param {{start: number, end: number}} range - ms
+ * @returns {{occurrences: Object[], truncated: boolean, shown: Object|null}}
  */
-function busyIntervalsOf(calendarObject, range) {
-  const intervals = [];
-
-  let comp;
-  try {
-    comp = new ICAL.Component(ICAL.parse(calendarObject.data));
-  } catch {
-    // A single unparseable object must not take the whole answer down
-    return intervals;
-  }
-
-  const series = readSeries(comp, 'vevent');
-  if (!series) return intervals;
-
-  const add = (start, end) => {
-    const from = Math.max(toInstant(start), range.start.getTime());
-    const to = Math.min(toInstant(end), range.end.getTime());
-    if (to > from) intervals.push({ start: from, end: to });
+export function busyOccurrencesOf(root, range) {
+  const none = { occurrences: [], truncated: false, shown: null };
+  const series = readSeries(root, 'vevent');
+  if (!series) return none;
+  const blocks = (occurrence) => {
+    const { start, end } = spanOf(occurrence);
+    return end > start && blocksTime(occurrence.item.component);
   };
+  const own = (events) => events
+    .filter((event) => event.startDate)
+    .map((event) => ({ recurrenceId: null, startDate: event.startDate, endDate: event.endDate, item: event }))
+    .filter((o) => {
+      const { start, end } = spanOf(o);
+      return touchesRange(start, end, range) && blocks(o);
+    });
 
   // Detached instances stored without their master (see readSeries): no
-  // series to expand, but each instance occupies its own time.
+  // series to expand, but each instance occupies its own time
   if (series.detached.length > 0) {
-    for (const instance of series.detached) {
-      if (!blocksTime(instance)) continue;
-      const event = new ICAL.Event(instance);
-      add(event.startDate, event.endDate);
-    }
-    return intervals;
+    const occurrences = own(series.detached.map((instance) => new ICAL.Event(instance)));
+    if (occurrences.length === 0) return none;
+    const { item } = occurrences[0];
+    return { occurrences, truncated: false, shown: view(item.component, item, null, occurrences) };
   }
 
-  const { master } = series;
-  const event = new ICAL.Event(master);
-  for (const override of series.overrides) {
-    event.relateException(override);
-  }
-
+  const related = relateSeries(series.master, series.overrides);
+  const { event } = related;
   if (!event.isRecurring()) {
-    if (blocksTime(master)) add(event.startDate, event.endDate);
-    return intervals;
+    const occurrences = own([event]);
+    if (occurrences.length === 0) return none;
+    return { occurrences, truncated: false, shown: view(series.master, event, null, occurrences) };
   }
 
-  // Each occurrence as it now stands: an override's own time, and its own
-  // STATUS and TRANSP — a cancelled occurrence of a busy series is free, a
-  // moved one is busy where it moved to (see seriesOccurrences)
-  const window = { start: range.start.getTime() / 1000, end: range.end.getTime() / 1000 };
-  const busy = (occurrence) => blocksTime(occurrence.item.component)
-    && toInstant(occurrence.startDate) < range.end.getTime()
-    && toInstant(occurrence.endDate) > range.start.getTime();
-  for (const occurrence of seriesOccurrences(event, window, busy).occurrences) {
-    add(occurrence.startDate, occurrence.endDate);
-  }
-
-  return intervals;
+  const { occurrences, truncated } = seriesOccurrences(related, range, { filter: blocks });
+  return {
+    occurrences,
+    truncated,
+    shown: occurrences.length ? view(series.master, event, occurrences[0], occurrences) : null,
+  };
 }
 
-/**
- * Does a VEVENT occupy time? TRANSP:TRANSPARENT is the RFC 5545 way of saying
- * "this does not block me", and a cancelled event does not either.
- */
-export function blocksTime(vevent) {
-  return vevent.getFirstPropertyValue('transp') !== 'TRANSPARENT' &&
-    vevent.getFirstPropertyValue('status') !== 'CANCELLED';
+function view(vevent, event, occurrence, occurrences) {
+  return {
+    vevent, event, occurrence,
+    item: occurrence ? occurrence.item : event,
+    outsideRange: false, expansionTruncated: false,
+    occurrences,
+  };
 }
 
 /**
@@ -115,17 +107,44 @@ function mergeIntervals(intervals) {
  * @returns {{
  *   busy: Array<{start: Date, end: Date}>,
  *   free: Array<{start: Date, end: Date}>,
- *   blocking: Array,
- * }} blocking: the objects that make up the busy time, in input order — not
- *   the ones the server returned for the range but that block none of it
- *   (transparent, cancelled, or only their cancelled occurrences in range)
+ *   blocking: Array<{object: Object, shown: Object}>,
+ *   incomplete: Array<{object: Object, summary: string}>,
+ * }} blocking: each object that makes up busy time, in input order, with the
+ *   occurrences of it that do (`shown`, as formatEvent takes it) — not the
+ *   objects the server returned for the range that block none of it.
+ *   incomplete: series too dense to expand fully (the iteration cap): busy
+ *   time from them may be missing, so the free time is not certain.
  */
 export function calculateFreeBusy(calendarObjects, range) {
-  const perObject = calendarObjects.map(object => busyIntervalsOf(object, range));
-  const busy = mergeIntervals(perObject.flat());
+  const window = { start: range.start.getTime(), end: range.end.getTime() };
+  const blocking = [];
+  const incomplete = [];
+  const intervals = [];
 
+  for (const object of calendarObjects) {
+    let root;
+    try {
+      root = shareTimezones(new ICAL.Component(ICAL.parse(object.data)));
+    } catch {
+      // A single unparseable object must not take the whole answer down
+      continue;
+    }
+    const { occurrences, truncated, shown } = busyOccurrencesOf(root, window);
+    if (truncated) {
+      const summary = readSeries(root, 'vevent')?.master.getFirstPropertyValue('summary');
+      incomplete.push({ object, summary: summary ? String(summary) : '' });
+    }
+    if (occurrences.length === 0) continue;
+    blocking.push({ object, shown });
+    for (const occurrence of occurrences) {
+      const { start, end } = spanOf(occurrence);
+      intervals.push({ start: Math.max(start, window.start), end: Math.min(end, window.end) });
+    }
+  }
+
+  const busy = mergeIntervals(intervals);
   const free = [];
-  let cursor = range.start.getTime();
+  let cursor = window.start;
 
   for (const interval of busy) {
     if (interval.start > cursor) {
@@ -133,13 +152,14 @@ export function calculateFreeBusy(calendarObjects, range) {
     }
     cursor = Math.max(cursor, interval.end);
   }
-  if (cursor < range.end.getTime()) {
-    free.push({ start: new Date(cursor), end: new Date(range.end) });
+  if (cursor < window.end) {
+    free.push({ start: new Date(cursor), end: new Date(window.end) });
   }
 
   return {
     busy: busy.map(i => ({ start: new Date(i.start), end: new Date(i.end) })),
     free,
-    blocking: calendarObjects.filter((_, index) => perObject[index].length > 0),
+    blocking,
+    incomplete,
   };
 }

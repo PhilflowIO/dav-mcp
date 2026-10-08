@@ -213,20 +213,33 @@ export function hasAbsoluteInstant(property) {
  */
 function absoluteInstant(property, value = property.getFirstValue()) {
   if (property.type === 'date' || value.isDate) return toInstant(value);
-  const tzid = property.getParameter('tzid');
-  if (!tzid) {
+  if (!property.getParameter('tzid')) {
     return /Z$/i.test(String(property.toJSON()[3])) ? value.toUnixTime() * 1000 : null;
   }
+  const zone = documentZone(property);
+  if (!zone) return null;
+  const local = new ICAL.Time({
+    year: value.year, month: value.month, day: value.day,
+    hour: value.hour, minute: value.minute, second: value.second,
+  }, zone);
+  return local.toUnixTime() * 1000;
+}
+
+/**
+ * The zone a property's TZID names, from the document's own VTIMEZONE; null
+ * without a TZID or without that VTIMEZONE.
+ *
+ * @param {ICAL.Property} property
+ * @returns {ICAL.Timezone|null}
+ */
+export function documentZone(property) {
+  const tzid = property.getParameter('tzid');
+  if (!tzid) return null;
   let calendar = property.parent;
   while (calendar?.parent) calendar = calendar.parent;
   const vtimezone = calendar?.getAllSubcomponents('vtimezone')
     .find((zone) => zone.getFirstPropertyValue('tzid') === tzid);
-  if (!vtimezone) return null;
-  const local = new ICAL.Time({
-    year: value.year, month: value.month, day: value.day,
-    hour: value.hour, minute: value.minute, second: value.second,
-  }, timezoneFor(vtimezone));
-  return local.toUnixTime() * 1000;
+  return vtimezone ? timezoneFor(vtimezone) : null;
 }
 
 /**
@@ -299,7 +312,7 @@ function notAfter(later, earlier) {
 }
 
 /** Dates, UTC, floating, or one TZID: values in one frame order as wall clocks */
-function frameOf(property) {
+export function frameOf(property) {
   if (property.type === 'date') return 'date';
   const tzid = property.getParameter('tzid');
   if (tzid) return `tzid:${tzid}`;
