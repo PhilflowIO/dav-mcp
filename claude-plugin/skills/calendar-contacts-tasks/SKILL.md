@@ -10,9 +10,10 @@ The tools named here belong to the dav-mcp MCP server (in Claude Code:
 server, so every change shows up in the calendar apps the user and anyone
 sharing their calendars see.
 
-If no dav-mcp tools are available in this session, say so: they run only in
-Claude Code with the dav-mcp plugin (claude.ai chat and Cowork load just this
-guide). Never invent entries.
+If no dav-mcp tools are available in this session, say so and never invent
+entries. The tools come from the dav-mcp server: the dav-mcp plugin in Claude
+Code, the dav-mcp bundle in Claude Desktop, or a manual MCP setup elsewhere.
+claude.ai chat and Cowork load only this guide.
 
 ## Find before you list
 
