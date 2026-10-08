@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **tsdav-utils 0.7.0** (`@philflow/tsdav-utils`), for its bounded,
+  zone-correct occurrence expansion. Its write semantics change too: moving a
+  series' DTSTART now moves its overrides with it, and an `EXDATE` or
+  `RDATE` given in `update_event`'s fields is the whole list, replacing the
+  one stored rather than adding to it (#126 tracks cancelling a single
+  occurrence).
+
 ### Fixed
 - **Free/busy and event queries judge each occurrence as it now stands**
   (#98). A recurring series was expanded from its original dates, and every
@@ -25,31 +33,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   CalDAV time-range test (RFC 4791 9.9): it starts before the range ends and
   ends after it starts; one without duration counts when it starts in
   [start, end). A floating time is read on the server's clock throughout.
-- **RECURRENCE-ID names an instant** (#98). An override whose
-  RECURRENCE-ID is written in another form than the series' DTSTART (UTC for
-  a series in Europe/Berlin, say) did not match its occurrence, and a
-  `RANGE=THISANDFUTURE` override in that form moved the later occurrences by
-  the wrong amount. A THISANDFUTURE override applies to every later
-  occurrence; one whose RECURRENCE-ID is no occurrence of the series, or an
-  EXDATEd one, is ignored like any such override. A date-time
-  RECURRENCE-ID on an all-day series names the date it is written on (a
-  Berlin-midnight id for the 13th used to cancel the 12th), and EXDATEs are
-  matched by instant like RECURRENCE-IDs, so a floating series reads both on
-  the server's clock.
+- **Recurring events are expanded by tsdav-utils** (#98), the reader the
+  write side uses, so dav-mcp and the library agree on which occurrences a
+  series has. An override replaces the occurrence its RECURRENCE-ID names,
+  read in the series' frame by the instant it names: an id written in UTC
+  for a series in Europe/Berlin used not to match, and at a DST change a
+  local time shown twice is its first pass (RFC 5545 3.3.5; ical.js was up
+  to an hour off there). A floating id is read by its digits, a date-time id
+  on an all-day series by its date (a Berlin-midnight id for the 13th used
+  to cancel the 12th), a date id on a timed series names that day's
+  midnight, and a UTC id on a floating series names nothing. An EXDATE
+  excludes by instant, a date on a timed series its whole day; a floating
+  EXDATE in a zoned series, or a UTC one in a floating series, names
+  nothing. A series the library cannot read (a UTC `UNTIL` on a floating
+  series, say) is reported incomplete rather than guessed at.
+- **THISANDFUTURE and moved overrides** (#98). A `RANGE=THISANDFUTURE`
+  override moves every later occurrence by its own move, on its own wall
+  clock; one whose RECURRENCE-ID is no occurrence, or an EXDATEd one, is
+  ignored like any such override. An override moved into the range from
+  anywhere in the series is found from the overrides themselves.
 - **Recurring events are expanded from the range, not from their start**
   (#98): from the start of the period that holds the range, for SECONDLY to
-  WEEKLY rules (BYDAY, BYMONTH, BYHOUR, BYMINUTE, BYSECOND) and for a COUNT
-  rule without BY parts. An override moved into the range from years away
-  is found from the overrides themselves, each checked in a few steps from
-  the period it names. `freebusy_query` used to walk every series from its
-  start.
-- **One step budget per series and query** (#98). The cap of 10 000 steps
-  applied to each walk through a series, so a series with many overrides
-  could take minutes; 25 000 steps now bound everything one query does with
-  a series. A series that needs more is never reported wrong, only
-  incomplete: `freebusy_query`, which used to answer "Nothing blocks this
-  window" for it, names it and says its busy time may be missing, and an
-  event list says an earlier occurrence may exist.
+  WEEKLY rules with BYDAY, BYMONTH or a BYHOUR/BYMINUTE/BYSECOND that
+  expands the rule (BYHOUR on DAILY, BYMINUTE on HOURLY), and for a COUNT
+  rule without BY parts. Other rules, a limiting BYHOUR (on HOURLY, say)
+  among them, are walked from DTSTART. `freebusy_query` used to walk every
+  series from its start.
+- **No series can stall a tool call** (#98). ical.js tests rule candidates
+  one by one without a bound of its own: `FREQ=SECONDLY;BYHOUR=9` from 1950
+  took 27 s, fifty `MINUTELY;BYHOUR=10` series 45 s per call, and
+  `FREQ=DAILY;BYMONTH=2;BYMONTHDAY=30` never returned. Every candidate, and
+  every call into the library, is now charged to one budget per tool call,
+  across all its series. A series that needs more is never reported wrong,
+  only incomplete: `freebusy_query`, which used to answer "Nothing blocks
+  this window" for it, names it and says its busy time may be missing, and
+  an event list says the series could not be expanded fully.
 - **Listed events show their STATUS** (e.g. CANCELLED; for a series, the
   occurrence listed), and `freebusy_query`'s event details list exactly the
   occurrences that make up the busy time.
