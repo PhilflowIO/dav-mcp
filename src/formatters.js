@@ -781,6 +781,12 @@ export function formatSuccess(operation, details = {}) {
     output += `- **Message**: ${details.message}\n`;
   }
 
+  // cancel_occurrences / restore_occurrences: what the exclusions now are,
+  // by name, so the model can tell the user what was cancelled or restored
+  if (details.occurrences?.summary) {
+    output += `- **Occurrences**: ${details.occurrences.summary}\n`;
+  }
+
   output += `\n---\n<details>\n<summary>Rohdaten (JSON)</summary>\n\n\`\`\`json\n`;
   output += JSON.stringify({ success: true, ...details }, null, 2);
   output += '\n```\n</details>';

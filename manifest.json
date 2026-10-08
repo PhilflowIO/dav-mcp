@@ -101,7 +101,7 @@
     },
     {
       "name": "update_event",
-      "description": "PREFERRED: Update event fields without iCal formatting. Use start_date/end_date/all_day to move an event or convert it between all-day and timed. Use fields for everything else: SUMMARY (title), DESCRIPTION (details), LOCATION (place), STATUS (TENTATIVE/CONFIRMED/CANCELLED), and any other RFC 5545 property including custom X-* properties (e.g., X-ZOOM-LINK, X-MEETING-ROOM)."
+      "description": "PREFERRED: Update event fields without iCal formatting. Use start_date/end_date/all_day to move an event or convert it between all-day and timed. Use fields for everything else: SUMMARY (title), DESCRIPTION (details), LOCATION (place), STATUS (TENTATIVE/CONFIRMED/CANCELLED), and any other RFC 5545 property including custom X-* properties (e.g., X-ZOOM-LINK, X-MEETING-ROOM). Recurring events: fields and dates change the whole series; to cancel single occurrences use cancel_occurrences, to bring cancelled ones back restore_occurrences (the other occurrences and exclusions stay as they are)."
     },
     {
       "name": "update_event_raw",
@@ -177,7 +177,7 @@
     },
     {
       "name": "update_todo",
-      "description": "PREFERRED: Update todo fields without iCal formatting. Supports: SUMMARY (title), DESCRIPTION (details), STATUS (NEEDS-ACTION/IN-PROCESS/COMPLETED/CANCELLED), PRIORITY (0-9), DUE (due date), PERCENT-COMPLETE (0-100), and any RFC 5545 VTODO property including custom X-* properties."
+      "description": "PREFERRED: Update todo fields without iCal formatting. Supports: SUMMARY (title), DESCRIPTION (details), STATUS (NEEDS-ACTION/IN-PROCESS/COMPLETED/CANCELLED), PRIORITY (0-9), DUE (due date), PERCENT-COMPLETE (0-100), and any RFC 5545 VTODO property including custom X-* properties. Recurring todos: fields change the whole series; to cancel single occurrences use cancel_occurrences, to bring cancelled ones back restore_occurrences (the other occurrences and exclusions stay as they are)."
     },
     {
       "name": "update_todo_raw",

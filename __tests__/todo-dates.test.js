@@ -297,10 +297,11 @@ describe('create_todo uses the same encoder', () => {
 });
 
 describe('the other field tools get the same encoding', () => {
-  test('update_event: an EXDATE with an offset keeps its instant', async () => {
+  test('update_event: a cancelled occurrence named with an offset keeps its instant', async () => {
+    // EXDATE is no field since #126; cancel_occurrences writes it, encoded the same way
     storedEvent = vevent('DTSTART:20261020T160000Z', 'DTEND:20261020T170000Z', 'RRULE:FREQ=DAILY');
     await updateEventFields.handler({
-      event_url: EVENT_URL, event_etag: '"1"', fields: { EXDATE: '2026-10-26T18:00:00+02:00' },
+      event_url: EVENT_URL, event_etag: '"1"', cancel_occurrences: ['2026-10-26T18:00:00+02:00'],
     });
     const data = updateCalendarObject.mock.calls[0][0].calendarObject.data;
     expect(lines(data, 'EXDATE')).toEqual(['EXDATE:20261026T160000Z']);

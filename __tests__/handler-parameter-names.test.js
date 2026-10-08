@@ -25,6 +25,12 @@ jest.unstable_mockModule('tsdav-utils', () => ({
   // imported by the master selection (src/ical-components.js); these tests
   // never read a component back
   seriesMaster: jest.fn(),
+  // imported by the occurrence edits and names (src/tools/shared/occurrence-edits.js,
+  // src/occurrence-names.js); no test here cancels or lists an occurrence
+  cancelOccurrences: jest.fn(),
+  restoreOccurrences: jest.fn(),
+  resolveZone: jest.fn(() => null),
+  isUpdateFieldsError: jest.fn(() => false),
 }));
 
 // --- Mock tsdavManager ---

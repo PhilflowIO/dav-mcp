@@ -5,6 +5,7 @@ import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
 import { z } from 'zod';
 import { writeEventFields } from '../shared/ical-dates.js';
 import { assertFieldUpdatable } from '../../ical-components.js';
+import { occurrenceEditSchema, refineOccurrenceEdits, editOccurrences } from '../shared/occurrence-edits.js';
 
 /**
  * Schema for field-based event updates
@@ -24,7 +25,13 @@ const updateEventFieldsSchema = z.object({
   start_date: dateOrDateTime.optional(),
   end_date: dateOrDateTime.optional(),
   all_day: z.boolean().optional(),
+  ...occurrenceEditSchema,
 }).superRefine((data, ctx) => {
+  // EXDATE/RDATE are lists: written as a field they replace the whole list
+  // (tsdav-utils 0.7.0), so single occurrences go through their own
+  // parameters; see src/tools/shared/occurrence-edits.js
+  refineOccurrenceEdits(data, ctx, 'update_event');
+
   // The dates are kept out of the map: moving one end alone is how an event
   // ends up ending before it starts, and writing DTEND on an event stored as
   // DTSTART + DURATION leaves both present, which RFC 5545 3.6.1 forbids.
@@ -80,7 +87,7 @@ export const updateEventFields = {
     idempotentHint: true,
     openWorldHint: true,
   },
-  description: 'PREFERRED: Update event fields without iCal formatting. Use start_date/end_date/all_day to move an event or convert it between all-day and timed. Use fields for everything else: SUMMARY (title), DESCRIPTION (details), LOCATION (place), STATUS (TENTATIVE/CONFIRMED/CANCELLED), and any other RFC 5545 property including custom X-* properties (e.g., X-ZOOM-LINK, X-MEETING-ROOM).',
+  description: 'PREFERRED: Update event fields without iCal formatting. Use start_date/end_date/all_day to move an event or convert it between all-day and timed. Use fields for everything else: SUMMARY (title), DESCRIPTION (details), LOCATION (place), STATUS (TENTATIVE/CONFIRMED/CANCELLED), and any other RFC 5545 property including custom X-* properties (e.g., X-ZOOM-LINK, X-MEETING-ROOM). Recurring events: fields and dates change the whole series; to cancel single occurrences use cancel_occurrences, to bring cancelled ones back restore_occurrences (the other occurrences and exclusions stay as they are).',
   inputSchema: {
     type: 'object',
     properties: {
@@ -94,7 +101,7 @@ export const updateEventFields = {
       },
       fields: {
         type: 'object',
-        description: 'Fields to update, keyed by bare UPPERCASE property name (e.g., SUMMARY, LOCATION, STATUS). Any RFC 5545 property or custom X-* property is supported, EXCEPT the dates: use start_date/end_date/all_day for DTSTART, DTEND and DURATION. Property parameters such as "VALUE=DATE" are not accepted here, and values must not contain line breaks.',
+        description: 'Fields to update, keyed by bare UPPERCASE property name (e.g., SUMMARY, LOCATION, STATUS). Any RFC 5545 property or custom X-* property is supported, EXCEPT the dates: use start_date/end_date/all_day for DTSTART, DTEND and DURATION, and cancel_occurrences/restore_occurrences instead of EXDATE (RDATE is not accepted either). Property parameters such as "VALUE=DATE" are not accepted here, and values must not contain line breaks.',
         additionalProperties: {
           type: 'string'
         },
@@ -125,6 +132,16 @@ export const updateEventFields = {
         type: 'string',
         description: 'New end, in the same form as start_date (a datetime without a zone is read in the event\'s own timezone, like start_date). For an all-day event the end is EXCLUSIVE: a single day on 2026-05-25 is start_date "2026-05-25" and end_date "2026-05-26".'
       },
+      cancel_occurrences: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Recurring event: cancel these occurrences, each named by its ORIGINAL start exactly as calendar_query lists it ("Occurrence ID"; e.g. "2026-12-24T09:00:00" for a series in a named zone, "2026-12-24T09:00:00Z" for a UTC series, "2026-12-24" for an all-day series). Adds to the exclusions already there; a changed version of the occurrence is removed too. Names refer to the series as it is before this call.'
+      },
+      restore_occurrences: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Recurring event: bring back these cancelled occurrences, each named exactly as calendar_query lists it under "Cancelled occurrences" (or by the occurrence\'s original start). Removes only those exclusions. Applied before cancel_occurrences, fields and dates.'
+      },
       all_day: {
         type: 'boolean',
         description: 'Optional. All-day is inferred from the date format, so this is only needed to state the intent explicitly; it must agree with the format of start_date/end_date. This is the supported way to convert an event between all-day and timed.'
@@ -151,20 +168,29 @@ export const updateEventFields = {
     // a field update edits the series master; refuse one that has none
     assertFieldUpdatable(calendarObject, 'vevent');
 
-    // Step 2: Write the fields and, when moving the event, its dates in one
+    // Step 2: Restore, then cancel the occurrences named — as the series is
+    // before this call — so a move below takes the new exclusions along.
+    const occurrences = editOccurrences(calendarObject.data, {
+      cancel: validated.cancel_occurrences,
+      restore: validated.restore_occurrences,
+    }, 'vevent');
+
+    // Step 3: Write the fields and, when moving the event, its dates in one
     // updateFields call on the series master, so an RRULE UNTIL in fields
-    // follows the new DTSTART (date-typed values such as EXDATE or
-    // RECURRENCE-ID are encoded by tsdav-utils). An explicit end replaces a
-    // stored DURATION.
+    // follows the new DTSTART (date-typed values such as RECURRENCE-ID are
+    // encoded by tsdav-utils). An explicit end replaces a stored DURATION.
     const fields = validated.fields || {};
     const moving = validated.start_date !== undefined;
-    const updatedData = writeEventFields(calendarObject, fields, moving
-      ? { startDate: validated.start_date, endDate: validated.end_date }
-      : undefined);
+    const writesFields = moving || Object.keys(fields).length > 0;
+    const updatedData = writesFields || !occurrences.change
+      ? writeEventFields(occurrences.data, fields, moving
+        ? { startDate: validated.start_date, endDate: validated.end_date }
+        : undefined)
+      : occurrences.data;
     const changedFields = Object.keys(fields);
     if (moving) changedFields.push('DTSTART', 'DTEND');
 
-    // Step 3: Send the updated event back to server
+    // Step 4: Send the updated event back to server
     const updateResponse = await client.updateCalendarObject({
       calendarObject: {
         url: validated.event_url,
@@ -177,7 +203,8 @@ export const updateEventFields = {
     return formatSuccess('Event updated successfully', {
       ...etagAfterWrite(updateResponse),
       updated_fields: changedFields,
-      message: `Updated ${changedFields.length} field(s): ${changedFields.join(', ')}`
+      message: `Updated ${changedFields.length} field(s): ${changedFields.join(', ')}`,
+      ...(occurrences.change && { occurrences: occurrences.change }),
     });
   }
 };

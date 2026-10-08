@@ -5,6 +5,7 @@ import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
 import { z } from 'zod';
 import { writeFields, reconcileTodoDates } from '../shared/ical-dates.js';
 import { assertFieldUpdatable } from '../../ical-components.js';
+import { occurrenceEditSchema, refineOccurrenceEdits, editOccurrences } from '../shared/occurrence-edits.js';
 
 /**
  * Schema for field-based todo updates
@@ -15,8 +16,14 @@ import { assertFieldUpdatable } from '../../ical-components.js';
 const updateTodoFieldsSchema = z.object({
   todo_url: davUrl('Todo URL must be a valid URL'),
   todo_etag: z.string().min(1, 'Todo etag is required'),
-  fields: davFieldMapSchema
+  fields: davFieldMapSchema,
+  ...occurrenceEditSchema,
 }).superRefine((data, ctx) => {
+  // EXDATE/RDATE are lists: written as a field they replace the whole list
+  // (tsdav-utils 0.7.0), so single occurrences go through their own
+  // parameters; see src/tools/shared/occurrence-edits.js
+  refineOccurrenceEdits(data, ctx, 'update_todo');
+
   // RFC 5545 3.6.2: a todo ends either at DUE or after DURATION, never both.
   // Setting one replaces the other (see reconcileTodoDates); setting both in
   // one call has no single meaning.
@@ -53,7 +60,7 @@ export const updateTodoFields = {
     idempotentHint: true,
     openWorldHint: true,
   },
-  description: 'PREFERRED: Update todo fields without iCal formatting. Supports: SUMMARY (title), DESCRIPTION (details), STATUS (NEEDS-ACTION/IN-PROCESS/COMPLETED/CANCELLED), PRIORITY (0-9), DUE (due date), PERCENT-COMPLETE (0-100), and any RFC 5545 VTODO property including custom X-* properties.',
+  description: 'PREFERRED: Update todo fields without iCal formatting. Supports: SUMMARY (title), DESCRIPTION (details), STATUS (NEEDS-ACTION/IN-PROCESS/COMPLETED/CANCELLED), PRIORITY (0-9), DUE (due date), PERCENT-COMPLETE (0-100), and any RFC 5545 VTODO property including custom X-* properties. Recurring todos: fields change the whole series; to cancel single occurrences use cancel_occurrences, to bring cancelled ones back restore_occurrences (the other occurrences and exclusions stay as they are).',
   inputSchema: {
     type: 'object',
     properties: {
@@ -67,7 +74,7 @@ export const updateTodoFields = {
       },
       fields: {
         type: 'object',
-        description: 'Fields to update, keyed by bare UPPERCASE property name (e.g., SUMMARY, STATUS, PRIORITY). Any RFC 5545 VTODO property or custom X-* property is supported. Property parameters such as "DUE;VALUE=DATE" are not accepted here, and values must not contain line breaks.',
+        description: 'Fields to update, keyed by bare UPPERCASE property name (e.g., SUMMARY, STATUS, PRIORITY). Any RFC 5545 VTODO property or custom X-* property is supported, except EXDATE and RDATE: use cancel_occurrences/restore_occurrences. Property parameters such as "DUE;VALUE=DATE" are not accepted here, and values must not contain line breaks.',
         additionalProperties: {
           type: 'string'
         },
@@ -105,6 +112,16 @@ export const updateTodoFields = {
             description: 'Completion percentage: 0-100'
           }
         }
+      },
+      cancel_occurrences: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Recurring todo: cancel these occurrences, each named by its ORIGINAL start exactly as todo_query lists it ("Occurrence ID"). Adds to the exclusions already there; a changed version of the occurrence is removed too. Names refer to the series as it is before this call.'
+      },
+      restore_occurrences: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Recurring todo: bring back these cancelled occurrences, each named exactly as todo_query lists it under "Cancelled occurrences". Removes only those exclusions. Applied before cancel_occurrences and fields.'
       }
     },
     required: ['todo_url', 'todo_etag']
@@ -128,14 +145,21 @@ export const updateTodoFields = {
     // a field update edits the series master; refuse one that has none
     assertFieldUpdatable(todoObject, 'vtodo');
 
-    // Step 2: Update fields (field-agnostic; date-typed values such as DUE
-    // are encoded by tsdav-utils), then keep DUE/DTSTART/DURATION coherent
-    const updatedData = reconcileTodoDates(
-      writeFields(todoObject, validated.fields || {}),
-      Object.keys(validated.fields || {})
-    );
+    // Step 2: Restore, then cancel the occurrences named — as the series is
+    // before this call — so a DTSTART move below takes the new exclusions along.
+    const occurrences = editOccurrences(todoObject.data, {
+      cancel: validated.cancel_occurrences,
+      restore: validated.restore_occurrences,
+    }, 'vtodo');
 
-    // Step 3: Send the updated todo back to server
+    // Step 3: Update fields (field-agnostic; date-typed values such as DUE
+    // are encoded by tsdav-utils), then keep DUE/DTSTART/DURATION coherent
+    const fields = validated.fields || {};
+    const updatedData = Object.keys(fields).length > 0 || !occurrences.change
+      ? reconcileTodoDates(writeFields(occurrences.data, fields), Object.keys(fields))
+      : occurrences.data;
+
+    // Step 4: Send the updated todo back to server
     const updateResponse = await client.updateTodo({
       calendarObject: {
         url: validated.todo_url,
@@ -148,7 +172,8 @@ export const updateTodoFields = {
     return formatSuccess('Todo updated successfully', {
       ...etagAfterWrite(updateResponse),
       updated_fields: Object.keys(validated.fields || {}),
-      message: `Updated ${Object.keys(validated.fields || {}).length} field(s): ${Object.keys(validated.fields || {}).join(', ')}`
+      message: `Updated ${Object.keys(validated.fields || {}).length} field(s): ${Object.keys(validated.fields || {}).join(', ')}`,
+      ...(occurrences.change && { occurrences: occurrences.change }),
     });
   }
 };
