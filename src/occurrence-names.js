@@ -182,7 +182,7 @@ export function seriesNames(master, overrides = [], type = null) {
     if (!live) exclusions.push(named);
     else if (!named.exact) inert.push(named);
     else if (named.wholeDay) ([...live].some((value) => value.startsWith(named.text)) ? exclusions : inert).push(named);
-    else (live.has(named.text) ? exclusions : inert).push(named);
+    else (live.has(named.text) || live.has(instantKey(named.text, naming)) ? exclusions : inert).push(named);
   }
   // a name that is cancelled is not also listed as cancelling nothing
   const cancelled = new Set(exclusions.map(({ text }) => text));
@@ -199,6 +199,12 @@ export function seriesNames(master, overrides = [], type = null) {
     .sort((a, b) => a.text.localeCompare(b.text));
 
   return { naming, exclusions, inert, overrides: changed };
+}
+
+/** the instant key a name in a zoned or UTC series has in occurrenceValues' set */
+function instantKey(text, naming) {
+  const at = text.endsWith('Z') ? Date.parse(text) : naming.instantOfWall(text);
+  return Number.isFinite(at) ? `@${at}` : null;
 }
 
 /** does the component recur (RRULE or RDATE)? */
@@ -235,7 +241,11 @@ function occurrenceValues(master, exclusions, type) {
       budget: createRecurrenceBudget(), type, limit: 5000,
       from: at(Math.min(...days) - 2 * 86400000), until: at(Math.max(...days) + 3 * 86400000),
     });
-    return complete ? new Set(occurrences.map((o) => o.recurrenceId.value)) : null;
+    // by name and by instant: an exclusion written as the wall clock past a
+    // DST gap (03:15 for a skipped 02:15) names that occurrence by instant
+    return complete
+      ? new Set(occurrences.flatMap((o) => [o.recurrenceId.value, o.recurrenceId.instant && `@${Date.parse(o.recurrenceId.instant)}`]).filter(Boolean))
+      : null;
   } catch {
     return null;
   }

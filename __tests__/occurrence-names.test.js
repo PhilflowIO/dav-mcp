@@ -85,4 +85,15 @@ describe('listings name occurrences as the update tools take them (#126)', () =>
     ]) }], 'Work').content[0].text;
     expect(text).toContain('- **Cancelled occurrences**: 2026-10-07 (whole day)\n');
   });
+
+  test('an exclusion written past a DST gap names the skipped occurrence and is listed as cancelled', () => {
+    // 02:15 on 29 March 2026 does not exist in Berlin; 03:15 names the same instant
+    const text = formatEvent({ url: EVENT_URL, data: calendar('VEVENT', [
+      'UID:gap@test', 'SUMMARY:Night', 'DTSTART;TZID=Europe/Berlin:20260328T021500',
+      'DTEND;TZID=Europe/Berlin:20260328T024500', 'RRULE:FREQ=DAILY;COUNT=3',
+      'EXDATE;TZID=Europe/Berlin:20260329T031500',
+    ]) }, 'Work');
+    expect(text).toContain('- **Cancelled occurrences**: 2026-03-29T03:15:00\n');
+    expect(text).not.toContain('match no occurrence');
+  });
 });
