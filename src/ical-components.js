@@ -1,6 +1,6 @@
 import ICAL from 'ical.js';
-import { seriesMaster } from 'tsdav-utils';
-import { ValidationError } from './error-handler.js';
+import { seriesMaster, isUpdateFieldsError } from 'tsdav-utils';
+import { ValidationError, CalDAVError, CardDAVError, MCP_ERROR_CODES } from './error-handler.js';
 
 /**
  * Which component of a calendar object a reader shows.
@@ -282,40 +282,29 @@ export function assertFieldUpdatable(object, type) {
   );
 }
 
-/**
- * The refusals of tsdav-utils' updateFields that a field update can run into,
- * recognised by the start of their message.
- *
- * tsdav-utils 0.5.0 throws plain Errors, without a class or code to tell a
- * refusal of the write from a fault, so the message is all there is. Each
- * pattern is anchored on the opening words of one refusal. The series-master
- * and component-type tests run every one of them through the real handlers
- * except "Cannot check that", whose limits take a pathological series to
- * reach. Typed error codes (tsdav-utils 0.6.0) replace this list.
- */
-const LIBRARY_REFUSALS = [
-  // a DTSTART move the rule, an UNTIL, an EXDATE/RDATE or an override cannot follow
-  /^Moving DTSTART \(/,
-  /^DTSTART changed(?:,| to a date,) and /,
-  // a move or a new RRULE/RDATE that would create a twin of an occurrence;
-  // several names read "Writing RRULE and RDATE"
-  /^(?:Moving DTSTART|Writing [A-Za-z ]+) is refused: /,
-  // a new DTSTART/RRULE/RDATE that leaves overrides or EXDATEs naming no
-  // occurrence ("The new DTSTART and RRULE leaves ...")
-  /^The new [A-Za-z ]+ leaves /,
-  // a series too sparse or too irregular to verify within the work limit
-  /^Cannot check that /,
-  /^RECURRENCE-ID cannot be written on the series master/,
-  // the object holds no component of the type the tool writes
-  /^No [A-Z, ]+ found in VCALENDAR/,
-];
+/** The tools of each kind of object a write can be aimed at, vCards included */
+const WRITE_TOOLS = {
+  ...KINDS,
+  vcard: { noun: 'contact', update: 'update_contact', raw: 'update_contact_raw', fetch: 'addressbook_multi_get' },
+};
 
 /** the field-update tool for a component type the object may hold instead */
 const FIELD_TOOL = { VEVENT: 'update_event', VTODO: 'update_todo' };
 
 /**
+ * Codes for a call dav-mcp itself got wrong (an option or an argument of the
+ * wrong shape). No input from the caller can cause or fix them, so they stay
+ * internal errors.
+ */
+const OUR_MISTAKES = new Set(['INVALID_INPUT', 'INVALID_TYPE', 'INVALID_FLOATING_TIME', 'INVALID_ABSOLUTE_TIME']);
+
+/** the parameter an event tool takes a property through, where it is not fields */
+const EVENT_PARAMETER = { DTSTART: 'start_date', DTEND: 'end_date' };
+
+/**
  * What to do with an object that holds no component of the tool's type, from
- * the types the library's message lists ("(it holds: VJOURNAL)").
+ * the types the library's message lists ("(it holds: VJOURNAL)"). The code
+ * says what happened; the list is only read to name the right tool.
  */
 function wrongTypeHint(message, { noun, update }) {
   const held = /\(it holds: ([A-Z, ]+)\)/.exec(message)?.[1].split(/,\s*/) ?? [];
@@ -328,48 +317,78 @@ function wrongTypeHint(message, { noun, update }) {
     : hint;
 }
 
+/** The hint for a refusal, in this tool's terms, chosen by the library's remedy */
+function remedyHint(error, type, tools) {
+  const { update, raw, fetch } = tools;
+  switch (error.remedy) {
+    case 'same-call': {
+      // the message names what to give (RRULE, UNTIL, EXDATE, RDATE);
+      // `property` and `suggestion` make the example concrete
+      const name = error.property ?? 'RRULE';
+      const example = error.suggestion ? `fields.${name} "${error.suggestion}"` : `fields.${name}`;
+      return `Give what it names in fields of this same ${update} call (e.g. ${example}).`;
+    }
+    case 'rewrite-object':
+      return `To change a single occurrence, or to rewrite the whole object: fetch it with ` +
+        `${fetch} (its Raw Data block holds the full text and the etag), edit it, and send ` +
+        `the whole object with ${raw}.`;
+    case 'fix-value': {
+      if (!error.property) return '';
+      const parameter = type === 'vevent' && EVENT_PARAMETER[error.property];
+      return `Correct ${error.property}${parameter ? ` (${parameter})` : ''} and call ${update} again.`;
+    }
+    default:
+      return '';
+  }
+}
+
 /**
- * Turn a refusal of updateFields into a validation error the caller can act
- * on; leave every other error as it is.
+ * Turn what tsdav-utils' updateFields threw into the error the client gets.
  *
- * The library's own text is kept whole: it says why the write is refused and
- * often what to give instead (an RRULE with the weekday of the new start,
- * say). What it cannot know is how its two remedies are spelled in this
- * server, so they are added in the tool's terms:
- *  - "in the same call" means in `fields` of this same update call;
- *  - "rewrite the whole iCalendar object" — and changing one occurrence of a
- *    series, which a field update never does — means fetching the object
- *    with the multi-get tool and sending it back with the raw update tool.
+ * Every refusal is an UpdateFieldsError with a stable `code` and a `remedy`;
+ * anything else is a failure of the library, passed on as it is. Refusals are
+ * the caller's input meeting this object, so they become a ValidationError:
+ * the library's message, which says why and often what to give instead (the
+ * rule with the new start's weekday, say), plus how that remedy is spelled in
+ * this server — fields of the same call, or the multi-get and raw tools.
+ *
+ * Two kinds of refusal are not the caller's to fix and are not reported as
+ * such: a call dav-mcp made wrongly (an option or argument of the wrong shape)
+ * stays an internal error, and a stored object that does not parse is a
+ * CalDAV/CardDAV error — the object on the server is broken, not the input.
  *
  * @param {Error} error - what updateFields threw
- * @param {'vevent'|'vtodo'} type - the component the tool writes
- * @returns {Error} a ValidationError for a refusal, otherwise `error`
+ * @param {'vevent'|'vtodo'} [type] - the component the tool writes; none for a vCard
+ * @returns {Error} the error to throw
  */
 export function explainWriteRefusal(error, type) {
-  const kind = KINDS[type];
-  const message = error?.message;
-  if (!kind || typeof message !== 'string' || !LIBRARY_REFUSALS.some((p) => p.test(message))) {
-    return error;
-  }
+  if (!isUpdateFieldsError(error)) return error;
 
-  const { update, raw, fetch } = kind;
-  const hints = [];
-  if (/^No [A-Z, ]+ found in VCALENDAR/.test(message)) {
-    hints.push(wrongTypeHint(message, kind));
-  } else {
-    if (/in the same call/.test(message)) {
-      hints.push(
-        `In ${update}, "in the same call" means in fields of this same call ` +
-        `(e.g. fields.RRULE, fields.EXDATE).`
-      );
-    }
-    hints.push(
-      `To change a single occurrence, or to rewrite the whole object: fetch it with ` +
-      `${fetch} (its Raw Data block holds the full iCalendar text and the etag), edit ` +
-      `the ${type.toUpperCase()} components, and send the whole object with ${raw}.`
+  const tools = WRITE_TOOLS[type ?? 'vcard'];
+  const message = error.message.replace(/\.$/, '');
+
+  if (OUR_MISTAKES.has(error.code)) {
+    const fault = new Error(`dav-mcp called tsdav-utils wrongly (${error.code}): ${message}`, { cause: error });
+    fault.code = MCP_ERROR_CODES.INTERNAL_ERROR;
+    return fault;
+  }
+  if (error.code === 'INVALID_ICALENDAR') {
+    const Broken = type ? CalDAVError : CardDAVError;
+    return new Broken(
+      `The stored ${tools.noun} cannot be parsed, so it was not changed (${message}). ` +
+      `To repair it, fetch it with ${tools.fetch} and send a corrected object with ${tools.raw}.`,
+      { code: error.code }
     );
   }
-  return new ValidationError(`${message.replace(/\.$/, '')}. ${hints.join(' ')}`);
+
+  const hint = error.code === 'COMPONENT_NOT_FOUND'
+    ? wrongTypeHint(error.message, tools)
+    : remedyHint(error, type, tools);
+  return new ValidationError(hint ? `${message}. ${hint}` : message, {
+    code: error.code, remedy: error.remedy,
+    ...(error.property && { property: error.property }),
+    ...(error.suggestion && { suggestion: error.suggestion }),
+  });
 }
 
 /**

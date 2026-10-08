@@ -20,10 +20,11 @@ import { ValidationError } from '../../error-handler.js';
  * component is refused by the library ("No VTODO found in VCALENDAR (it holds:
  * VEVENT)"). A vCard has no component type, so the contact tools pass none.
  *
- * What the library refuses — a series move the rule cannot follow, a
- * RECURRENCE-ID on the master, no component of the type — is the caller's
- * input meeting this object, not a fault: with a type it comes back as a
- * ValidationError that names the tools to use instead (explainWriteRefusal).
+ * What the library refuses — a value it cannot read, a series move the rule
+ * cannot follow, a RECURRENCE-ID on the master, no component of the type — is
+ * the caller's input meeting this object, not a fault: it comes back as a
+ * ValidationError that says how to fix it with these tools
+ * (explainWriteRefusal).
  *
  * @param {string|{data: string}} object - calendar object or vCard
  * @param {Record<string, string>} fields - bare property name -> value
@@ -34,7 +35,7 @@ export function writeFields(object, fields, type) {
   try {
     return updateFields(object, fields, { floatingTime: 'local', type });
   } catch (error) {
-    throw type ? explainWriteRefusal(error, type) : error;
+    throw explainWriteRefusal(error, type);
   }
 }
 

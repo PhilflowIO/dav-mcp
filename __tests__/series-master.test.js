@@ -41,6 +41,7 @@ const { dueSpan } = await import('../src/tools/shared/ical-dates.js');
 const { parseObjects } = await import('../src/tools/shared/query-objects.js');
 const { formatTodo, formatEvent } = await import('../src/formatters.js');
 const { readSeries, explainWriteRefusal } = await import('../src/ical-components.js');
+const { updateFields } = await import('tsdav-utils');
 const { createToolErrorResponse, MCP_ERROR_CODES } = await import('../src/error-handler.js');
 
 /** what the LLM gets back for a failed call, as the servers build it */
@@ -307,9 +308,8 @@ describe('moving a recurring series (#107)', () => {
     // the library's reason and remedy, whole
     expect(reply.message).toMatch(/^Moving DTSTART \(DTSTART:20261005T090000Z to DTSTART:20261006T090000Z\) does not move the whole series: RRULE:FREQ=WEEKLY;BYDAY=MO,WE has BYDAY, .* Give RRULE in the same call to fit the new start/);
     // and where those remedies live in dav-mcp
-    expect(reply.message).toContain('In update_event, "in the same call" means in fields of this same call (e.g. fields.RRULE, fields.EXDATE).');
-    expect(reply.message).toContain('fetch it with calendar_multi_get');
-    expect(reply.message).toContain('send the whole object with update_event_raw.');
+    expect(reply.message).toMatch(/\. Give what it names in fields of this same update_event call \(e\.g\. fields\.RRULE\)\.$/);
+    expect(reply.data.details).toEqual({ code: 'SERIES_MOVE_REFUSED', remedy: 'same-call', property: 'RRULE' });
     expect(updateCalendarObject).not.toHaveBeenCalled();
   });
 
@@ -341,8 +341,8 @@ describe('moving a recurring series (#107)', () => {
     const reply = await errorReply(setTodo({ RRULE: 'FREQ=WEEKLY;BYDAY=TU' }));
     expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
     expect(reply.message).toMatch(/^The new RRULE leaves the override for RECURRENCE-ID:20261005T080000Z naming no occurrence/);
-    expect(reply.message).toContain('In update_todo, "in the same call" means in fields of this same call (e.g. fields.RRULE, fields.EXDATE).');
-    expect(reply.message).toMatch(/todo_multi_get .* update_todo_raw\.$/);
+    expect(reply.message).toMatch(/\. Give what it names in fields of this same update_todo call \(e\.g\. fields\.RRULE\)\.$/);
+    expect(reply.data.details.code).toBe('ORPHANED_EXCEPTIONS');
     expect(updateTodo).not.toHaveBeenCalled();
   });
 
@@ -371,7 +371,7 @@ describe('moving a recurring series (#107)', () => {
     }));
     expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
     expect(reply.message).toMatch(/^The new DTSTART and RRULE leaves /);
-    expect(reply.message).toMatch(/update_event_raw\.$/);
+    expect(reply.data.details.code).toBe('ORPHANED_EXCEPTIONS');
   });
 
   const BERLIN = [
@@ -439,6 +439,42 @@ describe('moving a recurring series (#107)', () => {
     storedTodo = calendar('VTODO', TODO_OVERRIDE, TODO_MASTER);
     const reply = await setTodo({ DTSTART: '2026-09-28T09:00:00Z' });
     expect(reply.content[0].text).toMatch(/\*\*Series\*\*: series start DTSTART:20260928T080000Z -> DTSTART:20260928T090000Z; moved along: 1 changed occurrence \(override\)/);
+  });
+
+  test('a suggested rule from the library is given as the example', async () => {
+    storedEvent = weekly('FREQ=MONTHLY;BYDAY=MO');
+    const reply = await errorReply(setEvent({ start_date: '2026-10-06T09:00:00Z', end_date: '2026-10-06T10:00:00Z' }));
+    expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+    expect(reply.message).toMatch(/Give what it names in fields of this same update_event call \(e\.g\. fields\.RRULE "FREQ=MONTHLY;BYDAY=TU"\)\.$/);
+    expect(reply.data.details.suggestion).toBe('FREQ=MONTHLY;BYDAY=TU');
+  });
+
+  test('a value the library cannot read names the property to correct', async () => {
+    storedEvent = weekly('FREQ=WEEKLY;BYDAY=MO');
+    const reply = await errorReply(setEvent({ fields: { EXDATE: 'garbage' } }));
+    expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+    expect(reply.message).toMatch(/^EXDATE: "garbage" is not a date or date-time\. .*Correct EXDATE and call update_event again\.$/);
+  });
+
+  test('a stored object that does not parse is a CalDAV error, with the repair route', async () => {
+    storedEvent = 'BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nnot a content line\r\nEND:VEVENT\r\nEND:VCALENDAR';
+    const reply = await errorReply(setEvent({ fields: { SUMMARY: 'x' } }));
+    expect(reply.code).toBe(MCP_ERROR_CODES.CALDAV_ERROR);
+    expect(reply.message).toMatch(/^The stored event cannot be parsed, so it was not changed \(Failed to parse iCal data: .*\)\. To repair it, fetch it with calendar_multi_get and send a corrected object with update_event_raw\.$/);
+    expect(updateCalendarObject).not.toHaveBeenCalled();
+  });
+
+  test('a call dav-mcp got wrong stays an internal error', () => {
+    let thrown;
+    try {
+      updateFields(weekly('FREQ=WEEKLY'), { SUMMARY: 'x' }, { type: 'vfoo' });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown.code).toBe('INVALID_TYPE');
+    const reply = JSON.parse(createToolErrorResponse(explainWriteRefusal(thrown, 'vevent')).content[0].text);
+    expect(reply.code).toBe(MCP_ERROR_CODES.INTERNAL_ERROR);
+    expect(reply.message).toMatch(/^dav-mcp called tsdav-utils wrongly \(INVALID_TYPE\): Invalid type "vfoo"/);
   });
 
   test('any other error is passed on as it is', () => {
