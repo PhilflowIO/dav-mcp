@@ -16,59 +16,54 @@ guide). Never invent entries.
 
 ## Find before you list
 
-- To find events, use `calendar_query` with a time range or a text filter. It
-  searches every calendar when `calendar_url` is omitted, so there is no need
-  to call `list_calendars` first. `list_events` returns a whole calendar and
-  can be thousands of entries.
-- For "when am I free", "am I available", or finding a meeting slot, use
-  `freebusy_query`. It already ignores cancelled and transparent events and
-  expands recurring ones.
-- Contacts: `addressbook_query` by name, email or organization. To-dos:
-  `todo_query` by status, title or due date.
-- Results are capped (default 20). The response says how many matched in
-  total; narrow the range or raise `limit` when the user needs more.
+- Events: `calendar_query` with a time range or text filter. Without
+  `calendar_url` it searches every calendar; no `list_calendars` first.
+  Never `list_events` to look something up: it returns a whole calendar.
+- "When am I free", "am I available", finding a slot: `freebusy_query`,
+  not `calendar_query`. It expands recurring events.
+- Contacts: `addressbook_query` by name, email or organization, never
+  `list_contacts`. To-dos: `todo_query`, never `list_todos`.
 
 ## Dates and time zones
 
-- Turn relative dates ("tomorrow", "next Friday") into ISO 8601 using today's
-  date and the user's time zone. If you don't know the user's zone and the
-  time of day matters, ask.
-- A datetime with `Z` or an offset is an exact instant. A datetime without a
-  zone is read in the event's own zone (updates) or, for new events and
-  to-dos, in the time zone of the computer running dav-mcp, not the calendar
-  server's. Prefer sending an explicit offset.
-- A bare date (`2026-05-25`) makes an all-day event. The end of an all-day
-  event is exclusive: one day on 25 May is start `2026-05-25`, end
-  `2026-05-26`.
-- Start and end must be the same kind: both dates or both datetimes.
+- Resolve relative dates ("morgen", "next Friday") from today's date.
+- A time the user gives ("3 pm", "um 10") is local time. Send it with the
+  user's UTC offset (`2026-10-15T15:00:00+02:00`) or without a zone, never
+  with `Z`. If the zone matters and you don't know it, ask.
+- All-day events take bare dates and the end is exclusive: vacation from 19
+  to 23 October is one event, start `2026-10-19`, end `2026-10-24`.
 
 ## Changing data
 
-- Updates and deletes need the item's `url` and `etag` from a recent read.
-  Read the item first, then change it. If the server reports a conflict, the
-  item changed in the meantime: read it again and show the user what changed
-  before retrying.
-- Use `update_event`, `update_contact` and `update_todo` with the fields that
-  change. The `*_raw` variants replace the whole iCalendar or vCard object;
-  use them only when the user gives you a complete object or needs a property
-  the field tools cannot set.
-- Before deleting, name the exact item (title, date, calendar) and make sure
-  the user asked for that deletion. `delete_calendar` removes the calendar and
-  every event in it.
-- Creating an event does not invite anyone. If attendees should be notified,
-  tell the user that their calendar app or server handles invitations.
+- Read the item first and pass its `url` and `etag` to the update or delete.
+  Use `update_event`/`update_contact`/`update_todo`; the `*_raw` tools only for
+  a complete object the user supplies.
+- On a conflict (412, "modified in the meantime"), do not retry with the
+  same etag. Read the item again, tell the user what changed, and ask before
+  applying the change to the new version.
+- Delete only what the user named, after checking it is the exact item.
+  `delete_calendar` removes every event in the calendar.
+- `create_event` adds no attendees and sends no invitations. When the user
+  wants someone invited, say plainly that the person is not invited and has
+  to be invited from their calendar app; never say an invitation was or will
+  be sent.
 
 ## Recurring events
 
-`calendar_query` returns each recurring series once, dated at its first
-occurrence inside the queried range; it does not list every occurrence. To
-see each time a series blocks, use `freebusy_query`, which expands
-recurrences. Changing a single occurrence or the whole series edits the
-series' iCalendar data; confirm with the user which one they mean before
-updating or deleting a recurring event.
+`calendar_query` returns a series once, dated at its first occurrence in the
+range. `delete_event` on a series deletes every occurrence, and
+`STATUS: CANCELLED` on it cancels all of them. To drop one occurrence ("cancel
+Monday's standup"), tell the user it is a recurring series and ask whether they mean
+only that day or the whole series before changing anything.
 
 ## When something fails
 
-Error messages from dav-mcp name the cause (wrong credentials, unknown URL,
-conflicting etag, invalid date). Relay the cause in plain words and what the
-user can do about it, rather than retrying the same call.
+Tell the user the cause in plain words and what to do, instead of repeating
+the call:
+
+- Authentication error: the server rejected the username or password. They
+  re-enter it with `/config`; iCloud, and Nextcloud with two-factor login,
+  need an app password.
+- Not found: the URL changed; search again.
+- Server not reachable or no calendars: the server URL must be the DAV
+  address (e.g. ending in `/remote.php/dav/` for Nextcloud).
