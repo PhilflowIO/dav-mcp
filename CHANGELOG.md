@@ -19,7 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead in the same call. Likewise, a new rule that would leave a moved or
   cancelled occurrence on a date the series no longer has is refused. The
   reply says what else moved: the old and new rule and how many changed,
-  cancelled and extra dates went along. This comes with tsdav-utils 0.5.0.
+  cancelled and extra dates went along. This comes with tsdav-utils 0.6.0.
+- **A time given in UTC keeps an event in its own time zone** (#107). A
+  start like `2026-10-06T08:00:00Z` for a weekly 09:00 Europe/Berlin series
+  used to turn the whole series into UTC, so after the change to winter time
+  every meeting sat an hour earlier in Berlin. The time is now written in the
+  event's (or to-do's) own zone at the same instant: 10:00 in Berlin, every
+  week. Events and to-dos without a zone are written in UTC as before.
 - **Starting a series later now moves its exceptions too** (#107). A start
   several weeks later used to leave cancelled and moved occurrences where
   they were; it now takes them along, so a cancellation can land on a
@@ -48,6 +54,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ending before it starts, or a todo moved by `DTSTART` alone past its due
   date, answered with an internal error; it is now a validation error, and the
   todo case says to give `DTSTART` and `DUE` together.
+- **Unreadable values are reported as invalid input** (#115). A date or rule
+  the update tools cannot read (`EXDATE: "garbage"`, an unknown rule part) is
+  now a validation error that names the property to correct, for events,
+  to-dos and contacts alike. A stored object that cannot be parsed is reported
+  as a CalDAV/CardDAV error, with the raw tool that can replace it.
 
 ## [4.3.1] - 2026-10-08
 
