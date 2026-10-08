@@ -93,7 +93,7 @@
     },
     {
       "name": "list_events",
-      "description": "List ALL events from a single calendar without filtering. WARNING: Returns all events which can be many thousands - use calendar_query instead for searching with filters (supports multi-calendar search)."
+      "description": "List ALL events from a single calendar without filtering. WARNING: Returns all events which can be many thousands - use calendar_query instead for searching with filters (supports multi-calendar search). With a time range, a recurring event is listed as its first occurrence in the range (one already running at the range start counts); a cancelled occurrence is listed too, with its Status."
     },
     {
       "name": "create_event",
@@ -113,11 +113,11 @@
     },
     {
       "name": "calendar_query",
-      "description": "⭐ PREFERRED: Search and filter calendar events efficiently. Use instead of list_events to avoid loading thousands of entries. Omit calendar_url to search across ALL calendars automatically."
+      "description": "⭐ PREFERRED: Search and filter calendar events efficiently. Use instead of list_events to avoid loading thousands of entries. Omit calendar_url to search across ALL calendars automatically. With a time range, a recurring event is listed as its first occurrence in the range (one already running at the range start counts); a cancelled occurrence is listed too, with its Status."
     },
     {
       "name": "freebusy_query",
-      "description": "Find free and busy time in a date range — use for \"when am I free?\", \"am I available Tuesday afternoon?\" or finding a slot for a new meeting. Searches all calendars unless one is given. Events marked TRANSPARENT (does not block time) and cancelled events are ignored; recurring events are expanded, each occurrence at its own time and status, so a single cancelled occurrence is free and a moved one is busy where it moved to."
+      "description": "Find free and busy time in a date range — use for \"when am I free?\", \"am I available Tuesday afternoon?\" or finding a slot for a new meeting. Searches all calendars unless one is given. Events marked TRANSPARENT (does not block time) and cancelled events are ignored; recurring events are expanded, each occurrence at its own time and status, so a single cancelled occurrence is free and a moved one is busy where it moved to. A recurring event too dense to expand fully is named in a warning."
     },
     {
       "name": "make_calendar",
