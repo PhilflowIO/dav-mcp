@@ -1,3 +1,5 @@
+<img src="icon.png" alt="" width="96" align="right">
+
 # dav-mcp for Claude
 
 Your calendar, your contacts and your to-do list, on your own server, now in
