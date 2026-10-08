@@ -15,7 +15,7 @@ export const updateTodoRaw = {
     idempotentHint: true,
     openWorldHint: true,
   },
-  description: 'ADVANCED: Update todo with raw VTODO iCal data. Requires manual iCal formatting - use update_todo instead for simple field updates (summary, description, status). Only use this if you have complete pre-formatted VTODO data or need to update advanced iCal properties. Also the way to add or remove extra dates (RDATE) of a recurring todo: fetch it with todo_multi_get, edit the RDATE lines, and send the whole object (update_todo does not take RDATE). To cancel or restore single occurrences use update_todo with cancel_occurrences/restore_occurrences instead.',
+  description: 'ADVANCED: Update todo with raw VTODO iCal data. Requires manual iCal formatting - use update_todo instead for simple field updates (summary, description, status). Use this to move or retitle a single occurrence of a recurring todo (fetch it with todo_multi_get, add or edit the VTODO with that occurrence\'s RECURRENCE-ID, send the whole object) and to add or remove extra dates (RDATE). To cancel or restore occurrences, use update_todo with cancel_occurrences/restore_occurrences. Also for complete pre-formatted iCal data or advanced iCal properties.',
   inputSchema: {
     type: 'object',
     properties: {

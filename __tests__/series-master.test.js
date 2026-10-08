@@ -40,7 +40,8 @@ const { calculateFreeBusy } = await import('../src/tools/shared/freebusy.js');
 const { dueSpan } = await import('../src/tools/shared/ical-dates.js');
 const { parseObjects } = await import('../src/tools/shared/query-objects.js');
 const { formatTodo, formatEvent } = await import('../src/formatters.js');
-const { readSeries } = await import('../src/ical-components.js');
+const { readSeries, explainWriteRefusal } = await import('../src/ical-components.js');
+const { updateFields } = await import('tsdav-utils');
 const { createToolErrorResponse, MCP_ERROR_CODES } = await import('../src/error-handler.js');
 
 /** what the LLM gets back for a failed call, as the servers build it */
@@ -262,5 +263,265 @@ describe('several instances without a master (#96)', () => {
     storedTodo = calendar('VTODO', first.filter((l) => !l.startsWith('DTEND')));
     await setTodo({ SUMMARY: 'Review (moved)' });
     expect(emittedTodo()).toContain('SUMMARY:Review (moved)');
+  });
+});
+
+// Issue #107: tsdav-utils 0.5.0 moves the whole series with its master's
+// DTSTART, and refuses a move or a rule change the series cannot follow.
+// These run through the real handlers and the installed library, so a
+// rewording of a refusal there shows up here.
+describe('moving a recurring series (#107)', () => {
+  // every Monday 09:00; the 12 Oct occurrence moved to the afternoon, 19 Oct cancelled
+  const weekly = (rule) => calendar('VEVENT', [
+    'UID:weekly@test', 'SUMMARY:Planning', `RRULE:${rule}`,
+    'DTSTART:20261005T090000Z', 'DTEND:20261005T100000Z', 'EXDATE:20261019T090000Z',
+  ], [
+    'UID:weekly@test', 'SUMMARY:Planning (moved)', 'RECURRENCE-ID:20261012T090000Z',
+    'DTSTART:20261012T140000Z', 'DTEND:20261012T150000Z',
+  ]);
+
+  test('Mon -> Tue on an every-Monday series follows with BYDAY=TU, exceptions included', async () => {
+    storedEvent = weekly('FREQ=WEEKLY;BYDAY=MO');
+    const reply = await setEvent({ start_date: '2026-10-06T10:00:00Z', end_date: '2026-10-06T11:00:00Z' });
+
+    // the reply tells what else moved, so the model can tell the user
+    expect(reply.content[0].text).toContain('- **Series**: series start DTSTART:20261005T090000Z -> ' +
+      'DTSTART:20261006T100000Z; rule RRULE:FREQ=WEEKLY;BYDAY=MO -> RRULE:FREQ=WEEKLY;BYDAY=TU; ' +
+      'moved along: 1 changed occurrence (override), 1 cancelled date (EXDATE)\n');
+
+    const { master, overrides } = parts(emittedEvent(), 'vevent');
+    expect(master).toEqual(expect.arrayContaining([
+      'RRULE:FREQ=WEEKLY;BYDAY=TU', 'DTSTART:20261006T100000Z', 'DTEND:20261006T110000Z',
+      'EXDATE:20261020T100000Z',
+    ]));
+    // +1 day +1 hour: the override still names its (moved) occurrence and keeps its own offset
+    expect(overrides[0]).toEqual(expect.arrayContaining([
+      'RECURRENCE-ID:20261013T100000Z', 'DTSTART:20261013T150000Z', 'DTEND:20261013T160000Z',
+    ]));
+  });
+
+  test('a rule pinning two weekdays refuses a one-day move, with the fix spelled in tool terms', async () => {
+    storedEvent = weekly('FREQ=WEEKLY;BYDAY=MO,WE');
+    const reply = await errorReply(setEvent({ start_date: '2026-10-06T09:00:00Z', end_date: '2026-10-06T10:00:00Z' }));
+
+    expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+    // the library's reason and remedy, whole
+    expect(reply.message).toMatch(/^Moving DTSTART \(DTSTART:20261005T090000Z to DTSTART:20261006T090000Z\) does not move the whole series: RRULE:FREQ=WEEKLY;BYDAY=MO,WE has BYDAY, .* Give RRULE in the same call to fit the new start/);
+    // and where those remedies live in dav-mcp
+    expect(reply.message).toMatch(/\. Give what it names in fields of this same update_event call \(e\.g\. fields\.RRULE\)\.$/);
+    expect(reply.data.details).toEqual({ code: 'SERIES_MOVE_REFUSED', remedy: 'same-call', property: 'RRULE' });
+    expect(updateCalendarObject).not.toHaveBeenCalled();
+  });
+
+  test('following the hint — RRULE in fields of the same call — makes that move go through', async () => {
+    storedEvent = weekly('FREQ=WEEKLY;BYDAY=MO,WE');
+    await setEvent({
+      start_date: '2026-10-06T09:00:00Z', end_date: '2026-10-06T10:00:00Z',
+      fields: { RRULE: 'FREQ=WEEKLY;BYDAY=TU,TH' },
+    });
+    const { master, overrides } = parts(emittedEvent(), 'vevent');
+    expect(master).toEqual(expect.arrayContaining(['RRULE:FREQ=WEEKLY;BYDAY=TU,TH', 'EXDATE:20261020T090000Z']));
+    expect(overrides[0]).toContain('RECURRENCE-ID:20261013T090000Z');
+  });
+
+  test('RECURRENCE-ID in fields is refused and points to the single-occurrence route', async () => {
+    for (const stored of [weekly('FREQ=WEEKLY;BYDAY=MO'), calendar('VEVENT', EVENT_MASTER.filter((l) => !l.startsWith('RRULE')))]) {
+      storedEvent = stored;
+      const reply = await errorReply(setEvent({ fields: { 'RECURRENCE-ID': '2026-10-12T09:00:00Z', SUMMARY: 'x' } }));
+      expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+      expect(reply.message).toMatch(/^RECURRENCE-ID cannot be written on the series master: /);
+      expect(reply.message).toMatch(/To change a single occurrence, or to rewrite the whole object: fetch it with calendar_multi_get .* send the whole object with update_event_raw\.$/);
+      expect(reply.message).not.toContain('"in the same call"');
+    }
+    expect(updateCalendarObject).not.toHaveBeenCalled();
+  });
+
+  test('update_todo: a new RRULE that orphans an override is refused with the todo tools named', async () => {
+    storedTodo = calendar('VTODO', TODO_OVERRIDE, TODO_MASTER);
+    const reply = await errorReply(setTodo({ RRULE: 'FREQ=WEEKLY;BYDAY=TU' }));
+    expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+    expect(reply.message).toMatch(/^The new RRULE leaves the override for RECURRENCE-ID:20261005T080000Z naming no occurrence/);
+    // the library's own remedy (a complete EXDATE list) is no option here;
+    // the hint names what works with these tools
+    expect(reply.message).toMatch(/\. Give an RRULE \(fields\.RRULE\) that keeps those occurrences, or bring back the exclusions that would name nothing with restore_occurrences in this same update_todo call .* send the edited whole with update_todo_raw\.$/);
+    expect(reply.message).not.toMatch(/list mode|complete EXDATE/);
+    expect(reply.data.details.code).toBe('ORPHANED_EXCEPTIONS');
+    expect(updateTodo).not.toHaveBeenCalled();
+  });
+
+  test('update_todo on an object holding only an event names update_event', async () => {
+    storedTodo = calendar('VEVENT', EVENT_MASTER);
+    const reply = await errorReply(setTodo({ SUMMARY: 'x' }));
+    expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+    expect(reply.message).toBe('No VTODO found in VCALENDAR (it holds: VEVENT). ' +
+      'This object holds no todo, so update_todo cannot change it. Use update_event for its VEVENT.');
+  });
+
+  test('update_todo on a journal says there is no field tool for it, not "use update_event"', async () => {
+    storedTodo = calendar('VJOURNAL', ['UID:j@test', 'SUMMARY:Notes', 'DTSTART:20261005T090000Z']);
+    const reply = await errorReply(setTodo({ SUMMARY: 'x' }));
+    expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+    expect(reply.message).toMatch(/^No VTODO found in VCALENDAR \(it holds: VJOURNAL\)\. .* dav-mcp has no field-update tool for VJOURNAL\.$/);
+  });
+
+  // refusals of a write naming several properties (a move plus a new rule;
+  // RRULE plus RDATE), recognised by code whatever the message names
+  test('a move plus a new RRULE that orphans the override is a validation error', async () => {
+    storedEvent = weekly('FREQ=WEEKLY;BYDAY=MO');
+    const reply = await errorReply(setEvent({
+      start_date: '2026-10-06T09:00:00Z', end_date: '2026-10-06T10:00:00Z',
+      fields: { RRULE: 'FREQ=WEEKLY;BYDAY=WE' },
+    }));
+    expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+    expect(reply.message).toMatch(/^The new [A-Z ]*RRULE leaves the override for RECURRENCE-ID:20261012T090000Z/);
+    expect(reply.data.details.code).toBe('ORPHANED_EXCEPTIONS');
+  });
+
+  const BERLIN = [
+    'BEGIN:VTIMEZONE', 'TZID:Europe/Berlin',
+    'BEGIN:DAYLIGHT', 'TZOFFSETFROM:+0100', 'TZOFFSETTO:+0200', 'TZNAME:CEST',
+    'DTSTART:19700329T020000', 'RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU', 'END:DAYLIGHT',
+    'BEGIN:STANDARD', 'TZOFFSETFROM:+0200', 'TZOFFSETTO:+0100', 'TZNAME:CET',
+    'DTSTART:19701025T030000', 'RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU', 'END:STANDARD',
+    'END:VTIMEZONE',
+  ];
+  // daily at 02:30 Berlin across the spring-forward gap, the 03:30 it turns into excluded
+  const acrossTheGap = () => calendar('VEVENT', [
+    'UID:gap@test', 'SUMMARY:Night shift', 'RRULE:FREQ=DAILY;COUNT=10',
+    'DTSTART;TZID=Europe/Berlin:20260325T023000', 'DTEND;TZID=Europe/Berlin:20260325T030000',
+    'EXDATE;TZID=Europe/Berlin:20260329T033000',
+  ]).replace('BEGIN:VEVENT', [...BERLIN, 'BEGIN:VEVENT'].join('\r\n'));
+
+  test('a new RRULE and RDATE that would make a twin is a validation error', async () => {
+    storedEvent = acrossTheGap();
+    // RDATE is no field of update_event since #126; the refusal is mapped the
+    // same way for every write, so it is checked on the mapping itself
+    let thrown;
+    try {
+      updateFields(storedEvent, { RRULE: 'FREQ=DAILY;COUNT=12', RDATE: '2026-04-20T02:30:00' }, { type: 'vevent' });
+    } catch (error) {
+      thrown = error;
+    }
+    const reply = JSON.parse(createToolErrorResponse(explainWriteRefusal(thrown, 'vevent')).content[0].text);
+    expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+    expect(reply.message).toMatch(/^Writing RRULE and RDATE is refused: /);
+    expect(reply.data.details.code).toBe('DST_AMBIGUOUS');
+  });
+
+  test('a move that would make a twin is a validation error', async () => {
+    storedEvent = acrossTheGap();
+    const reply = await errorReply(setEvent({ start_date: '2026-03-25T02:45:00', end_date: '2026-03-25T03:15:00' }));
+    expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+    expect(reply.message).toMatch(/^Moving DTSTART is refused: /);
+  });
+
+  test.each([
+    ['an all-day EXDATE on a timed series, moved by an hour', /^DTSTART changed, and the existing EXDATE;VALUE=DATE:20261019 /,
+      ['EXDATE;VALUE=DATE:20261019'], { start_date: '2026-10-05T10:00:00Z', end_date: '2026-10-05T11:00:00Z' }],
+    ['an EXDATE off the series time, the series made all-day', /^DTSTART changed to a date, and /,
+      ['EXDATE:20261019T110000Z'], { start_date: '2026-10-05', end_date: '2026-10-06' }],
+  ])('%s is a validation error', async (_, opening, extra, move) => {
+    storedEvent = calendar('VEVENT', ['UID:w@test', 'SUMMARY:W', 'RRULE:FREQ=WEEKLY',
+      'DTSTART:20261005T090000Z', 'DTEND:20261005T100000Z', ...extra]);
+    const reply = await errorReply(setEvent(move));
+    expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+    expect(reply.message).toMatch(opening);
+  });
+
+  test('a start weeks later takes the cancelled date along, and the reply says so', async () => {
+    // the trap: an occurrence's date passed as start_date shifts the series
+    storedEvent = weekly('FREQ=WEEKLY;BYDAY=MO');
+    const reply = await setEvent({ start_date: '2026-11-09T10:00:00Z', end_date: '2026-11-09T11:00:00Z' });
+    expect(parts(emittedEvent(), 'vevent').master).toContain('EXDATE:20261123T100000Z');
+    const { series } = JSON.parse(reply.content[0].text.match(/```json\n([\s\S]*)\n```/)[1]);
+    expect(series).toEqual(expect.objectContaining({ overrides_moved: 1, exdates_moved: 1, rdates_moved: 0 }));
+  });
+
+  test('no Series line for a write that leaves the series shape alone, or for a single event', async () => {
+    storedEvent = weekly('FREQ=WEEKLY;BYDAY=MO');
+    expect((await setEvent({ fields: { LOCATION: 'Room 4' } })).content[0].text).not.toContain('**Series**');
+    storedEvent = calendar('VEVENT', ['UID:one@test', 'SUMMARY:Once', 'DTSTART:20261005T090000Z', 'DTEND:20261005T100000Z']);
+    expect((await setEvent({ start_date: '2026-10-06T09:00:00Z', end_date: '2026-10-06T10:00:00Z' })).content[0].text)
+      .not.toContain('**Series**');
+  });
+
+  test('update_todo reports a moved series too', async () => {
+    storedTodo = calendar('VTODO', TODO_OVERRIDE, TODO_MASTER);
+    const reply = await setTodo({ DTSTART: '2026-09-28T09:00:00Z' });
+    expect(reply.content[0].text).toMatch(/\*\*Series\*\*: series start DTSTART:20260928T080000Z -> DTSTART:20260928T090000Z; moved along: 1 changed occurrence \(override\)/);
+  });
+
+  test('a suggested rule from the library is given as the example', async () => {
+    storedEvent = weekly('FREQ=MONTHLY;BYDAY=MO');
+    const reply = await errorReply(setEvent({ start_date: '2026-10-06T09:00:00Z', end_date: '2026-10-06T10:00:00Z' }));
+    expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+    expect(reply.message).toMatch(/Give what it names in fields of this same update_event call \(e\.g\. fields\.RRULE "FREQ=MONTHLY;BYDAY=TU"\)\.$/);
+    expect(reply.data.details.suggestion).toBe('FREQ=MONTHLY;BYDAY=TU');
+  });
+
+  test('a value the library cannot read names the property to correct', async () => {
+    storedEvent = weekly('FREQ=WEEKLY;BYDAY=MO');
+    // (EXDATE is no field since #126; DTSTAMP takes the same date grammar)
+    const reply = await errorReply(setEvent({ fields: { DTSTAMP: 'garbage' } }));
+    expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+    expect(reply.message).toMatch(/^DTSTAMP: "garbage" is not a date or date-time\. .*Correct DTSTAMP and call update_event again\.$/);
+  });
+
+  test('a stored object that does not parse is a CalDAV error, with the repair route', async () => {
+    storedEvent = 'BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nnot a content line\r\nEND:VEVENT\r\nEND:VCALENDAR';
+    const reply = await errorReply(setEvent({ fields: { SUMMARY: 'x' } }));
+    expect(reply.code).toBe(MCP_ERROR_CODES.CALDAV_ERROR);
+    expect(reply.message).toMatch(/^The stored event cannot be parsed, so it was not changed \(Failed to parse iCal data: .*\)\. To repair it, fetch it with calendar_multi_get and send a corrected object with update_event_raw\.$/);
+    expect(updateCalendarObject).not.toHaveBeenCalled();
+  });
+
+  test('a call dav-mcp got wrong stays an internal error', () => {
+    let thrown;
+    try {
+      updateFields(weekly('FREQ=WEEKLY'), { SUMMARY: 'x' }, { type: 'vfoo' });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown.code).toBe('INVALID_TYPE');
+    const reply = JSON.parse(createToolErrorResponse(explainWriteRefusal(thrown, 'vevent')).content[0].text);
+    expect(reply.code).toBe(MCP_ERROR_CODES.INTERNAL_ERROR);
+    expect(reply.message).toMatch(/^dav-mcp called tsdav-utils wrongly \(INVALID_TYPE\): Invalid type "vfoo"/);
+  });
+
+  test('a series in a zone, moved with a UTC start, stays in its zone and keeps its local time after the DST change', async () => {
+    // every Monday 09:00 Berlin; "10:00 Berlin on Tuesday" given as 08:00Z (CEST)
+    storedEvent = calendar('VEVENT', [
+      'UID:berlin@test', 'SUMMARY:Planning', 'RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=6',
+      'DTSTART;TZID=Europe/Berlin:20261005T090000', 'DTEND;TZID=Europe/Berlin:20261005T100000',
+    ]).replace('BEGIN:VEVENT', [...BERLIN, 'BEGIN:VEVENT'].join('\r\n'));
+    await setEvent({ start_date: '2026-10-06T08:00:00Z', end_date: '2026-10-06T09:00:00Z' });
+
+    const written = emittedEvent();
+    const { master } = parts(written, 'vevent');
+    expect(master).toEqual(expect.arrayContaining([
+      'DTSTART;TZID=Europe/Berlin:20261006T100000', 'DTEND;TZID=Europe/Berlin:20261006T110000',
+      'RRULE:FREQ=WEEKLY;BYDAY=TU;COUNT=6',
+    ]));
+    // after 25 October (CET) the occurrences are still 10:00 in Berlin, i.e. 09:00Z
+    const vcalendar = new ICAL.Component(ICAL.parse(written));
+    const zone = new ICAL.Timezone(vcalendar.getFirstSubcomponent('vtimezone'));
+    ICAL.TimezoneService.register(zone, 'Europe/Berlin');
+    const iterator = new ICAL.Event(vcalendar.getFirstSubcomponent('vevent')).iterator();
+    const starts = [];
+    for (let next = iterator.next(); next; next = iterator.next()) starts.push(next.toJSDate().toISOString());
+    ICAL.TimezoneService.remove('Europe/Berlin');
+    expect(starts).toEqual([
+      '2026-10-06T08:00:00.000Z', '2026-10-13T08:00:00.000Z', '2026-10-20T08:00:00.000Z',
+      '2026-10-27T09:00:00.000Z', '2026-11-03T09:00:00.000Z', '2026-11-10T09:00:00.000Z',
+    ]);
+  });
+
+  test('any other error is passed on as it is', () => {
+    const fault = new Error('Failed to parse iCal data: unexpected end');
+    expect(explainWriteRefusal(fault, 'vevent')).toBe(fault);
+    // a vCard write names no component type, so there is no tool to point to
+    const vcard = new Error('No VTODO found in VCALENDAR');
+    expect(explainWriteRefusal(vcard, undefined)).toBe(vcard);
+    expect(explainWriteRefusal(undefined, 'vtodo')).toBeUndefined();
   });
 });

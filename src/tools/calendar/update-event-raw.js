@@ -15,7 +15,7 @@ export const updateEventRaw = {
     idempotentHint: true,
     openWorldHint: true,
   },
-  description: 'ADVANCED: Update event with raw iCal data. Requires manual iCal formatting - use update_event instead for simple field updates (summary, description). Only use this if you have complete pre-formatted iCal data or need to update advanced iCal properties. Also the way to add or remove extra dates (RDATE) of a recurring event: fetch it with calendar_multi_get, edit the RDATE lines, and send the whole object (update_event does not take RDATE). To cancel or restore single occurrences use update_event with cancel_occurrences/restore_occurrences instead.',
+  description: 'ADVANCED: Update event with raw iCal data. Requires manual iCal formatting - use update_event instead for simple field updates (summary, description). Use this to move or retitle a single occurrence of a recurring event (fetch it with calendar_multi_get, add or edit the VEVENT with that occurrence\'s RECURRENCE-ID, send the whole object) and to add or remove extra dates (RDATE). To cancel or restore occurrences, use update_event with cancel_occurrences/restore_occurrences. Also for complete pre-formatted iCal data or advanced iCal properties.',
   inputSchema: {
     type: 'object',
     properties: {

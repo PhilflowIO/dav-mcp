@@ -84,8 +84,9 @@ describe('every listed Occurrence ID cancels exactly that occurrence', () => {
       const before = occurrencesOf(data);
       expect(before.length).toBeGreaterThan(2);
       for (const occurrence of before) {
-        // list the one occurrence whose original start is this one
-        const at = Date.parse(occurrence.recurrenceId.instant);
+        // list the occurrence where it is now (an override moved elsewhere
+        // is found at its new time) and read back its original start
+        const at = Date.parse(occurrence.start.instant);
         const text = formatEvent({ url: URL, data }, 'Work', { start: iso(at), end: iso(at + 1000) });
         const id = /\*\*Occurrence ID\*\*: (\S+)/.exec(text)[1];
         // the listing names it as the library does

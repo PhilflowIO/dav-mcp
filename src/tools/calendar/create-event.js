@@ -90,7 +90,7 @@ export const createEvent = {
       DTSTAMP: new Date().toISOString(),
       DTSTART: validated.start_date,
       DTEND: validated.end_date,
-    });
+    }, 'vevent');
     // the order of times without a zone is only known once they are written
     assertEndAfterStart(seriesMaster(new ICAL.Component(ICAL.parse(iCalString)), 'vevent'));
 

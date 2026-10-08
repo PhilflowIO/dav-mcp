@@ -251,6 +251,34 @@ function occurrenceValues(master, exclusions, type) {
   }
 }
 
+/**
+ * The dates a series lists — exclusions, extra dates, overridden
+ * occurrences — each by name in the series' own form, for comparing a series
+ * before and after a write: a value restated in another zone or on another
+ * line is the same name, a value that moved is another one.
+ *
+ * @param {ICAL.Component} master
+ * @param {ICAL.Component[]} overrides
+ * @returns {{exdates: string[], rdates: string[], overrides: string[]}|null}
+ */
+export function listedDates(master, overrides = []) {
+  const naming = seriesNaming(master);
+  if (!naming) return null;
+  const names = (property) => {
+    const tzid = property.getParameter('tzid') ?? null;
+    return property.getValues()
+      .map((value) => (value instanceof ICAL.Time ? value : value?.start))
+      .filter((value) => value instanceof ICAL.Time)
+      .map((value) => labelled(naming.name(value, tzid)));
+  };
+  const unique = (list) => [...new Set(list)];
+  return {
+    exdates: unique(master.getAllProperties('exdate').flatMap(names)),
+    rdates: unique(master.getAllProperties('rdate').flatMap(names)),
+    overrides: unique(overrides.map((o) => o.getFirstProperty('recurrence-id')).filter(Boolean).flatMap(names)),
+  };
+}
+
 /** the exclusions of a calendar object's series, by name; empty if none */
 function exclusionTexts(data, type) {
   try {

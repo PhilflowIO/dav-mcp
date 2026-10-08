@@ -4,6 +4,7 @@ import {
   cancelOccurrences, restoreOccurrences, isUpdateFieldsError, expandOccurrences, createRecurrenceBudget,
 } from 'tsdav-utils';
 import { ValidationError } from '../../error-handler.js';
+import { explainWriteRefusal } from '../../ical-components.js';
 import { formatSuccess } from '../../formatters.js';
 import { describeOccurrenceEdit, seriesNames } from '../../occurrence-names.js';
 
@@ -139,8 +140,8 @@ function occurrencesThatDay(data, name, type) {
  * use the name exactly as the listings show it. The library's own message
  * names its functions, a remedy of its own and values in the compact iCalendar
  * form, so it is not passed on for these. The names at fault are found by
- * trying each on its own. Any other refusal is the library's message as a
- * ValidationError; anything else a failure of the library, passed on as it is.
+ * trying each on its own. Any other refusal goes through explainWriteRefusal,
+ * the mapping every write refusal shares, prefixed with the parameter.
  *
  * @param {Error} error
  * @param {'cancel_occurrences'|'restore_occurrences'} parameter
@@ -151,10 +152,13 @@ export function explainOccurrenceRefusal(error, parameter, { data, names, type }
   if (!isUpdateFieldsError(error)) return error;
   const details = { code: error.code, remedy: error.remedy, parameter };
   if (!NAME_REFUSALS.has(error.code)) {
-    const message = error.message.replace(/\.$/, '')
-      .replace(/\bcancelOccurrences\b/g, 'cancel_occurrences')
-      .replace(/\brestoreOccurrences\b/g, 'restore_occurrences');
-    return new ValidationError(`${parameter}: ${message}`, details);
+    // not about the names: the one mapping every write refusal goes through
+    const explained = explainWriteRefusal(error, type);
+    if (explained instanceof ValidationError) {
+      explained.message = `${parameter}: ${explained.message}`;
+      explained.details = { ...explained.details, parameter };
+    }
+    return explained;
   }
 
   const series = seriesOf(data, type);
@@ -215,28 +219,6 @@ function occurrenceKey(name, naming) {
 function sameOccurrences(cancel, restore, naming) {
   const cancelled = new Set(cancel.map((name) => occurrenceKey(name, naming)));
   return restore.filter((name) => cancelled.has(occurrenceKey(name, naming)));
-}
-
-/**
- * A field write the library refused because the series would keep an
- * exclusion or override naming no occurrence (a new RRULE, say). Its message
- * suggests a complete EXDATE list, which update_event/update_todo do not
- * take; the working paths are restore_occurrences in the same call, or the
- * raw tool. Any other error is returned as it is.
- *
- * @param {Error} error
- * @param {'vevent'|'vtodo'} type
- */
-export function explainFieldRefusal(error, type) {
-  if (!isUpdateFieldsError(error, 'ORPHANED_EXCEPTIONS')) return error;
-  const [tool, fetch] = type === 'vtodo' ? ['update_todo', 'todo_multi_get'] : ['update_event', 'calendar_multi_get'];
-  const reason = error.message.replace(/\.$/, '').split(/\. (?=Give |Leave |Or )/)[0];
-  return new ValidationError(
-    `${reason}. Bring those occurrences back with restore_occurrences in this same ${tool} call ` +
-    `(restores are applied before the fields), or cancel them first; to rewrite the series ` +
-    `with its exclusions, fetch it with ${fetch} and send the edited object with ${tool}_raw.`,
-    { code: error.code, remedy: error.remedy, ...(error.property && { property: error.property }) },
-  );
 }
 
 /**

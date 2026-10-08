@@ -4,9 +4,9 @@ import { formatSuccess } from '../../formatters.js';
 import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
 import { z } from 'zod';
 import { writeEventFields } from '../shared/ical-dates.js';
-import { assertFieldUpdatable } from '../../ical-components.js';
+import { assertFieldUpdatable, describeSeriesChange } from '../../ical-components.js';
 import {
-  occurrenceEditSchema, refineOccurrenceEdits, editOccurrences, notChanged, explainFieldRefusal,
+  occurrenceEditSchema, refineOccurrenceEdits, editOccurrences, notChanged,
 } from '../shared/occurrence-edits.js';
 
 /**
@@ -89,7 +89,7 @@ export const updateEventFields = {
     idempotentHint: true,
     openWorldHint: true,
   },
-  description: 'PREFERRED: Update event fields without iCal formatting. Use start_date/end_date/all_day to move an event or convert it between all-day and timed. Use fields for everything else: SUMMARY (title), DESCRIPTION (details), LOCATION (place), STATUS (TENTATIVE/CONFIRMED/CANCELLED), and any other RFC 5545 property including custom X-* properties (e.g., X-ZOOM-LINK, X-MEETING-ROOM). Recurring events: fields and dates change the whole series; to cancel single occurrences use cancel_occurrences, to bring cancelled ones back restore_occurrences (the other occurrences and exclusions stay as they are).',
+  description: 'PREFERRED: Update event fields without iCal formatting. Use start_date/end_date/all_day to move an event or convert it between all-day and timed. Use fields for everything else: SUMMARY (title), DESCRIPTION, LOCATION, STATUS (TENTATIVE/CONFIRMED/CANCELLED) and any other RFC 5545 or custom X-* property. Recurring events: fields and dates change the whole series; moving the start moves every occurrence, cancelled and changed ones included, and the reply lists what moved (a move the rule cannot follow is refused, saying what to give instead, e.g. fields.RRULE). To cancel or bring back single occurrences use cancel_occurrences/restore_occurrences; to move or retitle one occurrence, use calendar_multi_get and update_event_raw.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -128,11 +128,11 @@ export const updateEventFields = {
       },
       start_date: {
         type: 'string',
-        description: 'New start. A datetime ("2026-05-25T10:00:00Z", or with an offset) makes the event timed; a bare date ("2026-05-25") makes it all-day. A datetime without a zone keeps the event\'s own timezone if it has one, else it is read in the timezone of the computer running dav-mcp. Must be given together with end_date.'
+        description: 'New start. For a recurring event this is the start of the SERIES (its first occurrence, DTSTART), not of the occurrence a listing showed: every occurrence moves by the difference. To shift every occurrence by an hour, give the series start plus one hour; to cancel one occurrence use cancel_occurrences, to move one use calendar_multi_get and update_event_raw. A datetime ("2026-05-25T10:00:00Z", or with an offset) makes the event timed; a bare date ("2026-05-25") makes it all-day. A datetime with a zone is that instant, written in the event\'s own timezone if it has one (so a series in Europe/Berlin stays there and keeps its local time across DST changes). A datetime without a zone keeps the event\'s own timezone if it has one, else it is read in the timezone of the computer running dav-mcp. Must be given together with end_date.'
       },
       end_date: {
         type: 'string',
-        description: 'New end, in the same form as start_date (a datetime without a zone is read in the event\'s own timezone, like start_date). For an all-day event the end is EXCLUSIVE: a single day on 2026-05-25 is start_date "2026-05-25" and end_date "2026-05-26".'
+        description: 'New end of the event (for a recurring event, of its first occurrence), in the same form as start_date (a datetime without a zone is read in the event\'s own timezone, like start_date). For an all-day event the end is EXCLUSIVE: a single day on 2026-05-25 is start_date "2026-05-25" and end_date "2026-05-26".'
       },
       cancel_occurrences: {
         type: 'array',
@@ -186,23 +186,24 @@ export const updateEventFields = {
 
     // Step 3: Write the fields and, when moving the event, its dates in one
     // updateFields call on the series master, so an RRULE UNTIL in fields
-    // follows the new DTSTART (date-typed values such as RECURRENCE-ID are
-    // encoded by tsdav-utils). An explicit end replaces a stored DURATION.
+    // follows the new DTSTART. A move takes the whole series along —
+    // overrides, EXDATE, RDATE, UNTIL — or is refused (explainWriteRefusal);
+    // RECURRENCE-ID is refused on the master. An explicit end replaces a
+    // stored DURATION.
     if (!writesFields && occurrences.data === calendarObject.data) {
       return notChanged('Event', 'the occurrences were already as asked', occurrences.change);
     }
     let updatedData = occurrences.data;
     if (writesFields) {
-      try {
-        updatedData = writeEventFields(occurrences.data, fields, moving
-          ? { startDate: validated.start_date, endDate: validated.end_date }
-          : undefined);
-      } catch (error) {
-        throw explainFieldRefusal(error, 'vevent');
-      }
+      updatedData = writeEventFields(occurrences.data, fields, moving
+        ? { startDate: validated.start_date, endDate: validated.end_date }
+        : undefined);
     }
     const changedFields = Object.keys(fields);
     if (moving) changedFields.push('DTSTART', 'DTEND');
+    // what the fields and dates did to the series, apart from the
+    // occurrences cancelled or restored above (reported on their own)
+    const series = writesFields ? describeSeriesChange(occurrences.data, updatedData, 'vevent') : null;
 
     // Step 4: Send the updated event back to server
     const updateResponse = await client.updateCalendarObject({
@@ -221,6 +222,7 @@ export const updateEventFields = {
         ? `Updated ${changedFields.length} field(s): ${changedFields.join(', ')}`
         : 'Updated occurrences only; no fields changed',
       ...(occurrences.change && { occurrences: occurrences.change }),
+      ...(series && { series }),
     });
   }
 };

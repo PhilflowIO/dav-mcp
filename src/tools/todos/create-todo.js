@@ -92,7 +92,7 @@ export const createTodo = {
     if (validated.due_date) {
       dates.DUE = validated.due_date;
     }
-    const iCalString = writeFields(vtodo, dates);
+    const iCalString = writeFields(vtodo, dates, 'vtodo');
 
     const result = await client.createTodo({
       calendar: { url: validated.calendar_url },

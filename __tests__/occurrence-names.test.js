@@ -96,4 +96,25 @@ describe('listings name occurrences as the update tools take them (#126)', () =>
     expect(text).toContain('- **Cancelled occurrences**: 2026-03-29T03:15:00\n');
     expect(text).not.toContain('match no occurrence');
   });
+
+  // with the occurrence engine of #110: an occurrence is found where it is now
+  test('a moved occurrence queried at its new time is named by its original start', () => {
+    const text = formatEvent({ url: EVENT_URL, data: calendar('VEVENT', [
+      'UID:m@test', 'SUMMARY:Weekly', 'DTSTART;TZID=Europe/Berlin:20261105T100000',
+      'DTEND;TZID=Europe/Berlin:20261105T110000', 'RRULE:FREQ=WEEKLY;COUNT=6',
+    ], [
+      'UID:m@test', 'SUMMARY:Weekly (moved)', 'RECURRENCE-ID;TZID=Europe/Berlin:20261126T100000',
+      'DTSTART;TZID=Europe/Berlin:20261126T150000', 'DTEND;TZID=Europe/Berlin:20261126T160000',
+    ]) }, 'Work', { start: '2026-11-26T13:30:00Z', end: '2026-11-26T15:30:00Z' });
+    expect(text).toContain('- **Occurrence ID**: 2026-11-26T10:00:00 (this occurrence, changed — now at November 26, 2026, 03:00 PM GMT+1)\n');
+    expect(text).not.toContain('no occurrence of this series falls inside');
+  });
+
+  test('an all-day series whose first date is off the rule\'s weekdays lists that first date', () => {
+    const text = formatEvent({ url: EVENT_URL, data: calendar('VEVENT', [
+      'UID:a@test', 'SUMMARY:A', 'DTSTART;VALUE=DATE:20270620', 'DTEND;VALUE=DATE:20270621',
+      'RRULE:FREQ=WEEKLY;BYDAY=MO,TH;COUNT=12',
+    ]) }, 'Work', { start: '2027-06-19T00:00:00Z', end: '2027-06-23T00:00:00Z' });
+    expect(text).toContain('- **Occurrence ID**: 2027-06-20 (this occurrence)\n');
+  });
 });

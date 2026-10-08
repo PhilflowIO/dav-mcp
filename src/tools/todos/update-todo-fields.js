@@ -4,9 +4,9 @@ import { formatSuccess } from '../../formatters.js';
 import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
 import { z } from 'zod';
 import { writeFields, reconcileTodoDates } from '../shared/ical-dates.js';
-import { assertFieldUpdatable } from '../../ical-components.js';
+import { assertFieldUpdatable, describeSeriesChange } from '../../ical-components.js';
 import {
-  occurrenceEditSchema, refineOccurrenceEdits, editOccurrences, notChanged, explainFieldRefusal,
+  occurrenceEditSchema, refineOccurrenceEdits, editOccurrences, notChanged,
 } from '../shared/occurrence-edits.js';
 
 /**
@@ -40,7 +40,7 @@ const updateTodoFieldsSchema = z.object({
 
 // What DUE and DTSTART accept; tsdav-utils parses exactly these forms
 const DATE_FORMS =
-  'ISO 8601 with a zone ("2026-10-26T18:00:00Z", "2026-10-26T14:00:00-04:00"), ' +
+  'ISO 8601 with a zone ("2026-10-26T18:00:00Z", "2026-10-26T14:00:00-04:00"; that instant, written in the todo\'s own timezone if it has one), ' +
   'without one (kept in the todo\'s own timezone if it has one, else read in the timezone of the computer running dav-mcp), ' +
   'or a date ("2026-10-26") for an all-day value';
 
@@ -62,7 +62,7 @@ export const updateTodoFields = {
     idempotentHint: true,
     openWorldHint: true,
   },
-  description: 'PREFERRED: Update todo fields without iCal formatting. Supports: SUMMARY (title), DESCRIPTION (details), STATUS (NEEDS-ACTION/IN-PROCESS/COMPLETED/CANCELLED), PRIORITY (0-9), DUE (due date), PERCENT-COMPLETE (0-100), and any RFC 5545 VTODO property including custom X-* properties. Recurring todos: fields change the whole series; to cancel single occurrences use cancel_occurrences, to bring cancelled ones back restore_occurrences (the other occurrences and exclusions stay as they are).',
+  description: 'PREFERRED: Update todo fields without iCal formatting. Supports: SUMMARY (title), DESCRIPTION (details), STATUS (NEEDS-ACTION/IN-PROCESS/COMPLETED/CANCELLED), PRIORITY (0-9), DUE (due date), PERCENT-COMPLETE (0-100), and any RFC 5545 VTODO or custom X-* property. Recurring todos: fields change the whole series; changing DTSTART moves every occurrence, cancelled and changed ones included, and the reply lists what moved (a move the rule cannot follow is refused, saying what to give instead). To cancel or bring back single occurrences use cancel_occurrences/restore_occurrences; to change one occurrence otherwise, use todo_multi_get and update_todo_raw.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -99,11 +99,11 @@ export const updateTodoFields = {
           },
           DUE: {
             type: 'string',
-            description: `Due date: ${DATE_FORMS}. Must be later than DTSTART and of the same kind (both dates or both with a time). Replaces a DURATION.`
+            description: `Due date: ${DATE_FORMS}. Must be later than DTSTART and of the same kind (both dates or both with a time). Replaces a DURATION. For a recurring todo this is the due date of its first occurrence.`
           },
           DTSTART: {
             type: 'string',
-            description: `Start date: ${DATE_FORMS}`
+            description: `Start date: ${DATE_FORMS}. Moving it keeps the stored DUE, so to move a todo give DTSTART and DUE together. For a recurring todo this is the start of the SERIES (its first occurrence), not of an occurrence a listing showed: every occurrence moves by the difference. To cancel one occurrence use cancel_occurrences; to move one, todo_multi_get and update_todo_raw.`
           },
           COMPLETED: {
             type: 'string',
@@ -167,12 +167,12 @@ export const updateTodoFields = {
     }
     let updatedData = occurrences.data;
     if (writesFields) {
-      try {
-        updatedData = reconcileTodoDates(writeFields(occurrences.data, fields), Object.keys(fields));
-      } catch (error) {
-        throw explainFieldRefusal(error, 'vtodo');
-      }
+      updatedData = reconcileTodoDates(writeFields(occurrences.data, fields, 'vtodo'), Object.keys(fields));
     }
+
+    // what the fields did to the series, apart from the occurrences
+    // cancelled or restored above (reported on their own)
+    const series = writesFields ? describeSeriesChange(occurrences.data, updatedData, 'vtodo') : null;
 
     // Step 4: Send the updated todo back to server
     const updateResponse = await client.updateTodo({
@@ -191,6 +191,7 @@ export const updateTodoFields = {
         ? `Updated ${Object.keys(fields).length} field(s): ${Object.keys(fields).join(', ')}`
         : 'Updated occurrences only; no fields changed',
       ...(occurrences.change && { occurrences: occurrences.change }),
+      ...(series && { series }),
     });
   }
 };

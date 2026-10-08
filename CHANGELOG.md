@@ -7,6 +7,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **tsdav-utils 0.7.0** (`@philflow/tsdav-utils`), for its bounded,
+  zone-correct occurrence expansion and its occurrence edits. Its write
+  semantics change too: moving a series' DTSTART now moves its overrides with
+  it, and an `EXDATE` or `RDATE` written as a field would be the whole list —
+  so the update tools no longer take them in `fields`; single occurrences are
+  cancelled and restored with `cancel_occurrences` / `restore_occurrences`
+  (#126, below).
+- **Moving a recurring event or todo moves the whole series** (#107). A new
+  start given to `update_event` (or `DTSTART` to `update_todo`) now takes every
+  occurrence along: moved and cancelled occurrences, extra dates and the end
+  of the series shift by the same amount, so they keep applying to the
+  occurrences they were made for. A weekday or day of month the rule only
+  repeats from the start follows it: a series every Monday, moved to a Tuesday,
+  becomes every Tuesday. Where the rule cannot follow (every Monday and
+  Wednesday, moved by one day), the update is refused and says what to give
+  instead in the same call. Likewise, a new rule that would leave a moved or
+  cancelled occurrence on a date the series no longer has is refused. The
+  reply says what else moved: the old and new rule and how many changed,
+  cancelled and extra dates went along.
+- **A time given in UTC keeps an event in its own time zone** (#107). A
+  start like `2026-10-06T08:00:00Z` for a weekly 09:00 Europe/Berlin series
+  used to turn the whole series into UTC, so after the change to winter time
+  every meeting sat an hour earlier in Berlin. The time is now written in the
+  event's (or to-do's) own zone at the same instant: 10:00 in Berlin, every
+  week. Events and to-dos without a zone are written in UTC as before.
+- **Starting a series later now moves its exceptions too** (#107). A start
+  several weeks later used to leave cancelled and moved occurrences where
+  they were; it now takes them along, so a cancellation can land on a
+  meeting nobody cancelled. To start a series later without moving it, give
+  the new start together with an `RRULE` that keeps the occurrences, and fix
+  its exceptions with `restore_occurrences` / `cancel_occurrences` in the same
+  call; a series with changed occurrences (overrides) to keep in place is
+  rewritten with the raw tools. The `start_date` and
+  `DTSTART` descriptions now say it is the series' first start, not the
+  occurrence a listing showed.
+- **Single occurrences are moved or retitled with the raw tools** (#107).
+  `update_event` and `update_todo` edit the whole series and refuse
+  `RECURRENCE-ID`, which would have turned the series into one occurrence. To
+  move or retitle one occurrence, fetch the object with `calendar_multi_get` /
+  `todo_multi_get` and send it back with `update_event_raw` /
+  `update_todo_raw`; to cancel one, use `cancel_occurrences` (#126).
+- **`fields.EXDATE` and `fields.RDATE` are refused** by `update_event` and
+  `update_todo` (#126), with a validation error naming `cancel_occurrences` /
+  `restore_occurrences`. Written as a field, either list replaced every value
+  already in the series. Extra dates (RDATE) of a series are edited through
+  `update_event_raw`/`update_todo_raw`.
+- **Write tools refuse parameters they do not take** (#126). Unknown keys
+  were dropped silently, so a call with a misspelled or newer parameter
+  reported success for a change it never made (dav-mcp 4.3.1 drops
+  `cancel_occurrences` and answers "Updated 0 field(s)"). The create, update
+  and delete tools now answer such a call with a validation error naming the
+  parameter.
+- **An update that asks for nothing writes nothing.** `update_event` and
+  `update_todo` without fields, dates or occurrence names (empty lists count
+  as none), or whose occurrences are already as asked, reply "not changed"
+  instead of writing the object back with a new etag.
+
+### Added
+- **Listings name occurrences the way the update tools take them** (#126).
+  For a recurring event or todo, `calendar_query`, `list_events`,
+  `calendar_multi_get` and the todo listings show an **Occurrence ID** (the
+  original start of the occurrence shown, or of the first one), the
+  **Cancelled occurrences** (EXDATE) and the **Changed occurrences**
+  (overrides, by original start, with where each is now), all in the series'
+  own form: the wall-clock time in its zone, UTC with `Z`, or a date. An
+  exclusion stored in another zone is shown in that form too, and a date that
+  excludes a whole day of a timed series is marked "(whole day)" (the marked
+  text is accepted as it is). Every name is converted from the instant its
+  value names — an extra date (RDATE) stored in UTC next to a Berlin series is
+  named on the Berlin wall clock. A stored exclusion that names no occurrence
+  (a floating EXDATE next to a zoned series, a time the rule never yields)
+  cancels nothing and is listed apart, as "Exclusions that match no
+  occurrence". Recurring todos now show their rule.
+- The reply of `update_event`/`update_todo` says which occurrences were
+  cancelled or restored and which changed versions were removed, compared by
+  occurrence, not by the stored text.
+
 ### Fixed
 - **Cancelling one occurrence no longer brings back the ones cancelled
   before** (#126). `update_event` wrote `fields.EXDATE` as the complete list of
@@ -29,44 +107,101 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its only occurrence). A new RRULE that would leave an exclusion naming no
   occurrence is refused as a validation error that names the way out:
   `restore_occurrences` in the same call, or the raw tool.
-
-### Added
-- **Listings name occurrences the way the update tools take them** (#126).
-  For a recurring event or todo, `calendar_query`, `list_events`,
-  `calendar_multi_get` and the todo listings show an **Occurrence ID** (the
-  original start of the occurrence shown, or of the first one), the
-  **Cancelled occurrences** (EXDATE) and the **Changed occurrences**
-  (overrides, by original start, with where each is now), all in the series'
-  own form: the wall-clock time in its zone, UTC with `Z`, or a date. An
-  exclusion stored in another zone is shown in that form too, and a date that
-  excludes a whole day of a timed series is marked "(whole day)" (the marked
-  text is accepted as it is). Every name is converted from the instant its
-  value names — an extra date (RDATE) stored in UTC next to a Berlin series is
-  named on the Berlin wall clock. A stored exclusion that names no occurrence
-  (a floating EXDATE next to a zoned series, a time the rule never yields)
-  cancels nothing and is listed apart, as "Exclusions that match no
-  occurrence". Recurring todos now show their rule.
-- The reply of `update_event`/`update_todo` says which occurrences were
-  cancelled or restored and which changed versions were removed, compared by
-  occurrence, not by the stored text.
-
-### Changed
-- **`fields.EXDATE` and `fields.RDATE` are refused** by `update_event` and
-  `update_todo` (#126), with a validation error naming `cancel_occurrences` /
-  `restore_occurrences`. Written as a field, either list replaced every value
-  already in the series. Extra dates (RDATE) of a series are edited through
-  `update_event_raw`/`update_todo_raw`.
-- **Write tools refuse parameters they do not take** (#126). Unknown keys
-  were dropped silently, so a call with a misspelled or newer parameter
-  reported success for a change it never made (dav-mcp 4.3.1 drops
-  `cancel_occurrences` and answers "Updated 0 field(s)"). The create, update
-  and delete tools now answer such a call with a validation error naming the
-  parameter.
-- **An update that asks for nothing writes nothing.** `update_event` and
-  `update_todo` without fields, dates or occurrence names (empty lists count
-  as none), or whose occurrences are already as asked, reply "not changed"
-  instead of writing the object back with a new etag.
-- tsdav-utils 0.7.0 (`@philflow/tsdav-utils`).
+- **`update_todo` writes into the to-do, not an event next to it** (#107).
+  For a calendar object holding both an event and a to-do, `update_todo` wrote
+  its fields (a new due date, say) into the event. It now writes into the
+  to-do, `update_event` into the event, and either tool refuses an object that
+  holds nothing of its kind and names the other tool.
+- **A refused series change is reported as invalid input, not as a server
+  error** (#107). The refusals above reached the client as an internal error
+  (-32603). They now come back as a validation error (-32002) that keeps the
+  reason and the suggested rule, and names the tools to use instead.
+- **Date-order mistakes are reported as invalid input** (#115). An event
+  ending before it starts, or a todo moved by `DTSTART` alone past its due
+  date, answered with an internal error; it is now a validation error, and the
+  todo case says to give `DTSTART` and `DUE` together.
+- **Unreadable values are reported as invalid input** (#115). A date or rule
+  the update tools cannot read (`EXDATE: "garbage"`, an unknown rule part) is
+  now a validation error that names the property to correct, for events,
+  to-dos and contacts alike. A stored object that cannot be parsed is reported
+  as a CalDAV/CardDAV error, with the raw tool that can replace it.
+- **Free/busy and event queries judge each occurrence as it now stands**
+  (#98). A recurring series was expanded from its original dates, and every
+  occurrence counted with the series' own STATUS and TRANSP. So a single
+  occurrence cancelled (or marked transparent) still showed as busy, one
+  moved from the 20th to the 14th was missing from the 14th and still
+  reported on the 20th, and an opaque occurrence of a transparent series was
+  free. Each occurrence is now taken at its effective time with its own
+  STATUS and TRANSP (compared case-insensitively), in `freebusy_query`,
+  `calendar_query` and `list_events` alike. An override is a full component:
+  one without STATUS of a cancelled series is not cancelled, and blocks time.
+- **One definition of "in the range"** (#98). Free/busy counted an
+  occurrence that overlaps the window, the event lists one that starts in it
+  (end included): a meeting running into the window was busy, yet listed as
+  "no occurrence falls inside the queried range". All of them now use the
+  CalDAV time-range test (RFC 4791 9.9): it starts before the range ends and
+  ends after it starts; one without duration counts when it starts in
+  [start, end). A floating time is read on the server's clock throughout.
+- **Recurring events are expanded by tsdav-utils** (#98), the reader the
+  write side uses, so dav-mcp and the library agree on which occurrences a
+  series has. An override replaces the occurrence its RECURRENCE-ID names,
+  read in the series' frame by the instant it names: an id written in UTC
+  for a series in Europe/Berlin used not to match, and at a DST change a
+  local time shown twice is its first pass (RFC 5545 3.3.5; ical.js was up
+  to an hour off there). A floating id is read by its digits, a date-time id
+  on an all-day series by its date (a Berlin-midnight id for the 13th used
+  to cancel the 12th), a date id on a timed series names that day's
+  midnight, and a UTC id on a floating series names nothing. An EXDATE
+  excludes by instant, a date on a timed series its whole day; a floating
+  EXDATE in a zoned series, or a UTC one in a floating series, names
+  nothing. A series the library cannot read (a UTC `UNTIL` on a floating
+  series, say) is reported incomplete, with the reason, rather than guessed
+  at. An all-day occurrence without DTEND or DURATION lasts its day, a timed
+  one no time (RFC 5545 3.6.1); a recurring all-day event without an end
+  used to block nothing. Times are shown as the library converts them, so a
+  time a DST change shows twice reads with the offset of its first pass.
+- **THISANDFUTURE and moved overrides** (#98). A `RANGE=THISANDFUTURE`
+  override moves every later occurrence by its own move, on its own wall
+  clock; one whose RECURRENCE-ID is no occurrence, or an EXDATEd one, is
+  ignored like any such override. An override moved into the range from
+  anywhere in the series is found from the overrides themselves.
+- **Recurring events are expanded from the range, not from their start**
+  (#98): from the start of the period that holds the range, for SECONDLY to
+  WEEKLY rules with BYDAY, BYMONTH or a BYHOUR/BYMINUTE/BYSECOND that
+  expands the rule (BYHOUR on DAILY, BYMINUTE on HOURLY); from a whole
+  number of months or years later for MONTHLY and YEARLY rules where every
+  month or year surely has an occurrence (a BYMONTHDAY within ±28, an
+  ordinal BYDAY within ±4 of a month, BYSETPOS over the weekdays every month
+  has, ...); and for a COUNT rule without BY parts. Other rules — a limiting
+  BYHOUR (on HOURLY), the 31st, 29 February, a fifth Monday, week 53,
+  MONTHLY with BYMONTH — are walked from DTSTART, as ical.js shifts its
+  INTERVAL grid where a period is empty. `freebusy_query` used to walk
+  every series from its start.
+- **No series can stall a tool call** (#98). ical.js tests rule candidates
+  one by one without a bound of its own: `FREQ=SECONDLY;BYHOUR=9` from 1950
+  took 27 s, fifty `MINUTELY;BYHOUR=10` series 45 s per call, and
+  `FREQ=DAILY;BYMONTH=2;BYMONTHDAY=30` never returned. Each tool call now
+  has one budget of rule candidates (300 000, at most 100 000 per call into
+  the library) and of time (1.5 s of expansion), whichever runs out first;
+  each calendar object gets a fair share of both and at least 20 ms, so one
+  heavy series cannot leave the others unexpanded. The clock is checked
+  before each call into the library, so expansion takes about 1.5 s plus up
+  to one call per remaining object: it grows with the number of objects and
+  overrides in an answer (20 objects with 4 000 overrides each in range:
+  about 10 s), and under machine load a series may come back incomplete
+  where it otherwise would not. A year of 100 ordinary series takes about
+  1.5 s in all. A walk that needs more than 100 000 candidates is
+  incomplete even for a lone series (`FREQ=DAILY;BYMONTHDAY=1,15` from
+  1970, which cannot start near the range). ical.js yields a BY list in the
+  order it is written (`BYHOUR=17,9`) and the library stops at the first
+  candidate past its window, so such rules are read one period further. A
+  series that needs more is never reported wrong, only incomplete:
+  `freebusy_query`, which used to answer "Nothing blocks this window" for
+  it, names it and says its busy time may be missing, and an event list
+  says the series could not be expanded fully.
+- **Listed events show their STATUS** (e.g. CANCELLED; for a series, the
+  occurrence listed), and `freebusy_query`'s event details list exactly the
+  occurrences that make up the busy time.
 
 ## [4.3.1] - 2026-10-08
 

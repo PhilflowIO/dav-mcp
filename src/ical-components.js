@@ -1,6 +1,8 @@
 import ICAL from 'ical.js';
-import { seriesMaster } from 'tsdav-utils';
-import { ValidationError } from './error-handler.js';
+import { seriesMaster, isUpdateFieldsError } from 'tsdav-utils';
+import { ValidationError, CalDAVError, CardDAVError, MCP_ERROR_CODES } from './error-handler.js';
+import { listedDates } from './occurrence-names.js';
+import { relateSeries, seriesOccurrences, spanOf, touchesRange } from './occurrences.js';
 
 /**
  * Which component of a calendar object a reader shows.
@@ -66,103 +68,17 @@ export function readSeries(calendar, type) {
   };
 }
 
-// A CalDAV server answers a time-range query with the master VEVENT of a
-// recurring series, not with the occurrences inside the range, so the series
-// has to be expanded here. The cost of expansion scales with the distance from
-// DTSTART to the start of the range rather than with the width of the range —
-// a FREQ=MINUTELY series starting in 1970 needs ~29M steps to reach 2026 — so
-// the walk is capped. Server-supplied data must not be able to stall the loop.
-const MAX_RECURRENCE_ITERATIONS = 10000;
-
 /**
- * Convert a queried time range into ICAL.Time bounds.
- *
- * Goes through Date so that every form the schema accepts — with or without
- * milliseconds, "Z" or a "+02:00" offset — lands on the same absolute instant.
- * ICAL.Time.fromDateTimeString would silently treat an offset form as floating.
+ * A queried time range as ms instants, or null when there is none. Goes
+ * through Date so every form the schema accepts — with or without
+ * milliseconds, "Z" or a "+02:00" offset — lands on the same instant.
  */
-function toICALRange(timeRange) {
+function msRange(timeRange) {
   if (!timeRange?.start || !timeRange?.end) return null;
-
-  const start = new Date(timeRange.start);
-  const end = new Date(timeRange.end);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
-
-  return {
-    start: ICAL.Time.fromJSDate(start, true),
-    end: ICAL.Time.fromJSDate(end, true),
-  };
-}
-
-/**
- * Find the first occurrence of a recurring event inside the queried range —
- * the first one `matches` accepts, when given (an occurrence is judged by its
- * own component: the override where there is one, else the master).
- *
- * Returns null when the series has no such occurrence there — the caller must
- * say so rather than fall back to the master DTSTART, which is the wrong-date
- * bug this whole path exists to fix.
- */
-function firstOccurrenceInRange(event, range, matches) {
-  const expand = new ICAL.RecurExpansion({
-    component: event.component,
-    dtstart: expansionStart(event, range),
-  });
-
-  for (let step = 0; step < MAX_RECURRENCE_ITERATIONS; step++) {
-    const next = expand.next();
-    if (!next) return { occurrence: null };
-    if (next.compare(range.end) > 0) return { occurrence: null };
-    if (next.compare(range.start) >= 0) {
-      const occurrence = event.getOccurrenceDetails(next);
-      if (!matches || matches(occurrence.item.component)) return { occurrence };
-    }
-  }
-
-  console.error(`Recurrence expansion gave up after ${MAX_RECURRENCE_ITERATIONS} occurrences`);
-  return { occurrence: null, truncated: true };
-}
-
-// Rule parts that keep a DAILY/WEEKLY series periodic in its INTERVAL: the
-// candidates are the same days in every period, so the expansion can start a
-// whole number of periods later without changing which occurrences it yields.
-const PERIODIC_PARTS = new Set(['BYDAY', 'BYMONTH', 'WKST']);
-
-/**
- * Where to start expanding a series to reach the range: the series start, or
- * — for a DAILY/WEEKLY rule without COUNT — a whole number of periods later,
- * just before the range.
- *
- * Walking from DTSTART costs one step per occurrence since the series began:
- * a daily series from 2020 takes ~2400 steps to reach October 2026, and a
- * query over hundreds of such series took seconds. Shifted by k periods, the
- * walk only covers the range. That is exact here: the rule's candidates
- * repeat every period (only BYDAY/BYMONTH restrict them), there is no COUNT to
- * count from the original start, and no RDATE to miss. EXDATEs and overrides
- * are absolute, so they still apply. The shifted start stays at least one
- * period plus a day before the range, so the start itself — which ical.js
- * always yields, even if the rule would not — never lands inside it, and a
- * zone offset cannot push an occurrence across the range start. Other rules
- * (COUNT, MONTHLY, YEARLY, ...) are walked from DTSTART as before; COUNT
- * bounds that walk, and monthly or yearly series have few occurrences.
- */
-function expansionStart(event, range) {
-  const start = event.startDate;
-  const component = event.component;
-  const rules = component.getAllProperties('rrule');
-  if (rules.length !== 1 || component.hasProperty('rdate')) return start;
-  const rule = rules[0].getFirstValue();
-  if (rule.count || !['DAILY', 'WEEKLY'].includes(rule.freq)) return start;
-  if (Object.keys(rule.parts ?? {}).some((part) => !PERIODIC_PARTS.has(part))) return start;
-
-  const periodDays = (rule.interval || 1) * (rule.freq === 'WEEKLY' ? 7 : 1);
-  const daysToRange = Math.floor((range.start.toUnixTime() - start.toUnixTime()) / 86400);
-  const periods = Math.floor((daysToRange - periodDays - 2) / periodDays);
-  if (!(periods > 0)) return start;
-
-  const shifted = start.clone();
-  shifted.adjust(periods * periodDays, 0, 0, 0);
-  return shifted;
+  const start = new Date(timeRange.start).getTime();
+  const end = new Date(timeRange.end).getTime();
+  if (Number.isNaN(start) || Number.isNaN(end)) return null;
+  return { start, end };
 }
 
 /**
@@ -171,62 +87,81 @@ function expansionStart(event, range) {
  *
  *  - No time range: the series master (readSeries). A search without a range
  *    therefore only searches the series, not its renamed occurrences.
- *  - A time range and a recurring series: the first occurrence inside the
- *    range, with its RECURRENCE-ID override applied if it has one — the first
- *    one `matches` accepts, when a search passes it. So a search finds an
- *    occurrence renamed or moved inside the range and lists that occurrence,
- *    with its own title, place and date.
+ *  - A time range and a recurring series: the earliest occurrence that
+ *    touches the range once its overrides apply (src/occurrences.js — the
+ *    same test free/busy uses, so a meeting running into the range is in
+ *    it) — the earliest one `matches` accepts, when a search passes it. An
+ *    occurrence moved into the range from outside it counts, one moved out
+ *    of it does not, and it is listed with its own title, place and date.
+ *    A cancelled occurrence is still an occurrence; the display says so.
  *  - A time range and several detached instances without a master: the
- *    first instance inside the range (that `matches` accepts, if given),
+ *    first instance touching the range (that `matches` accepts, if given),
  *    else the first in document order.
  *
  * @param {ICAL.Component} calendar - the parsed VCALENDAR
  * @param {{start: string, end: string}|null} timeRange
  * @param {((vevent: ICAL.Component) => boolean)|null} [matches] - the search
+ * @param {Object} [budget] - the tool call's expansion budget (requestBudget);
+ *   a fresh one when not given
  * @returns {{
  *   vevent: ICAL.Component, event: ICAL.Event,
  *   occurrence: Object|null, item: ICAL.Event,
  *   outsideRange: boolean, expansionTruncated: boolean,
  * } | null}
  */
-export function shownEvent(calendar, timeRange = null, matches = null) {
+export function shownEvent(calendar, timeRange = null, matches = null, budget = undefined) {
   const series = readSeries(calendar, 'vevent');
   if (!series) return null;
-  const range = toICALRange(timeRange);
+  const range = msRange(timeRange);
 
   let vevent = series.master;
   if (range && series.detached.length > 1) {
-    const inRange = series.detached.filter((instance) => overlaps(new ICAL.Event(instance), range));
+    const inRange = series.detached.filter((instance) => touches(new ICAL.Event(instance), range));
     vevent = inRange.find((instance) => !matches || matches(instance)) ?? inRange[0] ?? vevent;
   }
-  const event = new ICAL.Event(vevent);
-  for (const override of series.overrides) {
-    event.relateException(override);
-  }
+  const related = relateSeries(vevent, series.overrides);
+  const { event } = related;
 
   let occurrence = null;
   let outsideRange = false;
   let expansionTruncated = false;
+  let expansionReason = null;
   if (range && event.isRecurring()) {
-    const result = firstOccurrenceInRange(event, range, matches);
-    occurrence = result.occurrence;
-    expansionTruncated = Boolean(result.truncated);
-    outsideRange = !occurrence && !expansionTruncated;
+    const filter = matches ? (o) => matches(o.item.component) : null;
+    const result = seriesOccurrences(related, range, { filter, first: true, budget });
+    occurrence = result.occurrences[0] ?? null;
+    // capped: the occurrence found may not be the earliest, or none was found
+    expansionTruncated = result.truncated;
+    expansionReason = result.reason ?? null;
+    outsideRange = !occurrence && !result.truncated;
   }
 
   return {
     vevent, event, occurrence,
     item: occurrence ? occurrence.item : event,
-    outsideRange, expansionTruncated,
+    outsideRange, expansionTruncated, expansionReason,
   };
 }
 
-function overlaps(event, range) {
-  const { startDate, endDate } = event;
-  if (!startDate) return false;
-  const end = endDate ?? startDate;
-  return startDate.compare(range.end) < 0
-    && (end.compare(range.start) > 0 || startDate.compare(range.start) >= 0);
+function touches(event, range) {
+  if (!event.startDate) return false;
+  const { start, end } = spanOf({ startDate: event.startDate, endDate: event.endDate });
+  return touchesRange(start, end, range);
+}
+
+/**
+ * Does an event or occurrence occupy time? TRANSP:TRANSPARENT is the RFC 5545
+ * way of saying "this does not block me", and a cancelled one does not
+ * either. Values are case-insensitive. Read on the component itself: an
+ * override is a full component, so one without STATUS of a cancelled series
+ * is not cancelled.
+ *
+ * @param {ICAL.Component} vevent
+ * @returns {boolean}
+ */
+export function blocksTime(vevent) {
+  const value = (name) => String(vevent.getFirstPropertyValue(name) ?? '').toUpperCase();
+  return value('transp') !== 'TRANSPARENT' && value('status') !== 'CANCELLED';
 }
 
 /**
@@ -280,4 +215,211 @@ export function assertFieldUpdatable(object, type) {
     `edit the ${type.toUpperCase()} of the occurrence you mean, and send the whole object ` +
     `with ${raw}.`
   );
+}
+
+/** The tools of each kind of object a write can be aimed at, vCards included */
+const WRITE_TOOLS = {
+  ...KINDS,
+  vcard: { noun: 'contact', update: 'update_contact', raw: 'update_contact_raw', fetch: 'addressbook_multi_get' },
+};
+
+/** the field-update tool for a component type the object may hold instead */
+const FIELD_TOOL = { VEVENT: 'update_event', VTODO: 'update_todo' };
+
+/**
+ * Codes for a call dav-mcp itself got wrong (an option or an argument of the
+ * wrong shape). No input from the caller can cause or fix them, so they stay
+ * internal errors.
+ */
+const OUR_MISTAKES = new Set(['INVALID_INPUT', 'INVALID_TYPE', 'INVALID_FLOATING_TIME', 'INVALID_ABSOLUTE_TIME']);
+
+/** the parameter an event tool takes a property through, where it is not fields */
+const EVENT_PARAMETER = { DTSTART: 'start_date', DTEND: 'end_date' };
+
+/**
+ * What to do with an object that holds no component of the tool's type, from
+ * the types the library's message lists ("(it holds: VJOURNAL)"). The code
+ * says what happened; the list is only read to name the right tool.
+ */
+function wrongTypeHint(message, { noun, update }) {
+  const held = /\(it holds: ([A-Z, ]+)\)/.exec(message)?.[1].split(/,\s*/) ?? [];
+  const tools = held.map((name) => FIELD_TOOL[name] ? `${FIELD_TOOL[name]} for its ${name}` : null)
+    .filter(Boolean);
+  const hint = `This object holds no ${noun}, so ${update} cannot change it.`;
+  if (tools.length) return `${hint} Use ${tools.join(', or ')}.`;
+  return held.length
+    ? `${hint} dav-mcp has no field-update tool for ${held.join(', ')}.`
+    : hint;
+}
+
+/**
+ * The library's message in the terms of these tools. It names options and
+ * functions of its own API — cancelOccurrences, a "replace" list mode,
+ * absoluteTime "as-given" — that a tool caller cannot give; those are turned
+ * into the parameters that do the same, or the sentence that offers them is
+ * left out (the hint after it says what works).
+ */
+function inToolTerms(message, error, tools) {
+  let text = message
+    .replace(/\bcancelOccurrences\b/g, 'cancel_occurrences')
+    .replace(/\brestoreOccurrences\b/g, 'restore_occurrences')
+    .replace(/, which removes the override too/g, ', which removes its changed version (override) too')
+    .replace(/, or leave absoluteTime "as-given"/g, '');
+  // the remedy sentences of a refused rule change ask for a complete EXDATE
+  // list, which these tools do not take: orphanHint says what works instead
+  if (error.code === 'ORPHANED_EXCEPTIONS') {
+    text = text.replace(/\.? ?(Give RRULE \(or RDATE\) in the same call|Give the complete EXDATE list)[\s\S]*$/, '');
+  }
+  return text.replace(/ ?\(list mode "replace"\)/g, '');
+}
+
+/** what works when a rule change would leave exclusions or overrides naming nothing */
+function orphanHint({ update, raw, fetch }) {
+  return `Give an RRULE (fields.RRULE) that keeps those occurrences, or bring back the exclusions that ` +
+    `would name nothing with restore_occurrences in this same ${update} call (restores are applied ` +
+    `before the fields). To move or remove a changed occurrence (override), fetch the object with ` +
+    `${fetch} and send the edited whole with ${raw}.`;
+}
+
+/** The hint for a refusal, in this tool's terms, chosen by the library's remedy */
+function remedyHint(error, type, tools) {
+  const { update, raw, fetch } = tools;
+  switch (error.remedy) {
+    case 'same-call': {
+      // the message names what to give (RRULE, UNTIL, EXDATE, RDATE);
+      // `property` and `suggestion` make the example concrete
+      const name = error.property ?? 'RRULE';
+      const example = error.suggestion ? `fields.${name} "${error.suggestion}"` : `fields.${name}`;
+      return `Give what it names in fields of this same ${update} call (e.g. ${example}).`;
+    }
+    case 'rewrite-object':
+      return `To change a single occurrence, or to rewrite the whole object: fetch it with ` +
+        `${fetch} (its Raw Data block holds the full text and the etag), edit it, and send ` +
+        `the whole object with ${raw}.`;
+    case 'fix-value': {
+      if (!error.property) return '';
+      const parameter = type === 'vevent' && EVENT_PARAMETER[error.property];
+      return `Correct ${error.property}${parameter ? ` (${parameter})` : ''} and call ${update} again.`;
+    }
+    default:
+      return '';
+  }
+}
+
+/**
+ * Turn what tsdav-utils' updateFields threw into the error the client gets.
+ *
+ * Every refusal is an UpdateFieldsError with a stable `code` and a `remedy`;
+ * anything else is a failure of the library, passed on as it is. Refusals are
+ * the caller's input meeting this object, so they become a ValidationError:
+ * the library's message, which says why and often what to give instead (the
+ * rule with the new start's weekday, say), plus how that remedy is spelled in
+ * this server — fields of the same call, or the multi-get and raw tools.
+ *
+ * Two kinds of refusal are not the caller's to fix and are not reported as
+ * such: a call dav-mcp made wrongly (an option or argument of the wrong shape)
+ * stays an internal error, and a stored object that does not parse is a
+ * CalDAV/CardDAV error — the object on the server is broken, not the input.
+ *
+ * @param {Error} error - what updateFields threw
+ * @param {'vevent'|'vtodo'} [type] - the component the tool writes; none for a vCard
+ * @returns {Error} the error to throw
+ */
+export function explainWriteRefusal(error, type) {
+  if (!isUpdateFieldsError(error)) return error;
+
+  const tools = WRITE_TOOLS[type ?? 'vcard'];
+  const message = inToolTerms(error.message.replace(/\.$/, ''), error, tools);
+
+  if (OUR_MISTAKES.has(error.code)) {
+    const fault = new Error(`dav-mcp called tsdav-utils wrongly (${error.code}): ${message}`, { cause: error });
+    fault.code = MCP_ERROR_CODES.INTERNAL_ERROR;
+    return fault;
+  }
+  if (error.code === 'INVALID_ICALENDAR') {
+    const Broken = type ? CalDAVError : CardDAVError;
+    return new Broken(
+      `The stored ${tools.noun} cannot be parsed, so it was not changed (${message}). ` +
+      `To repair it, fetch it with ${tools.fetch} and send a corrected object with ${tools.raw}.`,
+      { code: error.code }
+    );
+  }
+
+  const hint = error.code === 'COMPONENT_NOT_FOUND'
+    ? wrongTypeHint(error.message, tools)
+    : error.code === 'ORPHANED_EXCEPTIONS' && type
+      ? orphanHint(tools)
+      : remedyHint(error, type, tools);
+  return new ValidationError(hint ? `${message}. ${hint}` : message, {
+    code: error.code, remedy: error.remedy,
+    ...(error.property && { property: error.property }),
+    ...(error.suggestion && { suggestion: error.suggestion }),
+  });
+}
+
+/**
+ * What a field update did to a recurring series, for the reply.
+ *
+ * A new start moves the whole series: tsdav-utils rewrites a weekday the rule
+ * restates and shifts every override, EXDATE and RDATE by the same distance.
+ * The caller named one date; the model has to be able to tell the user what
+ * else changed, so the reply lists it.
+ *
+ * @param {string|{data: string}} before - the object as fetched
+ * @param {string} after - the object as written
+ * @param {'vevent'|'vtodo'} type
+ * @returns {null | {
+ *   summary: string,
+ *   dtstart?: {from: string, to: string},
+ *   rrule?: {from: string|null, to: string|null},
+ *   overrides_moved: number, exdates_moved: number, rdates_moved: number,
+ * }} null when the object is no series or the write left its shape alone
+ */
+export function describeSeriesChange(before, after, type) {
+  const read = (object) => {
+    try {
+      const calendar = new ICAL.Component(ICAL.parse(typeof object === 'string' ? object : object.data));
+      return readSeries(calendar, type);
+    } catch {
+      return null;
+    }
+  };
+  const [old, now] = [read(before), read(after)];
+  if (!old || !now || old.detached.length || now.detached.length) return null;
+
+  const isSeries = (series) => ['rrule', 'rdate'].some((name) => series.master.hasProperty(name));
+  if (!isSeries(old) && !isSeries(now)) return null;
+
+  const line = (component, name) => component.getFirstProperty(name)?.toICALString() ?? null;
+  // compared by occurrence name in each series' own form (occurrence-names),
+  // not by stored text or position: a list restated in another zone or order
+  // moved nothing, and an override is matched by what it names
+  const [was, is] = [listedDates(old.master, old.overrides), listedDates(now.master, now.overrides)];
+  const gone = (key) => (was?.[key] ?? []).filter((name) => !(is?.[key] ?? []).includes(name)).length;
+
+  const change = {
+    overrides_moved: gone('overrides'),
+    exdates_moved: gone('exdates'),
+    rdates_moved: gone('rdates'),
+  };
+  const parts = [];
+  const [startFrom, startTo] = [line(old.master, 'dtstart'), line(now.master, 'dtstart')];
+  if (startFrom !== startTo) {
+    change.dtstart = { from: startFrom, to: startTo };
+    parts.push(`series start ${startFrom} -> ${startTo}`);
+  }
+  const [ruleFrom, ruleTo] = [line(old.master, 'rrule'), line(now.master, 'rrule')];
+  if (ruleFrom !== ruleTo) {
+    change.rrule = { from: ruleFrom, to: ruleTo };
+    parts.push(`rule ${ruleFrom ?? '(none)'} -> ${ruleTo ?? '(none)'}`);
+  }
+  const moved = [
+    [change.overrides_moved, 'changed occurrence (override)', 'changed occurrences (overrides)'],
+    [change.exdates_moved, 'cancelled date (EXDATE)', 'cancelled dates (EXDATE)'],
+    [change.rdates_moved, 'extra date (RDATE)', 'extra dates (RDATE)'],
+  ].filter(([count]) => count > 0).map(([count, one, many]) => `${count} ${count === 1 ? one : many}`);
+  if (moved.length) parts.push(`moved along: ${moved.join(', ')}`);
+
+  if (!parts.length) return null;
+  return { summary: parts.join('; '), ...change };
 }

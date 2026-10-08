@@ -371,7 +371,7 @@ describe('names, inert exclusions and refusals (#126 review)', () => {
     storedEvent = calendar('VEVENT', SERIES);
     const reply = await errorReply(setEvent({ fields: { RRULE: 'FREQ=WEEKLY;BYDAY=FR' } }));
     expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
-    expect(reply.message).toContain('Bring those occurrences back with restore_occurrences in this same update_event call');
+    expect(reply.message).toContain('bring back the exclusions that would name nothing with restore_occurrences in this same update_event call');
     expect(reply.message).not.toMatch(/list mode|complete EXDATE/);
     expect(reply.data.details).toMatchObject({ code: 'ORPHANED_EXCEPTIONS' });
 
@@ -396,5 +396,31 @@ describe('names, inert exclusions and refusals (#126 review)', () => {
     // cancelling the occurrence the inert one seemed to name is reported as a cancel
     const reply = await setEvent({ cancel_occurrences: ['2027-10-12T01:15:00'] });
     expect(reply.content[0].text).toContain('- **Occurrences**: cancelled 2027-10-12T01:15:00\n');
+  });
+
+  test('the series reply counts what moved by occurrence, apart from what was cancelled', async () => {
+    storedEvent = calendar('VEVENT', SERIES, OVERRIDE);
+    // cancel and retitle: the cancel is reported, nothing "moved along"
+    let reply = (await setEvent({ cancel_occurrences: ['2026-12-17T10:00:00'], fields: { SUMMARY: 'Plan' } })).content[0].text;
+    expect(reply).toContain('- **Occurrences**: cancelled 2026-12-17T10:00:00\n');
+    expect(reply).not.toContain('- **Series**');
+
+    // cancel and move an hour later: the three exclusions and the override moved along
+    updateCalendarObject.mockClear();
+    reply = (await setEvent({
+      cancel_occurrences: ['2026-12-17T10:00:00'],
+      start_date: '2026-10-01T11:00:00', end_date: '2026-10-01T12:00:00',
+    })).content[0].text;
+    expect(reply).toContain('moved along: 1 changed occurrence (override), 3 cancelled dates (EXDATE)');
+  });
+
+  test('a refused move is a validation error in tool terms', async () => {
+    storedEvent = calendar('VEVENT', [
+      'UID:x@test', 'SUMMARY:Exchange', 'DTSTART;TZID=W. Europe Standard Time:20261005T090000',
+      'DTEND;TZID=W. Europe Standard Time:20261005T100000', 'RRULE:FREQ=WEEKLY',
+    ]);
+    const reply = await errorReply(setEvent({ start_date: '2026-10-05T08:00:00Z', end_date: '2026-10-05T09:00:00Z' }));
+    expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+    expect(reply.message).not.toMatch(/absoluteTime|as-given|list mode|cancelOccurrences/);
   });
 });
