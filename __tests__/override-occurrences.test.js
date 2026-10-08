@@ -242,6 +242,41 @@ describe('STATUS and TRANSP', () => {
   });
 });
 
+describe('RECURRENCE-ID and EXDATE in another frame than DTSTART (review of #110)', () => {
+  const allDay = (rid) => object(BERLIN,
+    vevent('SUMMARY:AD', 'DTSTART;VALUE=DATE:20261001', 'DTEND;VALUE=DATE:20261002', 'RRULE:FREQ=DAILY'),
+    vevent('SUMMARY:x', rid, 'DTSTART;VALUE=DATE:20261013', 'DTEND;VALUE=DATE:20261014', 'STATUS:CANCELLED'));
+  const days = (obj) => busyOn(obj, '2026-10-12').concat(busyOn(obj, '2026-10-13'));
+
+  test.each([
+    ['Berlin midnight', 'RECURRENCE-ID;TZID=Europe/Berlin:20261013T000000'],
+    ['floating midnight', 'RECURRENCE-ID:20261013T000000'],
+    ['UTC midnight', 'RECURRENCE-ID:20261013T000000Z'],
+  ])('a timed RECURRENCE-ID (%s) on an all-day series names the date it is written on', (_, rid) => {
+    expect(days(allDay(rid))).toEqual(['2026-10-12T00:00-23:59']);
+  });
+
+  test('at the autumn DST fold, a RECURRENCE-ID matches the instant it names', () => {
+    // 25 October 2026, 02:00 in Berlin happens twice; 01:00Z is the second
+    const series = object(BERLIN,
+      vevent('SUMMARY:Night', 'DTSTART;TZID=Europe/Berlin:20261001T020000', 'DURATION:PT1H', 'RRULE:FREQ=DAILY'),
+      vevent('SUMMARY:Moved', 'RECURRENCE-ID:20261025T010000Z', 'DTSTART:20261030T103000Z', 'DURATION:PT1H'));
+    expect(busyOn(series, '2026-10-30')).toEqual(['2026-10-30T01:00-02:00', '2026-10-30T10:30-11:30']);
+    expect(busyOn(series, '2026-10-25')).toEqual([]);
+  });
+
+  test('an EXDATE and an override written in UTC on a floating series name the same host-clock occurrence', () => {
+    // 13 October 09:00 on this host's clock, written in UTC
+    const utc = new Date(2026, 9, 13, 9).toISOString().replace(/[-:]|\.000/g, '');
+    const series = object(
+      vevent('SUMMARY:Floating', 'DTSTART:20261001T090000', 'DTEND:20261001T100000', 'RRULE:FREQ=DAILY', `EXDATE:${utc}`),
+      vevent('SUMMARY:Override', `RECURRENCE-ID:${utc}`, 'DTSTART:20261013T120000', 'DTEND:20261013T130000'));
+    const local = (h) => new Date(2026, 9, 13, h);
+    // the occurrence is excluded, so its override is no occurrence either
+    expect(calculateFreeBusy([series], { start: local(0), end: local(23) }).busy).toEqual([]);
+  });
+});
+
 describe('the step cap is never silent', () => {
   const window = { time_range_start: '2026-10-12T00:00:00Z', time_range_end: '2026-10-12T12:00:00Z' };
 
@@ -253,6 +288,25 @@ describe('the step cap is never silent', () => {
     expect(text).toContain('**Warning**');
     expect(text).toContain(`Polling (${CALENDAR_URL}standup.ics)`);
     expect(text).not.toContain('Nothing blocks this window');
+  });
+
+  test('a dense rule is expanded from the range, not from a day before it', () => {
+    // two occurrences a minute: a week is 20 160 of them
+    const dense = object(vevent('SUMMARY:Ticks', 'DTSTART:20200101T000000Z', 'DURATION:PT10S', 'RRULE:FREQ=MINUTELY;BYSECOND=0,30'));
+    const { busy, incomplete } = calculateFreeBusy([dense],
+      { start: new Date('2026-10-14T10:00:00Z'), end: new Date('2026-10-21T10:00:00Z') });
+    expect(incomplete).toEqual([]);
+    expect(busy).toHaveLength(20160);
+  });
+
+  test('a time-of-day part that limits the rule is walked from DTSTART, not shifted', () => {
+    // ical.js does not step HOURLY;BYHOUR on a fixed grid, so a shifted
+    // start would yield other hours than the series has
+    const plan = (rule) => relateSeries(readSeries(new ICAL.Component(ICAL.parse(object(
+      vevent('SUMMARY:x', 'DTSTART:20230623T230700Z', 'DURATION:PT1H', `RRULE:${rule}`)).data)), 'vevent').master, []).plan;
+    expect(plan('FREQ=HOURLY;INTERVAL=5;BYHOUR=20,23')).toBeNull();
+    expect(plan('FREQ=DAILY;BYHOUR=9,17')).not.toBeNull();
+    expect(plan('FREQ=HOURLY;BYMINUTE=0,30')).not.toBeNull();
   });
 
   test('hourly and minutely series start near the range like daily ones', async () => {
@@ -281,6 +335,28 @@ describe('the expansion still starts near the range', () => {
     expect(occurrences.map((o) => o.item.summary)).toEqual(['Daily', 'Standup (01)']);
     // ~9700 days since DTSTART, ~1800 more to the override: a walk covers neither
     expect(next.mock.calls.length).toBeLessThan(100);
+  });
+
+  test('1000 overrides of an every-minute series from 2000 on are checked within one budget', () => {
+    const lines = [...vevent('SUMMARY:Minutely', 'DTSTART:20000101T000000Z', 'DURATION:PT1M', 'RRULE:FREQ=MINUTELY')];
+    for (let i = 0; i < 1000; i++) {
+      const rid = new Date(Date.UTC(2000, 0, 1) + i * 11 * 86400000 + i * 60000).toISOString().replace(/[-:]|\.000/g, '');
+      const at = new Date(Date.UTC(2026, 9, 12) + i * 60000).toISOString().replace(/[-:]|\.000/g, '');
+      lines.push(...vevent(`SUMMARY:ov ${i}`, `RECURRENCE-ID:${rid}`, `DTSTART:${at}`, 'DURATION:PT20M'));
+    }
+    const heavy = object(lines);
+    // one day: the 1440 occurrences of the day itself are not what is measured
+    const day = { start: new Date('2026-10-12T00:00:00Z'), end: new Date('2026-10-13T00:00:00Z') };
+
+    const started = performance.now();
+    const { incomplete } = calculateFreeBusy([heavy], day);
+    const shown = shownEvent(new ICAL.Component(ICAL.parse(heavy.data)),
+      { start: day.start.toISOString(), end: day.end.toISOString() }, (v) => /^ov /.test(v.getFirstPropertyValue('summary')));
+    const elapsed = performance.now() - started;
+
+    expect(incomplete).toEqual([]);
+    expect(shown.item.summary).toBe('ov 0');
+    expect(elapsed).toBeLessThan(1000);
   });
 
   test('200 overrides moved in from years away are checked in one pass', () => {

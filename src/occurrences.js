@@ -21,19 +21,27 @@ import { toInstant, instantOf, frameOf, documentZone } from './tools/shared/ical
  * date as its UTC day.
  */
 
-// The cost of expansion scales with the distance from where the walk starts
-// to the range, so the walk is capped: server-supplied data must not be able
-// to stall the loop. A walk that hits the cap says so (`truncated`).
-const MAX_RECURRENCE_ITERATIONS = 10000;
+// Server-supplied data must not be able to stall a query, so the steps one
+// call may take through a series — every walk of it together — are capped.
+// A call that runs out says so (`truncated`), and what it returns is then
+// incomplete but not wrong (see seriesOccurrences).
+const MAX_RECURRENCE_STEPS = 25000;
 
 /**
  * Milliseconds a wall-clock time can sit away from the same digits read as
- * UTC: zone offsets run from UTC-12 to UTC+14. Every window computed from
- * recurrence ids is widened by this much and the exact test decides.
+ * UTC: zone offsets run from UTC-12 to UTC+14. For bounds that compare a
+ * floating time read in the host's zone with an instant (calendar_query's
+ * sort key).
  */
 export const ZONE_SLACK_MS = 26 * 3600 * 1000;
 
 const DAY_MS = 86400 * 1000;
+
+// Every comparison below is between instants or between wall clocks of the
+// one frame of DTSTART. Only a duration or a THISANDFUTURE move added on the
+// wall clock can differ from its length in instants, by a DST change: this
+// much margin covers it.
+const DST_SLACK_MS = 3 * 3600 * 1000;
 
 /**
  * RFC 4791 9.9: does [start, end) touch [range.start, range.end)?
@@ -69,6 +77,10 @@ export function spanOf({ startDate, endDate }) {
  * was computed by copying zones rather than converting. The rewrite happens
  * on the parsed component, in memory only.
  *
+ * EXDATEs are rewritten the same way: ical.js matches them by comparing
+ * times, which reads a floating time as UTC, where the RECURRENCE-IDs above
+ * and every instant here read it on the host clock.
+ *
  * RANGE=THISANDFUTURE is applied here (occurrenceAt), not by ical.js, which
  * applies such an override even when its RECURRENCE-ID is no occurrence.
  *
@@ -80,50 +92,107 @@ export function relateSeries(master, overrides) {
   // an empty list: without one, ical.js relates every sibling with a
   // RECURRENCE-ID itself, before it is aligned
   const event = new ICAL.Event(master, { exceptions: [] });
+  alignExdates(master);
   const futures = [];
+  // each override also by the instant its RECURRENCE-ID named as written: at
+  // a DST fold the aligned wall clock is ambiguous, the instant is not
+  const byInstant = new Map();
+  // keys whose aligned wall clock is not the instant they named (a DST fold)
+  const folded = new Set();
   for (const override of overrides) {
+    const named = namedInstant(override, master);
     alignRecurrenceId(override, master);
     const related = new ICAL.Event(override);
     if (!related.recurrenceId) continue;
     event.relateException(related);
+    const key = related.recurrenceId.toString();
+    const at = Number.isFinite(named) ? named : toInstant(related.recurrenceId);
+    byInstant.set(at, key);
+    if (toInstant(related.recurrenceId) !== at) folded.add(key);
     if (related.modifiesFuture()) {
-      futures.push({ key: related.recurrenceId.toString(), exception: related, at: toInstant(related.recurrenceId) });
+      futures.push({
+        key, exception: related, at, wall: wallOf(related.recurrenceId),
+      });
     }
   }
   event.rangeExceptions = [];
   return {
     event,
+    byInstant,
+    folded,
     // a later override with the same RECURRENCE-ID replaced an earlier one
     futures: futures.filter((f) => event.exceptions[f.key] === f.exception).sort((a, b) => a.at - b.at),
     plan: shiftPlan(event),
   };
 }
 
+/**
+ * The instant a RECURRENCE-ID names as written — only where it is a
+ * date-time naming a timed series; a date against a date-time (or the other
+ * way round) names an occurrence only through alignedValue.
+ */
+function namedInstant(override, master) {
+  const property = override.getFirstProperty('recurrence-id');
+  const dtstart = master.getFirstProperty('dtstart');
+  if (!property || !dtstart) return null;
+  if (property.getFirstValue().isDate || dtstart.getFirstValue().isDate) return null;
+  return orNull(() => instantOf(property));
+}
+
 function alignRecurrenceId(override, master) {
   const property = override.getFirstProperty('recurrence-id');
   const dtstart = master.getFirstProperty('dtstart');
   if (!property || !dtstart || frameOf(property) === frameOf(dtstart)) return;
-  const value = property.getFirstValue();
-  const start = dtstart.getFirstValue();
+  const aligned = alignedValue(property, property.getFirstValue(), dtstart, 'as-written');
+  if (!aligned) return;
+  property.setValue(aligned);
+  setFrameOf(property, dtstart);
+}
 
-  let aligned;
+function alignExdates(master) {
+  const dtstart = master.getFirstProperty('dtstart');
+  if (!dtstart) return;
+  for (const property of master.getAllProperties('exdate')) {
+    if (frameOf(property) === frameOf(dtstart)) continue;
+    // a date excluding a timed occurrence: ical.js matches it by its day
+    if (property.getFirstValue()?.isDate && !dtstart.getFirstValue().isDate) continue;
+    const values = property.getValues().map((value) => alignedValue(property, value, dtstart, 'utc-day'));
+    if (values.some((value) => !value)) continue;
+    property.setValues(values);
+    setFrameOf(property, dtstart);
+  }
+}
+
+/**
+ * A RECURRENCE-ID or EXDATE value written in the frame of DTSTART, naming
+ * the same occurrence:
+ *  - a date for a timed series: the series' time of day on that date
+ *  - a date-time for an all-day series: for a RECURRENCE-ID the date as
+ *    written (its own wall date), for an EXDATE the UTC day of its instant
+ *  - otherwise the same instant (a floating time read on the host clock)
+ */
+function alignedValue(property, value, dtstart, dateOfTimed) {
+  const start = dtstart.getFirstValue();
   if (value.isDate && !start.isDate) {
-    // a date naming a timed occurrence: the series' time on that day
-    aligned = start.clone();
+    const aligned = start.clone();
     aligned.year = value.year;
     aligned.month = value.month;
     aligned.day = value.day;
-  } else {
-    let instant;
-    try {
-      instant = instantOf(property);
-    } catch {
-      return;
-    }
-    if (!Number.isFinite(instant)) return;
-    aligned = timeLike(instant, dtstart);
+    return aligned;
   }
-  property.setValue(aligned);
+  if (start.isDate && !value.isDate && dateOfTimed === 'as-written') {
+    return new ICAL.Time({ year: value.year, month: value.month, day: value.day, isDate: true });
+  }
+  let instant;
+  try {
+    instant = instantOf(property, value);
+  } catch {
+    return null;
+  }
+  return Number.isFinite(instant) ? timeLike(instant, dtstart) : null;
+}
+
+function setFrameOf(property, dtstart) {
   const tzid = dtstart.getParameter('tzid');
   if (tzid) property.setParameter('tzid', tzid);
   else property.removeParameter('tzid');
@@ -163,8 +232,15 @@ function timeLike(instant, property, value = property.getFirstValue()) {
  */
 function occurrenceAt(series, id, futures) {
   const { event } = series;
-  const details = event.getOccurrenceDetails(id);
-  if (details.item !== event || futures.length === 0) return details;
+  const key = exceptionKey(series, id);
+  if (key) {
+    const item = event.exceptions[key];
+    return { recurrenceId: id, startDate: item.startDate, endDate: item.endDate, item };
+  }
+  const end = id.clone();
+  end.addDuration(event.duration);
+  const details = { recurrenceId: id, startDate: id, endDate: end, item: event };
+  if (futures.length === 0) return details;
 
   const at = toInstant(id);
   let future = null;
@@ -185,12 +261,20 @@ function occurrenceAt(series, id, futures) {
   return { recurrenceId: id, startDate, endDate, item: exception };
 }
 
-/** The key ical.js finds an exact override of `id` under, if any */
-function exceptionKey(event, id) {
+/** The key of the exact override of occurrence `id`, if any: by text, else by instant */
+function exceptionKey({ event, byInstant }, id) {
   const local = id.toString();
   if (local in event.exceptions) return local;
-  const utc = id.convertToZone(ICAL.Timezone.utcTimezone).toString();
-  return utc in event.exceptions ? utc : null;
+  const key = byInstant.get(toInstant(id));
+  return key && event.exceptions[key] ? key : null;
+}
+
+function orNull(compute) {
+  try {
+    return compute();
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -203,13 +287,14 @@ function exceptionKey(event, id) {
  *    own time. Those that touch the range are collected first, from anywhere
  *    in the series — that is how one moved in from years away is found.
  *  - Whether they, and any THISANDFUTURE overrides, are occurrences at all
- *    is checked in ONE walk over their sorted RECURRENCE-IDs (validate),
- *    which restarts near each id where the rule allows it (shiftPlan).
+ *    is checked in one pass over their sorted RECURRENCE-IDs (validate),
+ *    a few steps each where the rule allows (shiftPlan).
  *  - Every other occurrence sits at its recurrence id, moved at most by a
  *    valid THISANDFUTURE override and lasting at most the longest duration
  *    in the series. So only the recurrence ids in the range, widened by that
- *    move and duration, are walked — starting just before it where the rule
- *    allows (shiftPlan), else at DTSTART.
+ *    move and duration, are walked — from the period that holds the range
+ *    where the rule allows (shiftPlan), else from DTSTART.
+ *  - All walks of one call share one step budget.
  *
  * @param {ReturnType<typeof relateSeries>} series
  * @param {{start: number, end: number}} range - ms
@@ -219,37 +304,47 @@ function exceptionKey(event, id) {
  * @param {boolean} [options.first] - only the earliest is wanted: the walk
  *   stops once no later recurrence id can start before it
  * @returns {{occurrences: Object[], truncated: boolean}} sorted by start,
- *   then recurrence id; truncated when a walk hit the iteration cap, so an
- *   occurrence may be missing
+ *   then recurrence id; truncated when the step budget ran out. Then some
+ *   occurrences may be missing, but none is wrong: an override that could
+ *   not be checked is left out, and so is every occurrence a THISANDFUTURE
+ *   override that could not be checked might move.
  */
 export function seriesOccurrences(series, range, { filter = null, first = false } = {}) {
   const accept = (occurrence) => {
     const { start, end } = spanOf(occurrence);
     return touchesRange(start, end, range) && (!filter || filter(occurrence));
   };
+  const budget = { left: MAX_RECURRENCE_STEPS, exhausted: false };
 
   const overrides = overridesInRange(series, accept);
-  const checked = validate(series, [...overrides, ...series.futures]);
+  const checked = validate(series, [...overrides, ...series.futures], budget);
   const futures = series.futures.filter((f) => checked.ids.has(f.key));
   const found = overrides
     .filter((o) => checked.ids.has(o.key))
     .map((o) => occurrenceAt(series, checked.ids.get(o.key), futures));
 
-  const walked = walkRange(series, range, futures, accept, first ? earliest(found) : null);
+  // an occurrence at or after a THISANDFUTURE override nobody could check
+  // may be moved by it: not reported, rather than reported wrong
+  const unknown = series.futures.find((f) => f.wall + DST_SLACK_MS >= checked.decidedBefore);
+  const walked = walkRange(series, range, futures, accept, {
+    best: first ? earliest(found) : null,
+    before: unknown ? unknown.wall : Infinity,
+    budget,
+  });
   found.push(...walked.found);
-  const truncated = checked.truncated || walked.truncated;
+  const truncated = budget.exhausted || Boolean(unknown);
   if (truncated) {
-    console.error(`Recurrence expansion gave up after ${MAX_RECURRENCE_ITERATIONS} occurrences`);
+    console.error(`Recurrence expansion gave up after ${MAX_RECURRENCE_STEPS} steps`);
   }
   found.sort(byStart);
   return { occurrences: first ? found.slice(0, 1) : found, truncated };
 }
 
-/** The exact overrides whose own time `accept` takes: {key, at} */
+/** The exact overrides whose own time `accept` takes: {key, wall} */
 function overridesInRange({ event }, accept) {
   return Object.entries(event.exceptions)
     .filter(([, exception]) => accept(event.getOccurrenceDetails(exception.recurrenceId)))
-    .map(([key, exception]) => ({ key, at: toInstant(exception.recurrenceId) }));
+    .map(([key, exception]) => ({ key, wall: wallOf(exception.recurrenceId) }));
 }
 
 function earliest(occurrences) {
@@ -258,28 +353,33 @@ function earliest(occurrences) {
 
 /**
  * Walk the recurrence ids that can still yield an occurrence touching the
- * range, skipping exact overrides (judged by overridesInRange). With
- * `best` (first mode), stop once a later id cannot start before it.
+ * range, skipping exact overrides (judged by overridesInRange). With `best`
+ * (first mode), stop once a later id cannot start before it; stop at the
+ * wall clock `before` (see seriesOccurrences).
  */
-function walkRange(series, range, futures, accept, best) {
+function walkRange(series, range, futures, accept, { best, before, budget }) {
   const { event } = series;
   const { lead, trail, minMove } = reach(series, futures);
-  const walk = walkFrom(series, range.start - lead);
+  const from = range.start - lead;
   const to = range.end + trail;
+  const dtstart = event.component.getFirstProperty('dtstart');
+  const walk = walkFrom(series, wallOf(timeLike(from, dtstart)) - DST_SLACK_MS, budget);
   const found = [];
   let bound = best ?? Infinity;
   for (let id = walk.next(); id; id = walk.next()) {
+    if (wallOf(id) >= before) break;
     const at = toInstant(id);
-    if (at > to) return { found, truncated: false };
-    if (best !== null && at + minMove - ZONE_SLACK_MS > bound) return { found, truncated: false };
-    if (exceptionKey(event, id)) continue;
+    if (at > to) break;
+    if (at < from) continue;
+    if (best !== null && at + minMove - DST_SLACK_MS > bound) break;
+    if (exceptionKey(series, id)) continue;
     const occurrence = occurrenceAt(series, id, futures);
     if (accept(occurrence)) {
       found.push(occurrence);
       bound = Math.min(bound, spanOf(occurrence).start);
     }
   }
-  return { found, truncated: walk.truncated() };
+  return { found };
 }
 
 /**
@@ -296,8 +396,8 @@ function reach({ event }, futures) {
   }
   const minMove = Math.min(...moves);
   return {
-    lead: Math.max(...moves) + Math.max(0, ...durations) + ZONE_SLACK_MS,
-    trail: -minMove + ZONE_SLACK_MS,
+    lead: Math.max(...moves) + Math.max(0, ...durations) + DST_SLACK_MS,
+    trail: -minMove + DST_SLACK_MS,
     minMove,
   };
 }
@@ -313,79 +413,127 @@ function durationOf(event) {
 
 /**
  * Which of the given overrides are occurrences of the series — does the
- * rule, less its EXDATEs, yield their RECURRENCE-ID? One walk over the ids
- * in order; where the rule can be shifted (shiftPlan) it restarts just
- * before each id that lies ahead of it, else it runs on from DTSTART.
+ * rule, less its EXDATEs, yield their RECURRENCE-ID? One pass over the ids
+ * in order. Where the rule can be shifted (shiftPlan), each id ahead of the
+ * pass gets a walk from the start of the period it lies in, so checking an
+ * override costs a few steps however far it is from DTSTART; otherwise one
+ * walk runs on from DTSTART. All of it from the caller's step budget.
  *
- * @param {Object[]} targets - {key, at}
- * @returns {{ids: Map<string, ICAL.Time>, truncated: boolean}} each valid
- *   key with its id as the rule yields it
+ * Compares wall clocks in DTSTART's frame: the RECURRENCE-IDs are aligned to
+ * it (relateSeries) and the walk yields it.
+ *
+ * @param {Object[]} targets - {key, wall}
+ * @returns {{ids: Map<string, ICAL.Time>, decidedBefore: number}} each valid
+ *   key with its id as the rule yields it; every target before the wall
+ *   clock `decidedBefore` was decided (Infinity: all of them)
  */
-function validate(series, targets) {
+function validate(series, targets, budget) {
   const ids = new Map();
-  const pending = [...new Map(targets.map((t) => [t.key, t])).values()].sort((a, b) => a.at - b.at);
-  if (pending.length === 0) return { ids, truncated: false };
-
+  const pending = [...new Map(targets.map((t) => [t.key, t])).values()].sort((a, b) => a.wall - b.wall);
   const keys = new Set(pending.map((t) => t.key));
   let walk = null;
   let position = -Infinity;
   for (let i = 0; i < pending.length;) {
     const target = pending[i];
-    if (target.at + ZONE_SLACK_MS < position) {
+    // aligned at a DST fold, a wall clock may sit an hour off its occurrence
+    const slack = series.folded.has(target.key) ? DST_SLACK_MS : 0;
+    if (target.wall + slack < position) {
       i++;
       continue;
     }
-    // restart near the next id when that is cheaper than walking on to it
-    const ahead = target.at - ZONE_SLACK_MS - position;
-    if (!walk || (series.plan && ahead > (series.plan.stepDays + 3) * DAY_MS)) {
-      walk = walkFrom(series, target.at - ZONE_SLACK_MS);
+    if (!walk || (series.plan && periodStart(series, target.wall - slack) > position)) {
+      walk = walkFrom(series, target.wall - slack, budget);
     }
     const id = walk.next();
-    // the end of the series: no later id is an occurrence either
-    if (!id) return { ids, truncated: walk.truncated() };
-    position = toInstant(id);
-    const key = exceptionKey(series.event, id);
+    if (!id) {
+      // the series ended: no later id is an occurrence; or the budget did
+      return { ids, decidedBefore: budget.exhausted ? target.wall - slack : Infinity };
+    }
+    position = wallOf(id);
+    const key = exceptionKey(series, id);
     if (key && keys.has(key)) ids.set(key, id);
   }
-  return { ids, truncated: false };
+  return { ids, decidedBefore: Infinity };
 }
 
 /**
- * The recurrence ids of a series in order, from `from` (ms) on, starting
- * just before it where shiftPlan allows, else at DTSTART. next() returns null at the end of
- * the series or at the iteration cap; truncated() tells which.
+ * The recurrence ids of a series in order, from the start of the period
+ * that holds the wall clock `wall` (DTSTART's frame) where shiftPlan allows,
+ * else from DTSTART. ical.js always yields the start it is given, so a
+ * shifted start the rule would not generate is dropped. next() returns null
+ * at the end of the series or when the budget is spent.
  */
-function walkFrom(series, from) {
+function walkFrom(series, wall, budget) {
   const { event, plan } = series;
   let dtstart = event.startDate;
-  if (plan) {
-    const daysToFrom = Math.floor((from - toInstant(dtstart)) / DAY_MS);
-    const steps = Math.floor((daysToFrom - plan.stepDays - 2) / plan.stepDays);
-    if (steps > 0) {
-      dtstart = dtstart.clone();
-      dtstart.adjust(steps * plan.stepDays, 0, 0, 0);
-    }
+  let skipFirst = false;
+  const periods = plan ? Math.floor((wall - wallOf(dtstart)) / plan.periodMs) : 0;
+  if (periods > 0) {
+    dtstart = shifted(series, periods);
+    skipFirst = !generates(plan.rule, dtstart);
   }
   const expansion = new ICAL.RecurExpansion({ component: event.component, dtstart });
-  let steps = 0;
-  let truncated = false;
   return {
     next() {
       for (;;) {
-        if (steps++ >= MAX_RECURRENCE_ITERATIONS) {
-          truncated = true;
+        if (budget.left <= 0) {
+          budget.exhausted = true;
           return null;
         }
+        budget.left--;
         const id = expansion.next();
         if (!id || (plan?.last && id.compare(plan.last) > 0)) return null;
-        // nothing before `from` is asked for — and a shifted walk yields its
-        // own start too, occurrence or not
-        if (toInstant(id) < from) continue;
+        if (skipFirst) {
+          skipFirst = false;
+          if (id.compare(dtstart) === 0) continue;
+        }
         return id;
       }
     },
-    truncated: () => truncated,
   };
+}
+
+/** The wall clock where the period holding `wall` begins */
+function periodStart(series, wall) {
+  const start = wallOf(series.event.startDate);
+  const periods = Math.floor((wall - start) / series.plan.periodMs);
+  return periods > 0 ? wallOf(shifted(series, periods)) : start;
+}
+
+function shifted({ event, plan }, periods) {
+  const time = event.startDate.clone();
+  const ms = periods * plan.periodMs;
+  if (ms % DAY_MS === 0) time.adjust(ms / DAY_MS, 0, 0, 0);
+  else time.adjust(0, 0, 0, ms / 1000);
+  return time;
+}
+
+const WEEKDAYS = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+
+/**
+ * Would the rule generate this start of a period? For the rules shiftPlan
+ * admits, that is: each BY part present holds its field (BYDAY its weekday).
+ * An absent part defaults to DTSTART's, which a whole number of periods
+ * later is unchanged.
+ */
+function generates(rule, time) {
+  const holds = {
+    BYDAY: WEEKDAYS[time.dayOfWeek() - 1],
+    BYMONTH: time.month,
+    BYHOUR: time.hour,
+    BYMINUTE: time.minute,
+    BYSECOND: time.second,
+  };
+  return Object.entries(holds).every(([part, value]) => {
+    const allowed = rule.parts?.[part];
+    return !allowed || allowed.map(String).includes(String(value));
+  });
+}
+
+/** Wall-clock ms of a time's own fields (a date at midnight) */
+function wallOf(time) {
+  return Date.UTC(time.year, time.month - 1, time.day,
+    time.isDate ? 0 : time.hour, time.isDate ? 0 : time.minute, time.isDate ? 0 : time.second);
 }
 
 // Rule parts that keep a series periodic in its INTERVAL: the candidates are
@@ -393,24 +541,27 @@ function walkFrom(series, from) {
 // periods later without changing which occurrences it yields.
 const PERIODIC_PARTS = new Set(['BYDAY', 'BYMONTH', 'BYHOUR', 'BYMINUTE', 'BYSECOND', 'WKST']);
 const UNIT_SECONDS = { SECONDLY: 1, MINUTELY: 60, HOURLY: 3600, DAILY: 86400, WEEKLY: 604800 };
+const TIME_PARTS = { BYHOUR: 3600, BYMINUTE: 60, BYSECOND: 1 };
 
 /**
  * Whether, and in which steps, a walk may start later than DTSTART.
  *
  * Walking from DTSTART costs one step per occurrence since the series began:
  * a daily series from 2020 takes ~2400 steps to reach October 2026, an
- * hourly one from last year runs into the cap. For a SECONDLY to WEEKLY rule
- * restricted by BYDAY/BYMONTH at most, the candidates repeat every period,
- * and ical.js steps them on the wall clock, so a start moved by a whole
- * number of days that is also a whole number of periods (`stepDays`) yields
- * the same occurrences from there on. EXDATEs and overrides are absolute and
+ * every-minute one never gets there. For a SECONDLY to WEEKLY rule whose BY
+ * parts are BYDAY (without an ordinal), BYMONTH, WKST, or a BYHOUR, BYMINUTE
+ * or BYSECOND finer than the frequency (one that expands it, as BYHOUR does
+ * a DAILY rule), the occurrences repeat every period: ical.js steps the period on
+ * the wall clock, and these parts test fields of the wall clock. So a start
+ * moved by whole periods (`periodMs`, on DTSTART's wall clock) yields the
+ * same occurrences from there on; EXDATEs and overrides are absolute and
  * still apply. With COUNT, only a rule without BY parts qualifies: its last
  * occurrence (`last`) is then DTSTART plus COUNT-1 periods, and the walk
  * stops there. Anything else — RDATE, several RRULEs, MONTHLY, YEARLY, other
  * BY parts — is walked from DTSTART; monthly and yearly series have few
  * occurrences.
  *
- * @returns {{stepDays: number, last: ICAL.Time|null}|null}
+ * @returns {{periodMs: number, last: ICAL.Time|null, rule: ICAL.Recur}|null}
  */
 function shiftPlan(event) {
   const component = event.component;
@@ -421,21 +572,22 @@ function shiftPlan(event) {
   if (!unit) return null;
   const parts = Object.keys(rule.parts ?? {});
   if (parts.some((part) => !PERIODIC_PARTS.has(part))) return null;
+  if ((rule.parts.BYDAY ?? []).some((day) => !WEEKDAYS.includes(String(day)))) return null;
+  // a time-of-day part that limits the rule rather than expanding it
+  // (BYHOUR on HOURLY, say): ical.js does not step those on a fixed grid
+  if (parts.some((part) => TIME_PARTS[part] && TIME_PARTS[part] >= unit)) return null;
 
   const period = (rule.interval || 1) * unit;
+  if (event.startDate.isDate && period % 86400 !== 0) return null;
   let last = null;
   if (rule.count) {
     if (parts.some((part) => part !== 'WKST')) return null;
     last = event.startDate.clone();
     const span = (rule.count - 1) * period;
-    if (unit >= 86400) last.adjust(span / 86400, 0, 0, 0);
+    if (span % 86400 === 0) last.adjust(span / 86400, 0, 0, 0);
     else last.adjust(0, 0, 0, span);
   }
-  return { stepDays: period / gcd(period, 86400), last };
-}
-
-function gcd(a, b) {
-  return b === 0 ? a : gcd(b, a % b);
+  return { periodMs: period * 1000, last, rule };
 }
 
 function byStart(a, b) {

@@ -98,6 +98,8 @@ function series() {
     parts.push(`INTERVAL=${hourly ? int(1, 7) : pick([15, 20, 45, 90])}`);
     if (chance(0.4)) parts.push(`BYDAY=${['MO', 'WE', 'FR', 'SA'].filter(() => chance(0.5)).join(',') || 'TU'}`);
     if (hourly && chance(0.2)) parts.push(`BYMINUTE=0,${pick([15, 30, 45])}`);
+    // limiting, not expanding: ical.js does not step it on a fixed grid
+    if (hourly && chance(0.15)) parts.push(`BYHOUR=${int(0, 7)},${int(8, 15)},${int(16, 23)}`);
     if (chance(0.2)) parts.push(`COUNT=${int(50, 3000)}`);
   } else {
     // too dense for the cap: COUNT with BYDAY cannot be shifted (see shiftPlan)
@@ -186,12 +188,29 @@ function reference(text, range, sub) {
 
   const lastOverride = Math.max(0, ...named.keys());
   const horizon = Math.max(range.end + (sub ? 2 * DAY : 200 * DAY) * 1000, lastOverride + 2 * DAY * 1000);
+  // EXDATEs by instant too: a date one excludes its day, a date-time one on
+  // an all-day series the UTC day of its instant
+  const dayOf = (ms) => Math.floor(ms / (DAY * 1000));
+  const excluded = [];
+  for (const property of master.getAllProperties('exdate')) {
+    for (const value of property.getValues()) {
+      const tzid = property.getParameter('tzid');
+      const at = value.isDate || tzid ? toInstant(value)
+        : /Z$/.test(String(property.toJSON()[3])) ? value.toUnixTime() * 1000 : toInstant(value);
+      excluded.push({ at, date: value.isDate, day: value.isDate ? `${value.year}-${value.month}-${value.day}` : null });
+    }
+  }
+  master.removeAllProperties('exdate');
+  const isExcluded = (id) => excluded.some((x) => (start.isDate
+    ? dayOf(x.at) === dayOf(toInstant(id))
+    : x.date ? x.day === `${id.year}-${id.month}-${id.day}` : x.at === toInstant(id)));
+
   const ids = [];
   const expansion = new ICAL.RecurExpansion({ component: master, dtstart: start });
   for (let step = 0; step < 300000; step++) {
     const next = expansion.next();
     if (!next || toInstant(next) > horizon) break;
-    ids.push(next);
+    if (!isExcluded(next)) ids.push(next);
   }
   const futures = ids
     .filter((id) => named.get(toInstant(id))?.modifiesFuture())
@@ -233,7 +252,7 @@ for (let n = 0; n < CASES; n++) {
   // the instances of the bare series near where the range will be, to pick
   // override and EXDATE targets from
   const rangeStart = sub
-    ? s.start + (s.kind === 'dense' ? int(8, 11) : int(0, 60)) * DAY + int(0, 95) * 900
+    ? s.start + (s.kind === 'dense' ? int(27, 31) : int(0, 60)) * DAY + int(0, 95) * 900
     : s.start + int(-30, 1200) * DAY + int(0, 47) * 1800;
   const rangeEnd = rangeStart + pick(sub ? [900, 3600, 6 * 3600, DAY] : [3600, 4 * 3600, DAY, 3 * DAY, 10 * DAY, 20 * DAY]);
   const bare = seriesOf(document([masterLines(s)], s.zone)).event;
@@ -284,7 +303,10 @@ for (let n = 0; n < CASES; n++) {
     // an override may name its RECURRENCE-ID in another frame than DTSTART:
     // UTC for a zoned series, or a zoned or floating one in UTC
     let idLine = prop('RECURRENCE-ID', id, s.zone, s.allDay, range);
-    if (!s.allDay && s.zone === 'ny' && chance(0.3)) {
+    if (!s.allDay && chance(0.1)) {
+      // a date naming a timed occurrence: the series' time of day on it
+      idLine = `RECURRENCE-ID;VALUE=DATE${range}:${stamp(id, 'date')}`;
+    } else if (!s.allDay && s.zone === 'ny' && chance(0.3)) {
       idLine = `RECURRENCE-ID${range}:${stamp(instantIn(NY, id), 'utc')}`;
     } else if (!s.allDay && s.zone === 'floating' && chance(0.3)) {
       // the floating wall clock read on this host, written in UTC
@@ -307,7 +329,14 @@ for (let n = 0; n < CASES; n++) {
   const exdates = [];
   if (ids.length && chance(0.4)) {
     const victim = chance(0.5) && used.size ? pick([...used]) : target();
-    exdates.push(prop('EXDATE', victim, s.zone, s.allDay));
+    if (!s.allDay && s.zone === 'floating' && chance(0.4)) {
+      // the floating wall clock read on this host, written in UTC
+      const d = new Date(victim * 1000);
+      const host = new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds());
+      exdates.push(`EXDATE:${stamp(host.getTime() / 1000, 'utc')}`);
+    } else {
+      exdates.push(prop('EXDATE', victim, s.zone, s.allDay));
+    }
   }
 
   const vevents = chance(0.7) ? [masterLines(s, exdates), ...overrides] : [...overrides, masterLines(s, exdates)];
