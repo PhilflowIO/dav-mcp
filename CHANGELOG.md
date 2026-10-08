@@ -35,6 +35,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   four tools say so.
 
 ### Fixed
+- **`update_todo` writes into the to-do, not an event next to it** (#107).
+  For a calendar object holding both an event and a to-do, `update_todo` wrote
+  its fields (a new due date, say) into the event. It now writes into the
+  to-do, `update_event` into the event, and either tool refuses an object that
+  holds nothing of its kind and names the other tool.
+- **A refused series change is reported as invalid input, not as a server
+  error** (#107). The refusals above reached the client as an internal error
+  (-32603). They now come back as a validation error (-32002) that keeps the
+  reason and the suggested rule, and names the tools to use instead.
+- **Date-order mistakes are reported as invalid input** (#115). An event
+  ending before it starts, or a todo moved by `DTSTART` alone past its due
+  date, answered with an internal error; it is now a validation error, and the
+  todo case says to give `DTSTART` and `DUE` together.
+
+## [4.3.1] - 2026-10-08
+
+### Internal
+- **Releases are published to npm from CI with provenance** (#112), via trusted publishing from a `v<version>` tag on `main`.
+
+### Fixed
 - **`npx -y dav-mcp` starts on npm 12** (#100). npm 12 refuses git and
   remote-tarball dependencies by default, and dav-mcp installed tsdav
   from a GitHub Release tarball and tsdav-utils from git, so `npx` failed with
@@ -63,20 +83,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   decoded, which is the version every CardDAV server accepts (sabre/dav,
   i.e. Baïkal and Nextcloud, refuses 2.1). Whitespace inside a `BASE64` or
   `b` value (2.1 lets exporters indent it) is removed when it is written.
-
-- **`update_todo` writes into the to-do, not an event next to it** (#107).
-  For a calendar object holding both an event and a to-do, `update_todo` wrote
-  its fields (a new due date, say) into the event. It now writes into the
-  to-do, `update_event` into the event, and either tool refuses an object that
-  holds nothing of its kind and names the other tool.
-- **A refused series change is reported as invalid input, not as a server
-  error** (#107). The refusals above reached the client as an internal error
-  (-32603). They now come back as a validation error (-32002) that keeps the
-  reason and the suggested rule, and names the tools to use instead.
-- **Date-order mistakes are reported as invalid input** (#115). An event
-  ending before it starts, or a todo moved by `DTSTART` alone past its due
-  date, answered with an internal error; it is now a validation error, and the
-  todo case says to give `DTSTART` and `DUE` together.
 
 ## [4.3.0] - 2026-10-07
 

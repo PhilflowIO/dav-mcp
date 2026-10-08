@@ -2,7 +2,8 @@
  * The Claude plugin (claude-plugin/) as the Claude directory checks it.
  *
  * `claude plugin validate` covers the manifest schema; these tests cover what
- * it does not: the launcher is pinned to the version this commit publishes,
+ * it does not: the launcher is pinned to an exact release no newer than
+ * package.json (it trails package.json until that version is on npm),
  * the credentials the server needs are asked for with the right flags, and
  * the folder holds only what the directory accepts without a hold.
  */
@@ -12,7 +13,7 @@ import { readFileSync, readdirSync, statSync } from 'fs';
 import { join, relative } from 'path';
 import { fileURLToPath } from 'url';
 import {
-  pluginJsonPath, mcpJsonPath, syncedPlugin, syncedMcpConfig, serializeJson,
+  pluginJsonPath, mcpJsonPath, syncedPlugin, syncedMcpConfig, serializeJson, compareVersions,
 } from '../scripts/sync-claude-plugin.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -37,17 +38,46 @@ const filesIn = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap(entry
 const pluginFiles = filesIn(pluginDir).map(path => relative(pluginDir, path));
 
 describe('Claude plugin version', () => {
-  test('plugin.json and .mcp.json are what scripts/sync-claude-plugin.js writes', () => {
-    // On failure run `npm run plugin:sync` and commit claude-plugin/.
-    expect(pluginText).toBe(serializeJson(syncedPlugin(plugin)));
-    expect(mcpText).toBe(serializeJson(syncedMcpConfig(JSON.parse(mcpText))));
+  test('plugin.json and .mcp.json are formatted the way scripts/sync-claude-plugin.js writes them', () => {
+    // On failure run `npm run plugin:sync` once the version is on npm.
+    expect(pluginText).toBe(serializeJson(plugin));
+    expect(mcpText).toBe(serializeJson(JSON.parse(mcpText)));
   });
 
-  test('starts the npm package pinned to the version package.json publishes', () => {
+  test('scripts/sync-claude-plugin.js pins both files to the package.json version', () => {
+    const synced = syncedMcpConfig(JSON.parse(mcpText)).mcpServers['dav-mcp'];
+    expect(syncedPlugin(plugin).version).toBe(packageJson.version);
+    expect(synced.args).toEqual(['-y', `${packageJson.name}@${packageJson.version}`]);
+  });
+
+  // The pin trails package.json between a release pull request and the
+  // publish (CONTRIBUTING.md, Releases); `plugin-pin` in CI checks that the
+  // pinned version is on npm.
+  test('starts the npm package pinned to an exact release no newer than package.json', () => {
     expect(server.command).toBe('npx');
-    expect(server.args).toEqual(['-y', `${packageJson.name}@${packageJson.version}`]);
-    expect(packageJson.version).toMatch(/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/);
-    expect(plugin.version).toBe(packageJson.version);
+    expect(server.args).toEqual(['-y', `${packageJson.name}@${plugin.version}`]);
+    expect(plugin.version).toMatch(/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/);
+    expect(compareVersions(plugin.version, packageJson.version)).toBeLessThanOrEqual(0);
+  });
+});
+
+describe('compareVersions', () => {
+  test.each([
+    ['4.3.0', '4.3.1', -1],
+    ['4.3.1', '4.3.1', 0],
+    ['4.10.0', '4.9.9', 1],
+    ['5.0.0-rc.1', '5.0.0', -1],
+    ['5.0.0-rc.2', '5.0.0-rc.10', -1],
+    ['5.0.0-alpha', '5.0.0-alpha.1', -1],
+    ['5.0.0-1', '5.0.0-alpha', -1],
+  ])('%s vs %s', (a, b, sign) => {
+    expect(Math.sign(compareVersions(a, b))).toBe(sign);
+    expect(Math.sign(compareVersions(b, a))).toBe(0 - sign);
+  });
+
+  test('refuses build metadata and partial versions', () => {
+    expect(() => compareVersions('4.3.1+build.1', '4.3.1')).toThrow('not a release version');
+    expect(() => compareVersions('4.3', '4.3.1')).toThrow('not a release version');
   });
 });
 

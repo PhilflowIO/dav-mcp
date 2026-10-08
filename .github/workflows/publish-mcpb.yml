@@ -1,8 +1,17 @@
 name: Publish MCP Bundle
 
+# Called by release.yml once the GitHub release exists. It does not react to
+# `release: published`: release.yml creates the release with its
+# GITHUB_TOKEN, which triggers no other workflow, and a release created by
+# hand for a new tag pushes that tag and so runs release.yml, which calls
+# this; reacting to the event as well would build the bundle twice.
 on:
-  release:
-    types: [published]
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Release tag to build and attach the bundle to, e.g. v4.3.1'
+        required: true
+        type: string
   # Rebuilds the bundle for an existing release, e.g. after this workflow
   # failed. The release must already exist; its asset is replaced.
   workflow_dispatch:
@@ -12,7 +21,7 @@ on:
         required: true
 
 env:
-  TAG: ${{ github.event.release.tag_name || inputs.tag }}
+  TAG: ${{ inputs.tag }}
 
 jobs:
   publish:
