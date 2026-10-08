@@ -13,8 +13,9 @@ on:
         description: 'Move the latest tag to this image (false for a prerelease)'
         required: true
         type: boolean
-  # Builds the dispatched ref and tags it with its commit only; latest and the
-  # version tags move only through release.yml.
+  # Builds the dispatched ref, tag or branch, and pushes it as sha-<commit>
+  # only. Version tags and latest move only when release.yml calls this
+  # workflow (see "Derive tags").
   workflow_dispatch:
 
 env:
@@ -141,11 +142,17 @@ jobs:
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
           images: ${{ env.IMAGE }}
-          # Version tags and latest only move on a release, never on a manual
-          # dispatch; latest not for a prerelease.
+          # Version tags and latest only move when release.yml calls this
+          # workflow, never on a manual dispatch, even of a tag: the semver
+          # rules would otherwise fall back to the dispatched ref, and
+          # metadata-action's latest=auto would add latest by itself.
+          # latest comes only from the raw rule, which release.yml switches
+          # off for a prerelease.
+          flavor: |
+            latest=false
           tags: |
-            type=semver,pattern={{version}},value=${{ inputs.tag }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.tag }}
+            type=semver,pattern={{version}},value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
             type=raw,value=latest,enable=${{ inputs.latest == true }}
             type=sha,enable=${{ github.event_name == 'workflow_dispatch' }}
 
