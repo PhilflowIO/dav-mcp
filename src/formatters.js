@@ -377,6 +377,7 @@ function seriesListing(master, type, occurrence = null) {
       shown,
       shownIsOccurrence: Boolean(occurrence?.recurrenceId),
       shownChanged: Boolean(occurrence?.item?.component?.hasProperty('recurrence-id')),
+      shownNow: occurrence?.startDate ? formatDateTime(occurrence.startDate) : '',
       exclusions: names.exclusions.map(labelled),
       overrides: names.overrides.map(({ text, component }) => {
         const start = component.getFirstPropertyValue('dtstart');
@@ -393,10 +394,10 @@ function seriesListing(master, type, occurrence = null) {
 /** the lines seriesListing's result adds to an event or todo */
 function seriesLines(series) {
   if (!series) return '';
-  const which = series.shownIsOccurrence
-    ? `original start of this occurrence${series.shownChanged ? ', which was changed: the time above is where it is now' : ''}`
-    : 'series start, the first occurrence';
-  let output = `- **Occurrence ID**: ${series.shown} (${which}; occurrences are named by their original start as ${series.naming.describe}, for cancel_occurrences/restore_occurrences)\n`;
+  const which = !series.shownIsOccurrence
+    ? 'series start'
+    : series.shownChanged ? `this occurrence, changed — now at ${series.shownNow}` : 'this occurrence';
+  let output = `- **Occurrence ID**: ${series.shown} (${which})\n`;
   if (series.exclusions.length) {
     output += `- **Cancelled occurrences**: ${listNames(series.exclusions)}\n`;
   }

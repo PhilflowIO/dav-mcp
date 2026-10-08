@@ -135,12 +135,12 @@ export const updateEventFields = {
       cancel_occurrences: {
         type: 'array',
         items: { type: 'string' },
-        description: 'Recurring event: cancel these occurrences, each named by its ORIGINAL start exactly as calendar_query lists it ("Occurrence ID"; e.g. "2026-12-24T09:00:00" for a series in a named zone, "2026-12-24T09:00:00Z" for a UTC series, "2026-12-24" for an all-day series). Adds to the exclusions already there; a changed version of the occurrence is removed too. Names refer to the series as it is before this call.'
+        description: 'Recurring event: cancel these occurrences, each given exactly as calendar_query, list_events or calendar_multi_get list it ("Occurrence ID"). Occurrences are named by their ORIGINAL start (where the occurrence was before any change) in the series\' own form: the wall-clock time in its zone without Z ("2026-12-24T09:00:00"), with Z for a UTC series ("2026-12-24T09:00:00Z"), or the date for an all-day series ("2026-12-24"). Adds to the exclusions already there; a changed version of the occurrence is removed too. Names refer to the series as it is before this call.'
       },
       restore_occurrences: {
         type: 'array',
         items: { type: 'string' },
-        description: 'Recurring event: bring back these cancelled occurrences, each named exactly as calendar_query lists it under "Cancelled occurrences" (or by the occurrence\'s original start). Removes only those exclusions. Applied before cancel_occurrences, fields and dates.'
+        description: 'Recurring event: bring back these cancelled occurrences, each given exactly as calendar_query, list_events or calendar_multi_get list it under "Cancelled occurrences" (named as for cancel_occurrences). Removes only those exclusions. Applied before cancel_occurrences, fields and dates.'
       },
       all_day: {
         type: 'boolean',

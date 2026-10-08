@@ -116,12 +116,12 @@ export const updateTodoFields = {
       cancel_occurrences: {
         type: 'array',
         items: { type: 'string' },
-        description: 'Recurring todo: cancel these occurrences, each named by its ORIGINAL start exactly as todo_query lists it ("Occurrence ID"). Adds to the exclusions already there; a changed version of the occurrence is removed too. Names refer to the series as it is before this call.'
+        description: 'Recurring todo: cancel these occurrences, each given exactly as todo_query, list_todos or todo_multi_get list it ("Occurrence ID"). Occurrences are named by their ORIGINAL start (where the occurrence was before any change) in the series\' own form: the wall-clock time in its zone without Z ("2026-12-24T09:00:00"), with Z for a UTC series ("2026-12-24T09:00:00Z"), or the date for an all-day series ("2026-12-24"). Adds to the exclusions already there; a changed version of the occurrence is removed too. Names refer to the series as it is before this call.'
       },
       restore_occurrences: {
         type: 'array',
         items: { type: 'string' },
-        description: 'Recurring todo: bring back these cancelled occurrences, each named exactly as todo_query lists it under "Cancelled occurrences". Removes only those exclusions. Applied before cancel_occurrences and fields.'
+        description: 'Recurring todo: bring back these cancelled occurrences, each given exactly as todo_query, list_todos or todo_multi_get list it under "Cancelled occurrences" (named as for cancel_occurrences). Removes only those exclusions. Applied before cancel_occurrences and fields.'
       }
     },
     required: ['todo_url', 'todo_etag']
