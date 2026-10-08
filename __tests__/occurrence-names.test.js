@@ -39,7 +39,7 @@ const OVERRIDE = [
 describe('listings name occurrences as the update tools take them (#126)', () => {
   test('a series without a range: its start, exclusions in its own form, changed occurrences', () => {
     const text = formatEvent({ url: EVENT_URL, data: calendar('VEVENT', SERIES, OVERRIDE) }, 'Work');
-    expect(text).toContain('- **Occurrence ID**: 2026-10-01T10:00:00 (series start)\n');
+    expect(text).toContain('- **Occurrence ID**: 2026-10-01T10:00:00 (series start, the first occurrence)\n');
     // the UTC-stored exclusion is shown on the Berlin wall clock
     expect(text).toContain('- **Cancelled occurrences**: 2026-12-24T10:00:00, 2026-12-31T10:00:00\n');
     expect(text).toMatch(/- \*\*Changed occurrences\*\* \(by original start\): 2026-11-05T10:00:00 \(now November 5, 2026, 03:00 PM GMT\+1\)\n/);
@@ -61,14 +61,14 @@ describe('listings name occurrences as the update tools take them (#126)', () =>
       'UID:u@test', 'SUMMARY:Sync', 'DTSTART:20261005T090000Z', 'DTEND:20261005T100000Z',
       'RRULE:FREQ=WEEKLY', 'EXDATE;TZID=Europe/Berlin:20261012T110000',
     ]) }, 'Work');
-    expect(utc).toContain('- **Occurrence ID**: 2026-10-05T09:00:00Z (series start)\n');
+    expect(utc).toContain('- **Occurrence ID**: 2026-10-05T09:00:00Z (series start, the first occurrence)\n');
     expect(utc).toContain('- **Cancelled occurrences**: 2026-10-12T09:00:00Z\n');
 
     const allDay = formatEvent({ url: EVENT_URL, data: calendar('VEVENT', [
       'UID:d@test', 'SUMMARY:Bins', 'DTSTART;VALUE=DATE:20261005', 'DTEND;VALUE=DATE:20261006',
       'RRULE:FREQ=WEEKLY', 'EXDATE;VALUE=DATE:20261012',
     ]) }, 'Work');
-    expect(allDay).toContain('- **Occurrence ID**: 2026-10-05 (series start)\n');
+    expect(allDay).toContain('- **Occurrence ID**: 2026-10-05 (series start, the first occurrence)\n');
     expect(allDay).toContain('- **Cancelled occurrences**: 2026-10-12\n');
 
     const single = formatEvent({ url: EVENT_URL, data: calendar('VEVENT', [

@@ -1,5 +1,5 @@
 import ICAL from 'ical.js';
-import { resolveZone } from 'tsdav-utils';
+import { resolveZone, expandOccurrences, createRecurrenceBudget } from 'tsdav-utils';
 
 /**
  * How dav-mcp names an occurrence of a recurring event or todo: by its
@@ -40,6 +40,8 @@ function kindOf(time, tzid) {
  *   tzid: string|null,
  *   describe: string,
  *   name: (time: ICAL.Time, tzid?: string|null) => {text: string, wholeDay: boolean},
+ *   nameTime: (time: ICAL.Time) => {text: string, wholeDay: boolean},
+ *   instantOfWall: (wall: string) => number|null,
  *   master: ICAL.Component,
  * } | null} null for a component without DTSTART
  */
@@ -78,21 +80,47 @@ export function seriesNaming(master) {
 
   const name = (time, ownTzid = null) => {
     const kind = kindOf(time, ownTzid);
-    if (kind === 'date') return { text: dateText(time), wholeDay: form !== 'date' };
-    if (form === 'date') return { text: dateText(time), wholeDay: false };
+    // `exact`: the text is the value in the series' own form, so it names
+    // what the value names; otherwise it is shown as written and names nothing
+    if (kind === 'date') return { text: dateText(time), wholeDay: form !== 'date', exact: true };
+    if (form === 'date') return { text: dateText(time), wholeDay: false, exact: false };
     // already in the series' own form: as written
     if (kind === form && (kind !== 'zone' || ownTzid === tzid)) {
-      return { text: kind === 'utc' ? `${wallText(time)}Z` : wallText(time), wholeDay: false };
+      return { text: kind === 'utc' ? `${wallText(time)}Z` : wallText(time), wholeDay: false, exact: true };
     }
     try {
       const instant = instantOf(time, ownTzid);
-      if (instant && form === 'utc') return { text: instant, wholeDay: false };
-      if (instant && form === 'zone' && zone(tzid)) return { text: zone(tzid).toWallTime(instant), wholeDay: false };
+      if (instant && form === 'utc') return { text: instant, wholeDay: false, exact: true };
+      if (instant && form === 'zone' && zone(tzid)) {
+        return { text: zone(tzid).toWallTime(instant), wholeDay: false, exact: true };
+      }
     } catch {
       // a value the zone rules cannot place: shown as written, below
     }
-    // names no instant here, or the series' zone is unknown: as written
-    return { text: kind === 'utc' ? `${wallText(time)}Z` : wallText(time), wholeDay: false };
+    // names no instant here (a floating value next to a zoned DTSTART, a
+    // value with Z in a floating series), or the series' zone is unknown
+    return { text: kind === 'utc' ? `${wallText(time)}Z` : wallText(time), wholeDay: false, exact: false };
+  };
+
+  /**
+   * The name of an occurrence as ical.js' expansion yields it. Its zone is
+   * read from the value itself — an RDATE stored in UTC next to a Berlin
+   * series comes out in UTC — and converted by instant, never relabelled.
+   */
+  const nameTime = (time) => {
+    if (time.isDate || time.zone === ICAL.Timezone.utcTimezone || time.timezone === 'Z') return name(time, null);
+    const own = time.zone?.tzid && time.zone.tzid !== 'floating' ? time.zone.tzid : time.timezone;
+    return name(time, own && own !== 'floating' ? own : null);
+  };
+
+  /** the instant a wall-clock time without a zone names in this series, ms; null if none */
+  const instantOfWall = (wall) => {
+    if (form !== 'zone' || !zone(tzid)) return null;
+    try {
+      return zone(tzid).toInstant(wall).getTime();
+    } catch {
+      return null;
+    }
   };
 
   const describe = {
@@ -102,38 +130,63 @@ export function seriesNaming(master) {
     floating: 'local time, without a zone',
   }[form];
 
-  return { form, tzid, describe, name, master };
+  return { form, tzid, describe, name, nameTime, instantOfWall, master };
 }
 
 /**
  * What a series excludes and overrides, each named by its original start.
  *
+ * Only an exclusion that names an occurrence is listed as cancelled — one
+ * restore_occurrences can bring back (see occurrenceValues). A stored
+ * EXDATE that names none (a floating value next to a zoned DTSTART, a time
+ * the rule never yields) excludes nothing; it is listed apart as `inert`,
+ * so the listing never calls an occurrence cancelled that takes place.
+ *
  * @param {ICAL.Component} master
  * @param {ICAL.Component[]} overrides - its RECURRENCE-ID siblings (readSeries)
+ * @param {'vevent'|'vtodo'} [type] - the component type; without it no
+ *   exclusion is checked, and all are listed as cancelled
  * @returns {{
  *   naming: ReturnType<typeof seriesNaming>,
  *   exclusions: Array<{text: string, wholeDay: boolean}>,
+ *   inert: Array<{text: string, wholeDay: boolean}>,
  *   overrides: Array<{text: string, component: ICAL.Component}>,
  * } | null} null for something that does not recur or has no DTSTART
  */
-export function seriesNames(master, overrides = []) {
-  if (!master.hasProperty('rrule') && !master.hasProperty('rdate')) return null;
+export function seriesNames(master, overrides = [], type = null) {
+  if (!isRecurring(master)) return null;
   const naming = seriesNaming(master);
   if (!naming) return null;
 
   const seen = new Set();
-  const exclusions = [];
+  const all = [];
   for (const property of master.getAllProperties('exdate')) {
     const tzid = property.getParameter('tzid') ?? null;
     for (const value of property.getValues()) {
       if (!(value instanceof ICAL.Time)) continue;
       const named = naming.name(value, tzid);
-      if (seen.has(named.text)) continue;
-      seen.add(named.text);
-      exclusions.push(named);
+      // the same text from a value that names the occurrence and from one
+      // that names nothing (a floating twin next to a zoned DTSTART) are two
+      const key = `${named.exact}:${named.text}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      all.push(named);
     }
   }
-  exclusions.sort((a, b) => a.text.localeCompare(b.text));
+  all.sort((a, b) => a.text.localeCompare(b.text));
+
+  const live = type ? occurrenceValues(master, all, type) : null;
+  const exclusions = [];
+  const inert = [];
+  for (const named of all) {
+    if (!live) exclusions.push(named);
+    else if (!named.exact) inert.push(named);
+    else if (named.wholeDay) ([...live].some((value) => value.startsWith(named.text)) ? exclusions : inert).push(named);
+    else (live.has(named.text) ? exclusions : inert).push(named);
+  }
+  // a name that is cancelled is not also listed as cancelling nothing
+  const cancelled = new Set(exclusions.map(({ text }) => text));
+  inert.splice(0, inert.length, ...inert.filter(({ text }) => !cancelled.has(text)));
 
   const changed = overrides
     .map((component) => {
@@ -145,7 +198,47 @@ export function seriesNames(master, overrides = []) {
     .filter(Boolean)
     .sort((a, b) => a.text.localeCompare(b.text));
 
-  return { naming, exclusions, overrides: changed };
+  return { naming, exclusions, inert, overrides: changed };
+}
+
+/** does the component recur (RRULE or RDATE)? */
+export const isRecurring = (component) => component.hasProperty('rrule') || component.hasProperty('rdate');
+
+function rootOf(component) {
+  let root = component;
+  while (root.parent) root = root.parent;
+  return root;
+}
+
+/**
+ * The original starts of the series' occurrences around its exclusions, in
+ * the series' form, counting the excluded ones: one expansion, by tsdav-utils,
+ * of the series with its EXDATEs taken out. An exclusion names an occurrence
+ * when its name is one of these (a whole-day one, when one of them falls on
+ * its day) — the library's rule: matched by instant, by date in an all-day
+ * series, by wall clock in a floating one.
+ *
+ * @returns {Set<string>|null} null when the expansion could not be completed
+ *   (then the exclusions are listed unchecked)
+ */
+function occurrenceValues(master, exclusions, type) {
+  if (!exclusions.length) return new Set();
+  const days = exclusions.map(({ text }) => Date.parse(`${text.slice(0, 10)}T00:00:00Z`)).filter(Number.isFinite);
+  if (!days.length) return null;
+  const at = (ms) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  try {
+    const root = new ICAL.Component(rootOf(master).toJSON());
+    for (const component of root.getAllSubcomponents(type)) {
+      if (!component.hasProperty('recurrence-id')) component.removeAllProperties('exdate');
+    }
+    const { occurrences, complete } = expandOccurrences(root.toString(), {
+      budget: createRecurrenceBudget(), type, limit: 5000,
+      from: at(Math.min(...days) - 2 * 86400000), until: at(Math.max(...days) + 3 * 86400000),
+    });
+    return complete ? new Set(occurrences.map((o) => o.recurrenceId.value)) : null;
+  } catch {
+    return null;
+  }
 }
 
 /** the exclusions of a calendar object's series, by name; empty if none */
@@ -155,7 +248,7 @@ function exclusionTexts(data, type) {
     const all = calendar.getAllSubcomponents(type);
     const master = all.find((c) => !c.hasProperty('recurrence-id'));
     if (!master) return { exclusions: [], overrides: [] };
-    const names = seriesNames(master, all.filter((c) => c !== master && c.hasProperty('recurrence-id')));
+    const names = seriesNames(master, all.filter((c) => c !== master && c.hasProperty('recurrence-id')), type);
     return {
       exclusions: (names?.exclusions ?? []).map(labelled),
       overrides: (names?.overrides ?? []).map((o) => o.text),
@@ -195,5 +288,9 @@ export function describeOccurrenceEdit(before, after, type) {
   if (change.overrides_removed.length) {
     parts.push(`removed the changed version of ${change.overrides_removed.join(', ')}`);
   }
-  return { summary: parts.length ? parts.join('; ') : 'no change: already as asked', ...change };
+  // a write that changed no occurrence (a stored value restated, say) is
+  // still a write, and is not reported as none
+  const summary = parts.length ? parts.join('; ')
+    : before === after ? 'no change: already as asked' : 'the exclusions were rewritten; no occurrence changed';
+  return { summary, ...change };
 }

@@ -365,12 +365,13 @@ function seriesListing(master, type, occurrence = null) {
     const uid = master.getFirstPropertyValue('uid');
     const overrides = all.filter((c) => c !== master && c.hasProperty('recurrence-id') &&
       c.getFirstPropertyValue('uid') === uid);
-    const names = seriesNames(master, overrides);
+    const names = seriesNames(master, overrides, type);
     if (!names) return null;
     const { naming } = names;
-    // an occurrence the expansion yields is in DTSTART's form already
+    // by the instant the occurrence's own value names: an RDATE in UTC next
+    // to a Berlin series is converted to the Berlin wall clock
     const shown = occurrence?.recurrenceId
-      ? naming.name(occurrence.recurrenceId, naming.form === 'zone' ? naming.tzid : null).text
+      ? naming.nameTime(occurrence.recurrenceId).text
       : naming.name(master.getFirstPropertyValue('dtstart'), naming.tzid).text;
     return {
       naming,
@@ -379,6 +380,7 @@ function seriesListing(master, type, occurrence = null) {
       shownChanged: Boolean(occurrence?.item?.component?.hasProperty('recurrence-id')),
       shownNow: occurrence?.startDate ? formatDateTime(occurrence.startDate) : '',
       exclusions: names.exclusions.map(labelled),
+      inert: names.inert.map(labelled),
       overrides: names.overrides.map(({ text, component }) => {
         const start = component.getFirstPropertyValue('dtstart');
         const status = String(component.getFirstPropertyValue('status') || '').toUpperCase();
@@ -395,7 +397,7 @@ function seriesListing(master, type, occurrence = null) {
 function seriesLines(series) {
   if (!series) return '';
   const which = !series.shownIsOccurrence
-    ? 'series start'
+    ? 'series start, the first occurrence'
     : series.shownChanged ? `this occurrence, changed — now at ${series.shownNow}` : 'this occurrence';
   let output = `- **Occurrence ID**: ${series.shown} (${which})\n`;
   if (series.exclusions.length) {
@@ -403,6 +405,10 @@ function seriesLines(series) {
   }
   if (series.overrides.length) {
     output += `- **Changed occurrences** (by original start): ${listNames(series.overrides)}\n`;
+  }
+  // stored exclusions that name no occurrence: they cancel nothing
+  if (series.inert.length) {
+    output += `- **Exclusions that match no occurrence** (they cancel nothing): ${listNames(series.inert)}\n`;
   }
   return output;
 }
