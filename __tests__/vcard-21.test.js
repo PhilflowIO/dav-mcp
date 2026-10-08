@@ -134,6 +134,13 @@ describe('reading a vCard 2.1 card', () => {
     expect(card.getFirstPropertyValue('org')).toEqual(['Acme;Corp', 'Sales']);
   });
 
+  test('decoded quoted-printable text in a 3.0 card keeps its commas and backslashes', () => {
+    const card = readVCard(['BEGIN:VCARD', 'VERSION:3.0', 'FN:X',
+      'NOTE;ENCODING=QUOTED-PRINTABLE:C:=5Cnew', 'N;ENCODING=QUOTED-PRINTABLE:Mueller=2C Jr.;Hans', 'END:VCARD'].join('\r\n'));
+    expect(card.getFirstPropertyValue('note')).toBe('C:\\new');
+    expect(card.getFirstPropertyValue('n')).toEqual(['Mueller, Jr.', 'Hans']);
+  });
+
   test('a dangling soft line break does not swallow the next property', () => {
     const atEnd = readVCard(v21('FN:X', 'NOTE;ENCODING=QUOTED-PRINTABLE:abc='));
     expect(atEnd.getFirstPropertyValue('note')).toBe('abc');

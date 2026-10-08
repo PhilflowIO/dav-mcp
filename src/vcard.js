@@ -62,19 +62,20 @@ export function writeVCardFields(vCard, fields) {
  */
 export function normalizeVCard(data) {
   const lines = unfold(data);
-  let version21 = false;
+  let version = null;
   return lines.map((line, index) => {
-    if (/^BEGIN:VCARD\s*$/i.test(line)) version21 = isVersion21(lines, index);
-    return normalizeContentLine(line, version21);
+    if (/^BEGIN:VCARD\s*$/i.test(line)) version = versionOf(lines, index);
+    return normalizeContentLine(line, version);
   }).join('\r\n');
 }
 
-/** whether the card that begins at `lines[begin]` says VERSION:2.1 */
-function isVersion21(lines, begin) {
+/** the VERSION of the card that begins at `lines[begin]`, or null */
+function versionOf(lines, begin) {
   for (let i = begin + 1; i < lines.length && !/^END:VCARD\s*$/i.test(lines[i]); i++) {
-    if (/^VERSION:\s*2\.1\s*$/i.test(lines[i])) return true;
+    const version = /^VERSION:\s*(\S+)\s*$/i.exec(lines[i]);
+    if (version) return version[1];
   }
-  return false;
+  return null;
 }
 
 /**
@@ -235,9 +236,10 @@ function isQuotedPrintable(parameterTexts) {
  * One content line as ical.js reads it; see normalizeVCard.
  *
  * @param {string} line - unfolded
- * @param {boolean} version21 - the line belongs to a vCard 2.1
+ * @param {string|null} version - the VERSION of the card the line is in
  */
-function normalizeContentLine(line, version21) {
+function normalizeContentLine(line, version) {
+  const version21 = version === '2.1';
   const parsed = parseContentLine(line);
   if (!parsed) return line;
   const propertyName = parsed.name.slice(parsed.name.lastIndexOf('.') + 1).toUpperCase();
@@ -252,8 +254,12 @@ function normalizeContentLine(line, version21) {
   if (quotedPrintable) {
     value = decodeQuotedPrintable(value, parameters.find(({ name }) => name === 'CHARSET')?.value);
   }
-  if (version21 && isText(propertyName, parameters)) {
-    value = escape21(value, Boolean(ICAL.design.vcard3.property[propertyName.toLowerCase()]?.structuredValue));
+  // a 2.1 card is read as 3.0; a 4.0 card has types of its own
+  const design = version === '4.0' ? ICAL.design.vcard : ICAL.design.vcard3;
+  if ((version21 || quotedPrintable) && isText(design, propertyName, parameters)) {
+    // quoted-printable is 2.1's encoding: what it decodes to is 2.1 text,
+    // whatever VERSION the card claims
+    value = escape21(value, Boolean(design.property[propertyName.toLowerCase()]?.structuredValue));
   } else if (quotedPrintable) {
     value = value.replace(/\r\n|\r|\n/g, '\\n');
   }
@@ -271,10 +277,10 @@ function normalizeContentLine(line, version21) {
  * Whether ical.js reads the property as text (and so unescapes it). Other
  * types — URIs, dates, binary — take no backslash escapes in either version.
  */
-function isText(propertyName, parameters) {
+function isText(design, propertyName, parameters) {
   const valueType = parameters.find(({ name }) => name === 'VALUE')?.value;
   if (valueType) return valueType.toLowerCase() === 'text';
-  return ICAL.design.vcard3.property[propertyName.toLowerCase()]?.defaultType === 'text';
+  return design.property[propertyName.toLowerCase()]?.defaultType === 'text';
 }
 
 /**
