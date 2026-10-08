@@ -33,8 +33,8 @@ claude.ai chat and Cowork load only this guide.
   without a zone (`2026-10-15T15:00:00`). On an update this keeps the
   event's own time zone; on a new event dav-mcp reads it in the zone of the
   computer it runs on, which is the user's when dav-mcp runs there (the
-  plugin, the Desktop bundle). Add an offset only when the user names another
-  zone. Never `Z` or an offset on an update of an existing event: it pins the
+  plugin, the Desktop bundle). On a new event, add an offset only when the
+  user names another zone. Never `Z` or an offset on an update of an existing event: it pins the
   event to UTC, and a recurring one shifts by an hour after the next
   daylight-saving change.
 - All-day events take bare dates and the end is exclusive: vacation from 19
