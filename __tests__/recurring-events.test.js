@@ -236,7 +236,7 @@ describe('expansion is bounded', () => {
     // COUNT together with BYDAY: the walk has to count from 1970
     const { output, elapsedMs } = timed(minutely('FREQ=MINUTELY;BYDAY=MO,TU,WE,TH,FR;COUNT=99999999'));
     expect(elapsedMs).toBeLessThan(2000);
-    expect(output).toContain('too many occurrences to expand');
+    expect(output).toContain('could not be expanded (too many occurrences');
     // it must not claim there is no occurrence — it simply did not get there
     expect(output).not.toContain('no occurrence of this series falls inside');
   });

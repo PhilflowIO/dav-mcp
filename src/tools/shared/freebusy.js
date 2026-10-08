@@ -1,7 +1,7 @@
 import ICAL from 'ical.js';
 import { shareTimezones } from './ical-dates.js';
 import { readSeries, blocksTime } from '../../ical-components.js';
-import { relateSeries, seriesOccurrences, spanOf, touchesRange } from '../../occurrences.js';
+import { relateSeries, seriesOccurrences, spanOf, touchesRange, requestBudget } from '../../occurrences.js';
 
 /**
  * Client-side free/busy calculation.
@@ -24,9 +24,10 @@ import { relateSeries, seriesOccurrences, spanOf, touchesRange } from '../../occ
  *
  * @param {ICAL.Component} root - the parsed VCALENDAR
  * @param {{start: number, end: number}} range - ms
+ * @param {Object} [budget] - the tool call's expansion budget (requestBudget)
  * @returns {{occurrences: Object[], truncated: boolean, shown: Object|null}}
  */
-export function busyOccurrencesOf(root, range) {
+export function busyOccurrencesOf(root, range, budget = requestBudget()) {
   const none = { occurrences: [], truncated: false, shown: null };
   const series = readSeries(root, 'vevent');
   if (!series) return none;
@@ -59,7 +60,7 @@ export function busyOccurrencesOf(root, range) {
     return { occurrences, truncated: false, shown: view(series.master, event, null, occurrences) };
   }
 
-  const { occurrences, truncated } = seriesOccurrences(related, range, { filter: blocks });
+  const { occurrences, truncated } = seriesOccurrences(related, range, { filter: blocks, budget });
   return {
     occurrences,
     truncated,
@@ -117,6 +118,8 @@ function mergeIntervals(intervals) {
  */
 export function calculateFreeBusy(calendarObjects, range) {
   const window = { start: range.start.getTime(), end: range.end.getTime() };
+  // one expansion budget for every object of this answer (one tool call)
+  const budget = requestBudget();
   const blocking = [];
   const incomplete = [];
   const intervals = [];
@@ -129,7 +132,7 @@ export function calculateFreeBusy(calendarObjects, range) {
       // A single unparseable object must not take the whole answer down
       continue;
     }
-    const { occurrences, truncated, shown } = busyOccurrencesOf(root, window);
+    const { occurrences, truncated, shown } = busyOccurrencesOf(root, window, budget);
     if (truncated) {
       const summary = readSeries(root, 'vevent')?.master.getFirstPropertyValue('summary');
       incomplete.push({ object, summary: summary ? String(summary) : '' });

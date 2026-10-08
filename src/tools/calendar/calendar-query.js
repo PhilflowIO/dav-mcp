@@ -4,7 +4,7 @@ import { formatEventList } from '../../formatters.js';
 import { buildTimeRangeOptions, limitResults, DEFAULT_RESULT_LIMIT } from '../shared/helpers.js';
 import ICAL from 'ical.js';
 import { shownEvent } from '../../ical-components.js';
-import { ZONE_SLACK_MS } from '../../occurrences.js';
+import { ZONE_SLACK_MS, requestBudget } from '../../occurrences.js';
 import { instantOf, hasAbsoluteInstant } from '../shared/ical-dates.js';
 import { parseObjects, textValues, containsText, dateKey, orNull } from '../shared/query-objects.js';
 
@@ -86,9 +86,11 @@ export const calendarQuery = {
     let parsed = parseObjects(allEvents, 'vevent');
     const { timeRange } = timeRangeOptions;
     const matches = searchOf(validated);
+    // one expansion budget for every event of this query (one tool call)
+    const budget = requestBudget();
 
     if (matches) {
-      parsed = parsed.filter((p) => isFound(p, matches, timeRange));
+      parsed = parsed.filter((p) => isFound(p, matches, timeRange, budget));
     }
 
     // Determine calendar name for display
@@ -102,7 +104,7 @@ export const calendarQuery = {
         parsed,
         validated.limit ?? DEFAULT_RESULT_LIMIT,
         (p) => startLowerBound(p, rangeStart),
-        (p) => listedStart(shownOf(p, matches, timeRange), rangeStart)
+        (p) => listedStart(shownOf(p, matches, timeRange, budget), rangeStart)
       )
       : limitResults(parsed, validated.limit ?? DEFAULT_RESULT_LIMIT, (p) => dateKey(p, 'dtstart'));
 
@@ -110,11 +112,11 @@ export const calendarQuery = {
     // filter, the sort and the display alike
     const shown = new Map();
     for (const p of items) {
-      const listed = shownOf(p, matches, timeRange);
+      const listed = shownOf(p, matches, timeRange, budget);
       if (listed) shown.set(p.object, listed);
     }
 
-    return formatEventList(items.map(({ object }) => object), calendarName, timeRange, total, matches, shown);
+    return formatEventList(items.map(({ object }) => object), calendarName, timeRange, total, matches, shown, budget);
   },
 };
 
@@ -143,19 +145,19 @@ function searchOf({ summary_filter: summary, location_filter: location }) {
  * passes, no occurrence can; if all pass, every occurrence does, and the
  * server returned the object for one inside the range.
  */
-function isFound(parsed, matches, timeRange) {
+function isFound(parsed, matches, timeRange, budget) {
   if (!parsed.root) return false;
   const verdicts = parsed.root.getAllSubcomponents('vevent').map(matches);
   if (!verdicts.some(Boolean)) return false;
   if (verdicts.every(Boolean)) return true;
-  const shown = shownOf(parsed, matches, timeRange);
+  const shown = shownOf(parsed, matches, timeRange, budget);
   return Boolean(shown) && !shown.outsideRange && matches(shown.item.component);
 }
 
 /** shownEvent for a parsed object, computed once per query */
-function shownOf(parsed, matches, timeRange) {
+function shownOf(parsed, matches, timeRange, budget) {
   if (!('shown' in parsed)) {
-    parsed.shown = parsed.root ? orNull(() => shownEvent(parsed.root, timeRange, matches)) : null;
+    parsed.shown = parsed.root ? orNull(() => shownEvent(parsed.root, timeRange, matches, budget)) : null;
   }
   return parsed.shown;
 }

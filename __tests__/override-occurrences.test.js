@@ -25,6 +25,7 @@ const { calculateFreeBusy } = await import('../src/tools/shared/freebusy.js');
 const { formatEvent } = await import('../src/formatters.js');
 const { readSeries, shownEvent } = await import('../src/ical-components.js');
 const { relateSeries, seriesOccurrences } = await import('../src/occurrences.js');
+const { createRecurrenceBudget } = await import('tsdav-utils');
 const { calendarQuery } = await import('../src/tools/calendar/calendar-query.js');
 const { listEvents } = await import('../src/tools/calendar/list-events.js');
 const { freeBusyQuery } = await import('../src/tools/calendar/freebusy-query.js');
@@ -204,16 +205,15 @@ describe('RECURRENCE-ID is matched by the instant it names', () => {
     expect(busyOn(series, '2026-10-04')).toEqual(['2026-10-04T08:00-08:30']);
   });
 
-  test('a UTC RECURRENCE-ID on a floating series names the host-clock occurrence', () => {
-    // the override of 13 October 09:00 on this host's clock, written in UTC
-    const recurrenceId = new Date(2026, 9, 13, 9).toISOString().replace(/[-:]|\.000/g, '');
+  test('a UTC RECURRENCE-ID on a floating series names nothing: the series has no zone to read it in', () => {
+    // as tsdav-utils reads it, whatever the host's zone
     const series = object(
       vevent('SUMMARY:Floating', 'DTSTART:20261001T090000', 'DTEND:20261001T100000', 'RRULE:FREQ=DAILY'),
-      vevent('SUMMARY:Floating', `RECURRENCE-ID:${recurrenceId}`, 'DTSTART:20261013T090000', 'DTEND:20261013T100000',
+      vevent('SUMMARY:Floating', 'RECURRENCE-ID:20261013T090000Z', 'DTSTART:20261013T090000', 'DTEND:20261013T100000',
         'STATUS:CANCELLED'));
     const local = (h) => new Date(2026, 9, 13, h);
     const { busy } = calculateFreeBusy([series], { start: local(0), end: local(23) });
-    expect(busy).toEqual([]);
+    expect(busy).toEqual([{ start: local(9), end: local(10) }]);
   });
 
   test('a THISANDFUTURE override of no occurrence, or of an EXDATEd one, is ignored', () => {
@@ -265,16 +265,15 @@ describe('RECURRENCE-ID and EXDATE in another frame than DTSTART (review of #110
     expect(busyOn(series, '2026-10-25')).toEqual([]);
   });
 
-  test('an EXDATE and an override written in UTC on a floating series name the same host-clock occurrence', () => {
-    // 13 October 09:00 on this host's clock, written in UTC
-    const utc = new Date(2026, 9, 13, 9).toISOString().replace(/[-:]|\.000/g, '');
+  test('an EXDATE and an override written in UTC on a floating series name nothing', () => {
     const series = object(
-      vevent('SUMMARY:Floating', 'DTSTART:20261001T090000', 'DTEND:20261001T100000', 'RRULE:FREQ=DAILY', `EXDATE:${utc}`),
-      vevent('SUMMARY:Override', `RECURRENCE-ID:${utc}`, 'DTSTART:20261013T120000', 'DTEND:20261013T130000'));
+      vevent('SUMMARY:Floating', 'DTSTART:20261001T090000', 'DTEND:20261001T100000', 'RRULE:FREQ=DAILY', 'EXDATE:20261013T090000Z'),
+      vevent('SUMMARY:Override', 'RECURRENCE-ID:20261013T090000Z', 'DTSTART:20261013T120000', 'DTEND:20261013T130000'));
     const local = (h) => new Date(2026, 9, 13, h);
-    // the occurrence is excluded, so its override is no occurrence either
-    expect(calculateFreeBusy([series], { start: local(0), end: local(23) }).busy).toEqual([]);
+    // the 09:00 occurrence stays, unmoved
+    expect(calculateFreeBusy([series], { start: local(0), end: local(23) }).busy).toEqual([{ start: local(9), end: local(10) }]);
   });
+
 });
 
 describe('the step cap is never silent', () => {
@@ -317,6 +316,91 @@ describe('the step cap is never silent', () => {
   });
 });
 
+describe('the near-range start and the budget, at their edges', () => {
+  const seriesOf = (...vevents) => {
+    const root = new ICAL.Component(ICAL.parse(object(...vevents).data));
+    const { master, overrides } = readSeries(root, 'vevent');
+    return relateSeries(master, overrides);
+  };
+  const OCT = { start: Date.UTC(2026, 9, 12), end: Date.UTC(2026, 9, 19) };
+
+  test('a period start the rule does not generate is no occurrence, even when an override names it', () => {
+    // Tuesdays, from a Monday: only that first Monday is an occurrence
+    // (RFC 5545 counts DTSTART). 14 September is a Monday a whole number of
+    // weeks later: the check of an override naming it starts its walk there
+    const series = seriesOf(
+      vevent('SUMMARY:Tuesdays', 'DTSTART:20200106T090000Z', 'DURATION:PT1H', 'RRULE:FREQ=WEEKLY;BYDAY=TU'),
+      vevent('SUMMARY:Orphan', 'RECURRENCE-ID:20260914T090000Z', 'DTSTART:20261014T120000Z', 'DURATION:PT1H'));
+    const names = seriesOccurrences(series, OCT).occurrences.map((o) => o.item.summary);
+    expect(names).toEqual(['Tuesdays']);
+  });
+
+  test('a period start after UNTIL is no occurrence, even when an override names it', () => {
+    // every third day at 23:00 in Kolkata until 7 November; an override of
+    // 10 November, on the grid but after the end, is moved into the range
+    const series = seriesOf(
+      vevent('SUMMARY:Every third day', 'DTSTART;TZID=Asia/Kolkata:20000206T230000', 'DURATION:PT10M',
+        'RRULE:FREQ=DAILY;INTERVAL=3;UNTIL=20261107T173001Z'),
+      vevent('SUMMARY:After the end', 'RECURRENCE-ID;TZID=Asia/Kolkata:20261110T230000',
+        'DTSTART;TZID=Asia/Kolkata:20261104T103000', 'DURATION:PT1H'));
+    const range = { start: Date.UTC(2026, 10, 3, 18), end: Date.UTC(2026, 10, 6, 18) };
+    expect(seriesOccurrences(series, range).occurrences.map((o) => o.item.summary)).toEqual(['Every third day']);
+  });
+
+  test('when the budget runs out before a THISANDFUTURE override is checked, nothing it might move is reported', () => {
+    const daily = vevent('SUMMARY:Daily', 'DTSTART:20000101T090000Z', 'DURATION:PT1H', 'RRULE:FREQ=DAILY');
+    const future = vevent('SUMMARY:Later', 'RECURRENCE-ID;RANGE=THISANDFUTURE:20100105T090000Z',
+      'DTSTART:20100105T110000Z', 'DURATION:PT1H');
+    // what the walk over the range alone costs
+    const probe = createRecurrenceBudget(1e6);
+    seriesOccurrences(seriesOf(daily), OCT, { budget: probe });
+    const mainOnly = 1e6 - probe.remaining;
+    // with that much, the walk over the range completes but the override
+    // before it cannot be checked
+    const result = seriesOccurrences(seriesOf(daily, future), OCT, { budget: createRecurrenceBudget(mainOnly) });
+    expect(result.truncated).toBe(true);
+    expect(result.occurrences).toEqual([]);
+    // with enough, every occurrence is moved to 11:00
+    const whole = seriesOccurrences(seriesOf(daily, future), OCT);
+    expect(whole.truncated).toBe(false);
+    expect(whole.occurrences.map((o) => new Date(o.startAt).toISOString().slice(11, 16))).toEqual(Array(7).fill('11:00'));
+  });
+});
+
+describe('no series can stall a tool call (ical.js loops between candidates)', () => {
+  const week = { time_range_start: '2026-10-12T00:00:00Z', time_range_end: '2026-10-19T00:00:00Z' };
+  const timed = async (objects, tool = freeBusyQuery, args = {}) => {
+    stored = objects;
+    const started = performance.now();
+    const text = (await tool.handler({ ...week, ...args })).content[0].text;
+    return { text, elapsed: performance.now() - started };
+  };
+  const one = (uid, ...lines) => ({ ...object(vevent('SUMMARY:x', ...lines)), url: `${CALENDAR_URL}${uid}.ics` });
+
+  test('a limiting BYHOUR on SECONDLY since 1950 is reported incomplete, fast', async () => {
+    const { text, elapsed } = await timed([one('s', 'DTSTART:19500101T090000Z', 'DURATION:PT1M',
+      'RRULE:FREQ=SECONDLY;BYHOUR=9;BYMINUTE=0;BYSECOND=0')]);
+    expect(text).toContain('**Warning**');
+    expect(elapsed).toBeLessThan(2000);
+  });
+
+  test('50 such series in one call share one budget', async () => {
+    const objects = Array.from({ length: 50 }, (_, i) => one(`m${i}`, 'DTSTART:19600101T100000Z', 'DURATION:PT1M',
+      'RRULE:FREQ=MINUTELY;BYHOUR=10;BYMINUTE=0'));
+    for (const [tool, args] of [[freeBusyQuery, {}], [calendarQuery, {}], [listEvents, { calendar_url: CALENDAR_URL }]]) {
+      const { elapsed } = await timed(objects, tool, args);
+      expect(elapsed).toBeLessThan(2000);
+    }
+  });
+
+  test('a rule no date satisfies (30 February) returns', async () => {
+    const { text, elapsed } = await timed([one('feb', 'DTSTART:20260101T100000Z', 'DURATION:PT1H',
+      'RRULE:FREQ=DAILY;BYMONTH=2;BYMONTHDAY=30')], calendarQuery);
+    expect(text).toContain('no occurrence of this series falls inside the queried range');
+    expect(elapsed).toBeLessThan(2000);
+  });
+});
+
 describe('the expansion still starts near the range', () => {
   beforeEach(() => jest.restoreAllMocks());
 
@@ -327,14 +411,19 @@ describe('the expansion still starts near the range', () => {
     ).data));
     const { master, overrides } = readSeries(root, 'vevent');
 
-    const next = jest.spyOn(ICAL.RecurExpansion.prototype, 'next');
     const start = Date.UTC(2026, 9, 14);
-    const { occurrences, truncated } = seriesOccurrences(relateSeries(master, overrides), { start, end: start + 86400000 });
+    const series = relateSeries(master, overrides);
+    const near = createRecurrenceBudget(1e6);
+    const { occurrences, truncated } = seriesOccurrences(series, { start, end: start + 86400000 }, { budget: near });
 
     expect(truncated).toBe(false);
     expect(occurrences.map((o) => o.item.summary)).toEqual(['Daily', 'Standup (01)']);
-    // ~9700 days since DTSTART, ~1800 more to the override: a walk covers neither
-    expect(next.mock.calls.length).toBeLessThan(100);
+    // ~9700 days since DTSTART, ~1800 more to the override: what a walk from
+    // DTSTART spends, a near start does not
+    series.plan = null;
+    const far = createRecurrenceBudget(1e6);
+    seriesOccurrences(series, { start, end: start + 86400000 }, { budget: far });
+    expect(1e6 - near.remaining).toBeLessThan((1e6 - far.remaining) / 20);
   });
 
   test('1000 overrides of an every-minute series from 2000 on are checked within one budget', () => {
@@ -348,22 +437,16 @@ describe('the expansion still starts near the range', () => {
     // one day: the 1440 occurrences of the day itself are not what is measured
     const day = { start: new Date('2026-10-12T00:00:00Z'), end: new Date('2026-10-13T00:00:00Z') };
 
-    // counted in expansion steps, not milliseconds, so a loaded CI runner
-    // cannot make it flaky: checking each override from days before its
-    // id (123 s before the fix) took ~180 steps per override
-    const next = jest.spyOn(ICAL.RecurExpansion.prototype, 'next');
+    // 123 s before the step budget, ~0.2 s now
     const started = performance.now();
     const { incomplete } = calculateFreeBusy([heavy], day);
-    const freeBusySteps = next.mock.calls.length;
     const shown = shownEvent(new ICAL.Component(ICAL.parse(heavy.data)),
       { start: day.start.toISOString(), end: day.end.toISOString() }, (v) => /^ov /.test(v.getFirstPropertyValue('summary')));
     const elapsed = performance.now() - started;
 
     expect(incomplete).toEqual([]);
     expect(shown.item.summary).toBe('ov 0');
-    // the day's 1440 occurrences plus a few steps per override
-    expect(freeBusySteps).toBeLessThan(1440 + 5 * 1000);
-    expect(elapsed).toBeLessThan(5000);
+    expect(elapsed).toBeLessThan(2000);
   });
 
   test('200 overrides moved in from years away are checked in one pass', () => {
@@ -379,12 +462,8 @@ describe('the expansion still starts near the range', () => {
     const heavy = object(lines);
     const week = { start: new Date('2026-10-12T00:00:00Z'), end: new Date('2026-10-19T00:00:00Z') };
 
-    // in expansion steps, not milliseconds (see below); one walk per
-    // override from DTSTART took ~10 000 each before the fix
-    const next = jest.spyOn(ICAL.RecurExpansion.prototype, 'next');
     const started = performance.now();
     const { busy, incomplete } = calculateFreeBusy([heavy], week);
-    const freeBusySteps = next.mock.calls.length;
     const shown = shownEvent(new ICAL.Component(ICAL.parse(heavy.data)),
       { start: week.start.toISOString(), end: week.end.toISOString() });
     const elapsed = performance.now() - started;
@@ -392,8 +471,7 @@ describe('the expansion still starts near the range', () => {
     expect(incomplete).toEqual([]);
     expect(busy.length).toBeGreaterThan(7);
     expect(shown.item.summary).toMatch(/^ov /);
-    expect(freeBusySteps).toBeLessThan(5 * 200 + 100);
-    expect(elapsed).toBeLessThan(5000);
+    expect(elapsed).toBeLessThan(2000);
   });
 });
 

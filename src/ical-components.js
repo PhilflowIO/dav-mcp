@@ -100,13 +100,15 @@ function msRange(timeRange) {
  * @param {ICAL.Component} calendar - the parsed VCALENDAR
  * @param {{start: string, end: string}|null} timeRange
  * @param {((vevent: ICAL.Component) => boolean)|null} [matches] - the search
+ * @param {Object} [budget] - the tool call's expansion budget (requestBudget);
+ *   a fresh one when not given
  * @returns {{
  *   vevent: ICAL.Component, event: ICAL.Event,
  *   occurrence: Object|null, item: ICAL.Event,
  *   outsideRange: boolean, expansionTruncated: boolean,
  * } | null}
  */
-export function shownEvent(calendar, timeRange = null, matches = null) {
+export function shownEvent(calendar, timeRange = null, matches = null, budget = undefined) {
   const series = readSeries(calendar, 'vevent');
   if (!series) return null;
   const range = msRange(timeRange);
@@ -124,7 +126,7 @@ export function shownEvent(calendar, timeRange = null, matches = null) {
   let expansionTruncated = false;
   if (range && event.isRecurring()) {
     const filter = matches ? (o) => matches(o.item.component) : null;
-    const result = seriesOccurrences(related, range, { filter, first: true });
+    const result = seriesOccurrences(related, range, { filter, first: true, budget });
     occurrence = result.occurrences[0] ?? null;
     // capped: the occurrence found may not be the earliest, or none was found
     expansionTruncated = result.truncated;

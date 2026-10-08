@@ -17,7 +17,8 @@
 import ICAL from 'ical.js';
 import { readSeries, shownEvent, blocksTime } from '../../src/ical-components.js';
 import { relateSeries, seriesOccurrences, spanOf, touchesRange } from '../../src/occurrences.js';
-import { shareTimezones, toInstant } from '../../src/tools/shared/ical-dates.js';
+import { shareTimezones } from '../../src/tools/shared/ical-dates.js';
+import { expandOccurrences, createRecurrenceBudget, resolvePropertyZone } from 'tsdav-utils';
 import { busyOccurrencesOf } from '../../src/tools/shared/freebusy.js';
 
 console.error = () => {}; // the cap message
@@ -88,7 +89,9 @@ function series() {
     if (freq !== 'MONTHLY' && !allDay && chance(0.15)) parts.push(`BYHOUR=${int(0, 11)},${int(12, 23)}`);
     const end = random();
     if (end < 0.2) parts.push(`COUNT=${int(5, 400)}`);
-    else if (end < 0.4) parts.push(`UNTIL=${allDay ? stamp(start + int(30, 900) * DAY, 'date') : stamp(start + int(30, 900) * DAY, 'utc')}`);
+    // RFC 5545: a floating series' UNTIL is floating too; now and then not,
+    // which the library refuses to read
+    else if (end < 0.4) parts.push(`UNTIL=${stamp(start + int(30, 900) * DAY, allDay ? 'date' : zone === 'floating' && chance(0.8) ? 'local' : 'utc')}`);
   } else if (kind === 'sub') {
     // hourly or every few minutes, starting weeks before the range
     start = Date.UTC(2026, 0, 1) / 1000 + int(0, 300) * DAY + int(0, 95) * 900;
@@ -141,109 +144,131 @@ const instantIn = (zone, wall) => {
     hour: d.getUTCHours(), minute: d.getUTCMinutes(), second: d.getUTCSeconds() }, zone).toUnixTime();
 };
 
-const byStart = (a, b) => spanOf(a).start - spanOf(b).start || toInstant(a.recurrenceId) - toInstant(b.recurrenceId);
-const describe = (list) => list.map((o) => `${o.recurrenceId}|${o.startDate}|${o.endDate}|${o.item.summary}`);
 const SEARCH = /Override (into|future|retitled)/;
 const matches = (vevent) => SEARCH.test(String(vevent.getFirstPropertyValue('summary')));
 
-// An instant in the frame of `like`: a date as its UTC day, UTC, its zone, or
-// floating — the host clock (written apart from src/occurrences.js on purpose)
-function inFrame(ms, like) {
-  const d = new Date(ms);
-  if (like.isDate) return new ICAL.Time({ year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate(), isDate: true });
-  if (like.zone === ICAL.Timezone.utcTimezone) return ICAL.Time.fromJSDate(d, true);
-  if (like.zone && like.zone !== ICAL.Timezone.localTimezone && like.zone.tzid !== 'floating') {
-    return ICAL.Time.fromJSDate(d, true).convertToZone(like.zone);
+// Wall clocks as ms of their digits read as UTC
+const wallOfText = (text) => {
+  const [y, mo, d, h = 0, mi = 0, sec = 0] = text.match(/\d+/g).map(Number);
+  return Date.UTC(y, mo - 1, d, h, mi, sec);
+};
+const wallText = (wall) => new Date(wall).toISOString().slice(0, 19);
+const fieldsWall = (t) => Date.UTC(t.year, t.month - 1, t.day, t.isDate ? 0 : t.hour, t.isDate ? 0 : t.minute, t.isDate ? 0 : t.second);
+const ridKey = (o) => wallText(fieldsWall(o.recurrenceId));
+const describe = (list) => list.map((o) => `${ridKey(o)}|${spanOf(o).start}|${spanOf(o).end}|${o.item.summary}`);
+const byStart = (a, b) => spanOf(a).start - spanOf(b).start || fieldsWall(a.recurrenceId) - fieldsWall(b.recurrenceId);
+
+/**
+ * The frame of a DTSTART property, written apart from src/occurrences.js:
+ * wall clock <-> instant. A TZID by tsdav-utils (the library's zone reading
+ * is its own tests' business), floating on the host clock.
+ */
+function frameOf(property) {
+  const value = property.getFirstValue();
+  if (value.isDate) return { toWall: (ms) => Math.floor(ms / 864e5) * 864e5, toInstant: (w) => w };
+  if (property.getParameter('tzid')) {
+    const zone = resolvePropertyZone(property);
+    return {
+      toWall: (ms) => wallOfText(zone.toWallTime(new Date(ms))),
+      toInstant: (w) => zone.toInstant(wallText(w)).getTime(),
+    };
   }
-  return new ICAL.Time({ year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate(),
-    hour: d.getHours(), minute: d.getMinutes(), second: d.getSeconds() });
+  if (/Z$/.test(String(property.toJSON()[3]))) return { toWall: (ms) => ms, toInstant: (w) => w };
+  return {
+    toWall: (ms) => { const d = new Date(ms); return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds()); },
+    toInstant: (w) => { const d = new Date(w); return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds()).getTime(); },
+  };
 }
 
-function reference(text, range, sub) {
+/** A library OccurrenceTime as an instant: its own, a date's UTC day, a floating time on the host */
+const instantOfTime = (t, floating) => (t.instant ? Date.parse(t.instant)
+  : t.value.length === 10 ? wallOfText(t.value) : floating.toInstant(wallOfText(t.value)));
+
+/** The object with the master and the given overrides only */
+function objectWith(root, master, overrides) {
+  const copy = new ICAL.Component(['vcalendar', [], []]);
+  for (const c of [...root.getAllSubcomponents('vtimezone'), master, ...overrides]) {
+    copy.addSubcomponent(new ICAL.Component(structuredClone(c.toJSON())));
+  }
+  return copy;
+}
+
+/**
+ * The reference: tsdav-utils' expansion from DTSTART with no budget to
+ * speak of (no near-range start, no window), and on top of it, written apart
+ * from src/occurrences.js, what dav-mcp adds: THISANDFUTURE overrides move
+ * the later occurrences, and each occurrence is judged where it now is.
+ */
+export function reference(text, horizon) {
   const root = parse(text);
   const { master, overrides } = readSeries(root, 'vevent');
-  const event = new ICAL.Event(master, { exceptions: [] });
-  const start = event.startDate;
-  // each override by the instant its RECURRENCE-ID names; a date naming a
-  // timed series: the series' time that day
-  const named = new Map();
-  for (const component of overrides) {
-    const override = new ICAL.Event(component);
-    const rid = override.recurrenceId;
-    let at;
-    if (rid.isDate && !start.isDate) {
-      const t = start.clone();
-      t.year = rid.year; t.month = rid.month; t.day = rid.day;
-      at = toInstant(t);
-    } else {
-      const property = component.getFirstProperty('recurrence-id');
-      const tzid = property.getParameter('tzid');
-      at = rid.isDate ? toInstant(rid)
-        : tzid ? toInstant(rid) // the document's zone resolves through shareTimezones
-          : /Z$/.test(String(property.toJSON()[3])) ? rid.toUnixTime() * 1000 : toInstant(rid);
-      if (start.isDate) at = Date.UTC(new Date(at).getUTCFullYear(), new Date(at).getUTCMonth(), new Date(at).getUTCDate());
-    }
-    named.set(at, override); // a later one with the same id replaces it
-  }
+  const big = () => createRecurrenceBudget(5e8);
+  // past every override's RECURRENCE-ID, wherever it was moved to
+  const latest = Math.max(0, ...overrides.map((c) => {
+    try { return fieldsWall(c.getFirstPropertyValue('recurrence-id')); } catch { return 0; }
+  }));
+  const until = wallText(Math.max(horizon, latest + 3 * 864e5));
+  const floating = { toInstant: (w) => { const d = new Date(w); return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds()).getTime(); } };
 
-  const lastOverride = Math.max(0, ...named.keys());
-  const horizon = Math.max(range.end + (sub ? 2 * DAY : 200 * DAY) * 1000, lastOverride + 2 * DAY * 1000);
-  // EXDATEs by instant too: a date one excludes its day, a date-time one on
-  // an all-day series the UTC day of its instant
-  const dayOf = (ms) => Math.floor(ms / (DAY * 1000));
-  const excluded = [];
-  for (const property of master.getAllProperties('exdate')) {
-    for (const value of property.getValues()) {
-      const tzid = property.getParameter('tzid');
-      const at = value.isDate || tzid ? toInstant(value)
-        : /Z$/.test(String(property.toJSON()[3])) ? value.toUnixTime() * 1000 : toInstant(value);
-      excluded.push({ at, date: value.isDate, day: value.isDate ? `${value.year}-${value.month}-${value.day}` : null });
+  // where the library places each override, asked of it alone
+  const usable = [];
+  const placed = new Map();
+  for (const c of overrides) {
+    let result;
+    try {
+      result = expandOccurrences(objectWith(root, master, [c]), { budget: big(), until, limit: Number.MAX_SAFE_INTEGER });
+    } catch {
+      continue; // the library cannot place it: it names nothing
     }
+    usable.push(c);
+    const hit = result.occurrences.find((o) => o.overridden);
+    if (hit) placed.set(wallOfText(hit.recurrenceId.value), c); // a later one replaces it
   }
-  master.removeAllProperties('exdate');
-  const isExcluded = (id) => excluded.some((x) => (start.isDate
-    ? dayOf(x.at) === dayOf(toInstant(id))
-    : x.date ? x.day === `${id.year}-${id.month}-${id.day}` : x.at === toInstant(id)));
-
-  const ids = [];
-  const expansion = new ICAL.RecurExpansion({ component: master, dtstart: start });
-  for (let step = 0; step < 300000; step++) {
-    const next = expansion.next();
-    if (!next || toInstant(next) > horizon) break;
-    if (!isExcluded(next)) ids.push(next);
+  let full;
+  try {
+    full = expandOccurrences(objectWith(root, master, usable), { budget: big(), until, limit: Number.MAX_SAFE_INTEGER });
+  } catch {
+    return null; // a series the library cannot read: nothing, reported incomplete
   }
-  const futures = ids
-    .filter((id) => named.get(toInstant(id))?.modifiesFuture())
-    .map((id) => ({ at: toInstant(id), override: named.get(toInstant(id)) }));
+  const seriesFrame = frameOf(master.getFirstProperty('dtstart'));
+  const events = new Map(usable.map((c) => [c, new ICAL.Event(c)]));
+  const masterEvent = new ICAL.Event(master, { exceptions: [] });
 
-  const occurrences = ids.map((id) => {
-    const at = toInstant(id);
-    const exact = named.get(at);
-    if (exact) return { recurrenceId: id, startDate: exact.startDate, endDate: exact.endDate, item: exact };
-    const future = futures.filter((f) => f.at <= at).pop();
-    if (!future) {
-      const endDate = id.clone();
-      endDate.addDuration(event.duration);
-      return { recurrenceId: id, startDate: id, endDate, item: event };
-    }
-    const { override } = future;
-    // its move, as wall-clock time in its own frame, applied to this id
-    const move = override.startDate.subtractDate(inFrame(future.at, override.startDate));
-    const startDate = inFrame(at, override.startDate);
-    startDate.addDuration(move);
-    const endDate = startDate.clone();
-    endDate.addDuration(override.duration);
-    return { recurrenceId: id, startDate, endDate, item: override };
+  const futures = [...placed]
+    .filter(([, c]) => String(c.getFirstProperty('recurrence-id').getParameter('range') ?? '').toUpperCase() === 'THISANDFUTURE')
+    .sort((x, y) => x[0] - y[0]);
+
+  const occurrences = full.occurrences.map((o) => {
+    const wall = wallOfText(o.recurrenceId.value);
+    const recurrenceId = ICAL.Time.fromDateTimeString(wallText(wall));
+    if (o.recurrenceId.value.length === 10) recurrenceId.isDate = true;
+    const startAt = instantOfTime(o.start, floating);
+    const endAt = o.end ? instantOfTime(o.end, floating) : startAt;
+    if (o.overridden) return { recurrenceId, startAt, endAt, item: events.get(placed.get(wall)) };
+    const future = futures.filter(([w]) => w <= wall).pop();
+    if (!future) return { recurrenceId, startAt, endAt, item: masterEvent };
+    // its own move, on its own wall clock, and its own length
+    const [fWall, c] = future;
+    const event = events.get(c);
+    const own = frameOf(c.getFirstProperty('dtstart'));
+    const ownStart = fieldsWall(event.startDate);
+    const move = ownStart - own.toWall(seriesFrame.toInstant(fWall));
+    const length = fieldsWall(event.endDate ?? event.startDate) - ownStart;
+    const startWall = own.toWall(seriesFrame.toInstant(wall)) + move;
+    return { recurrenceId, startAt: own.toInstant(startWall), endAt: own.toInstant(startWall + length), item: event };
   });
   return { occurrences: occurrences.sort(byStart) };
 }
+
+// imported for its reference (diagnostics): no run
+const main = process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop());
 
 let compared = 0;
 let deviations = 0;
 let truncated = 0;
 const examples = [];
 
-for (let n = 0; n < CASES; n++) {
+for (let n = 0; main && n < CASES; n++) {
   const s = series();
   s.transparent = chance(0.15);
   const sub = s.kind !== 'day';
@@ -275,7 +300,7 @@ for (let n = 0; n < CASES; n++) {
     let id = target();
     if (used.has(id)) continue;
     used.add(id);
-    const kind = pick(['into', 'into', 'out', 'within', 'cancelled', 'transparent', 'retitled', 'future', 'orphan']);
+    const kind = pick(['into', 'into', 'out', 'within', 'cancelled', 'transparent', 'retitled', 'future', 'orphan', 'past-end']);
     let begin = id;
     let length = s.duration;
     const lines = [];
@@ -292,6 +317,11 @@ for (let n = 0; n < CASES; n++) {
       lines.push(pick(['TRANSP:TRANSPARENT', 'TRANSP:transparent']));
     } else if (kind === 'future') {
       begin = id + pick([-1, 1]) * (sub ? int(1, 20) * 600 : int(1, 30) * DAY) + (s.allDay || sub ? 0 : int(-4, 4) * 1800);
+    } else if (kind === 'past-end') {
+      // on the rule's grid, but after its UNTIL or COUNT: no occurrence
+      if (!/UNTIL|COUNT/.test(s.rrule) || ids.length < 2) continue;
+      id = ids[ids.length - 1] + (ids[ids.length - 1] - ids[ids.length - 2]) * int(1, 3);
+      begin = rangeStart + int(0, 3) * 900;
     } else if (kind === 'orphan') {
       if (s.allDay) continue;
       id += 7; // seconds: no rule here yields those
@@ -345,11 +375,8 @@ for (let n = 0; n < CASES; n++) {
   // the generator's times are wall clock; the range is read as an instant
   const timeRange = { start: new Date(range.start).toISOString(), end: new Date(range.end).toISOString() };
 
-  // the reference: every recurrence id from DTSTART up to the horizon, once,
-  // with each override matched to the occurrence whose instant its
-  // RECURRENCE-ID names — independently of relateSeries' alignment
-  const ref = reference(text, range, sub);
-  const occurrences = ref.occurrences;
+  const ref = reference(text, range.end + (sub ? 3 * DAY : 400 * DAY) * 1000);
+  const occurrences = ref ? ref.occurrences : [];
   const touching = occurrences.filter((o) => touchesRange(spanOf(o).start, spanOf(o).end, range));
 
   const expected = {
@@ -358,15 +385,19 @@ for (let n = 0; n < CASES; n++) {
     shown: touching.slice(0, 1),
     search: touching.filter((o) => matches(o.item.component)).slice(0, 1),
   };
+  // now and then a budget too small for the case: what comes back must
+  // then be incomplete at most, never wrong
+  const small = chance(0.15) ? int(5, 2000) : null;
+  const budget = () => (small ? createRecurrenceBudget(small) : undefined);
   const fast = {
-    touching: () => seriesOccurrences(seriesOf(text), range),
-    busy: () => busyOccurrencesOf(parse(text), range),
+    touching: () => seriesOccurrences(seriesOf(text), range, { budget: budget() }),
+    busy: () => busyOccurrencesOf(parse(text), range, budget()),
     shown: () => {
-      const shown = shownEvent(parse(text), timeRange);
+      const shown = shownEvent(parse(text), timeRange, null, budget());
       return { occurrences: shown.occurrence ? [shown.occurrence] : [], truncated: shown.expansionTruncated };
     },
     search: () => {
-      const shown = shownEvent(parse(text), timeRange, matches);
+      const shown = shownEvent(parse(text), timeRange, matches, budget());
       return { occurrences: shown.occurrence ? [shown.occurrence] : [], truncated: shown.expansionTruncated };
     },
   };
@@ -377,7 +408,9 @@ for (let n = 0; n < CASES; n++) {
     const want = describe(expected[name]);
     const got = describe(result.occurrences);
     let ok;
-    if (result.truncated) {
+    if (!ref) {
+      ok = result.truncated && result.occurrences.length === 0;
+    } else if (result.truncated) {
       // the cap was hit: it may miss occurrences, but must not invent one
       truncated++;
       const all = new Set(describe(touching));
@@ -394,4 +427,4 @@ for (let n = 0; n < CASES; n++) {
   }
 }
 
-console.log(JSON.stringify({ cases: CASES, compared, deviations, truncated, examples }));
+if (main) console.log(JSON.stringify({ cases: CASES, compared, deviations, truncated, examples }));

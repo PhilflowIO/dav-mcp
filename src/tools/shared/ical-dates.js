@@ -232,7 +232,7 @@ function absoluteInstant(property, value = property.getFirstValue()) {
  * @param {ICAL.Property} property
  * @returns {ICAL.Timezone|null}
  */
-export function documentZone(property) {
+function documentZone(property) {
   const tzid = property.getParameter('tzid');
   if (!tzid) return null;
   let calendar = property.parent;
@@ -312,7 +312,7 @@ function notAfter(later, earlier) {
 }
 
 /** Dates, UTC, floating, or one TZID: values in one frame order as wall clocks */
-export function frameOf(property) {
+function frameOf(property) {
   if (property.type === 'date') return 'date';
   const tzid = property.getParameter('tzid');
   if (tzid) return `tzid:${tzid}`;
