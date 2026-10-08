@@ -361,8 +361,8 @@ describe('moving a recurring series (#107)', () => {
     expect(reply.message).toMatch(/^No VTODO found in VCALENDAR \(it holds: VJOURNAL\)\. .* dav-mcp has no field-update tool for VJOURNAL\.$/);
   });
 
-  // refusals naming several properties: "The new DTSTART and RRULE leaves",
-  // "Writing RRULE and RDATE is refused"
+  // refusals of a write naming several properties (a move plus a new rule;
+  // RRULE plus RDATE), recognised by code whatever the message names
   test('a move plus a new RRULE that orphans the override is a validation error', async () => {
     storedEvent = weekly('FREQ=WEEKLY;BYDAY=MO');
     const reply = await errorReply(setEvent({
@@ -370,7 +370,7 @@ describe('moving a recurring series (#107)', () => {
       fields: { RRULE: 'FREQ=WEEKLY;BYDAY=WE' },
     }));
     expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
-    expect(reply.message).toMatch(/^The new DTSTART and RRULE leaves /);
+    expect(reply.message).toMatch(/^The new [A-Z ]*RRULE leaves the override for RECURRENCE-ID:20261012T090000Z/);
     expect(reply.data.details.code).toBe('ORPHANED_EXCEPTIONS');
   });
 
@@ -396,6 +396,7 @@ describe('moving a recurring series (#107)', () => {
     }));
     expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
     expect(reply.message).toMatch(/^Writing RRULE and RDATE is refused: /);
+    expect(reply.data.details.code).toBe('DST_AMBIGUOUS');
   });
 
   test('a move that would make a twin is a validation error', async () => {
