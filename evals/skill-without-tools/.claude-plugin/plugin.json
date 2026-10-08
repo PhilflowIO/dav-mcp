@@ -1,4 +1,0 @@
-{
-  "name": "dav-mcp",
-  "description": "The dav-mcp skill without its MCP server, the way claude.ai chat and Cowork load the plugin. Eval fixture only."
-}

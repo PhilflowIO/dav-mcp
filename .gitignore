@@ -69,3 +69,4 @@ TEST_RESULTS_SUMMARY.md
 
 # claude plugin eval output (report, aggregate JSON, agent-mock recordings)
 **/evals/results/
+evals/skill-without-tools/results/
