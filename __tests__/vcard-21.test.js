@@ -97,6 +97,12 @@ describe('update_contact on a vCard 2.1 card', () => {
     expect(written).toContain('PHOTO;TYPE=JPEG;ENCODING=b:AAAABBBB');
   });
 
+  test('an indented 2.1 base64 photo is written without whitespace', async () => {
+    storedCard = v21('FN:Pic', 'PHOTO;ENCODING=BASE64;TYPE=JPEG:', '  AAAA', '  BBBB', '');
+    const written = await update({ TITLE: 'Chef' });
+    expect(written).toContain('PHOTO;TYPE=JPEG;ENCODING=b:AAAABBBB');
+  });
+
   test('a 3.0 card with bare parameters and quoted-printable can be edited', async () => {
     // updateFields used to throw "Missing parameter value" on TEL;CELL;VOICE
     storedCard = ['BEGIN:VCARD', 'VERSION:3.0', 'UID:card-1',

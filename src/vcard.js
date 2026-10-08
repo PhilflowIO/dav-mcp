@@ -263,6 +263,10 @@ function normalizeContentLine(line, version) {
   } else if (quotedPrintable) {
     value = value.replace(/\r\n|\r|\n/g, '\\n');
   }
+  if (encoding === 'BASE64' || encoding === 'B') {
+    // 2.1 indents base64 lines freely; whitespace is no part of the data
+    value = value.replace(/\s+/g, '');
+  }
 
   if (quotedPrintable || version21) {
     parameters = parameters.filter(({ name }) => name !== 'ENCODING' && name !== 'CHARSET');
