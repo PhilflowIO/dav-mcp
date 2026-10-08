@@ -107,10 +107,11 @@ jobs:
       - name: Verify bundle contents and boot
         run: node scripts/verify-mcpb.js "${RUNNER_TEMP}/bundle"
 
-  # The Claude plugin starts `npx -y dav-mcp@<version>` with the version in
-  # package.json. Users of the plugin get whatever npm serves under it, so it
-  # has to be published before the version reaches main (CONTRIBUTING.md,
-  # Releases); a pull request that bumps it fails here until it is.
+  # The Claude plugin starts `npx -y dav-mcp@<version>`. The Claude directory
+  # follows main and users of the plugin get whatever npm serves under that
+  # version, so the pin may only move to a version release.yml has published
+  # (CONTRIBUTING.md, Releases); a pull request that pins an unpublished
+  # version fails here.
   plugin-pin:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest

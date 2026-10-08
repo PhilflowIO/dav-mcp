@@ -4,10 +4,16 @@
  *
  * The plugin starts the published npm package pinned to an exact version
  * (`npx -y dav-mcp@<version>`): the Claude directory refuses an unpinned
- * launcher. That version, and the plugin's own `version`, belong to
+ * launcher. That version, and the plugin's own `version`, are taken from
  * package.json, so this script writes both from it.
- * __tests__/claude-plugin.test.js fails when the committed files differ from
- * what this script would write.
+ *
+ * Run it after the release workflow has published that version to npm, not
+ * in the release pull request. The Claude directory follows `main`, and the
+ * release workflow only publishes a version that is already on `main`, so
+ * the plugin on `main` keeps the previous published version until then
+ * (CONTRIBUTING.md, Releases). __tests__/claude-plugin.test.js checks that
+ * the pin is consistent and no newer than package.json; the `plugin-pin` CI
+ * job checks that it is on npm.
  *
  * Usage: npm run plugin:sync
  */
@@ -47,6 +53,44 @@ export function syncedMcpConfig(mcp) {
       'dav-mcp': { ...server, args: ['-y', `dav-mcp@${packageVersion()}`] },
     },
   };
+}
+
+const RELEASE_VERSION = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/;
+
+/**
+ * Compare two `x.y.z` or `x.y.z-pre` versions by semver precedence.
+ *
+ * @param {string} a
+ * @param {string} b
+ * @returns {number} negative when a < b, 0 when equal, positive when a > b
+ */
+export function compareVersions(a, b) {
+  const pa = a.match(RELEASE_VERSION);
+  const pb = b.match(RELEASE_VERSION);
+  if (!pa || !pb) throw new Error(`not a release version: ${pa ? b : a}`);
+  for (let i = 1; i <= 3; i++) {
+    const diff = Number(pa[i]) - Number(pb[i]);
+    if (diff !== 0) return diff;
+  }
+  // A version without a prerelease ranks above any prerelease of it.
+  if (!pa[4] || !pb[4]) return (pa[4] ? -1 : 0) + (pb[4] ? 1 : 0);
+  const ia = pa[4].split('.');
+  const ib = pb[4].split('.');
+  for (let i = 0; i < Math.max(ia.length, ib.length); i++) {
+    if (ia[i] === undefined) return -1;
+    if (ib[i] === undefined) return 1;
+    const na = /^\d+$/.test(ia[i]);
+    const nb = /^\d+$/.test(ib[i]);
+    if (na && nb) {
+      const diff = Number(ia[i]) - Number(ib[i]);
+      if (diff !== 0) return diff;
+    } else if (na !== nb) {
+      return na ? -1 : 1;
+    } else if (ia[i] !== ib[i]) {
+      return ia[i] < ib[i] ? -1 : 1;
+    }
+  }
+  return 0;
 }
 
 /**
