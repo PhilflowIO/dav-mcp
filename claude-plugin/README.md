@@ -1,5 +1,3 @@
-<img src="icon.png" alt="" width="96" align="right">
-
 # dav-mcp for Claude
 
 Your calendar, your contacts and your to-do list, on your own server, now in
@@ -41,10 +39,36 @@ settings file. Change any value later with `/config`.
 Google Calendar uses OAuth instead of a password; set it up with the manual
 configuration in the [main README](https://github.com/PhilflowIO/dav-mcp#google-calendar-oauth2).
 
+## Where it works
+
+The calendar tools run only in **Claude Code**: the plugin starts the dav-mcp
+server on your computer, and Claude Code asks for your server address and
+login. In claude.ai chat and in Cowork the plugin installs, but only its skill
+loads, so Claude has no calendar, contact or to-do tools there. A hosted
+version for chat is tracked in
+[#102](https://github.com/PhilflowIO/dav-mcp/issues/102).
+
 ## Requirements
 
 - Claude Code 2.1.271 or newer (the plugin's server runs on your computer)
 - Node.js 18 or newer (20 or newer for `Digest`), with `npx` on your `PATH`
+
+## If it doesn't work
+
+- **No dav-mcp tools appear**: Claude Code could not start the server. Check
+  that `node --version` prints 18 or newer and that `npx` runs in a terminal;
+  install Node.js from [nodejs.org](https://nodejs.org) if not, then restart
+  Claude Code. `/mcp` shows whether the dav-mcp server is connected.
+- **Login fails** (tool calls end in an authentication error):
+  re-enter username and password with `/config`. iCloud accepts only an
+  app-specific password, never your Apple ID password; Nextcloud with
+  two-factor login needs an app password too.
+- **Server not found or no calendars**: the Server URL must be the DAV
+  address, not the web page of your cloud, e.g. ending in
+  `/remote.php/dav/` for Nextcloud or `/dav.php/` for Baikal. Enter the full
+  DAV path rather than just the host name.
+- Anything else: open an [issue](https://github.com/PhilflowIO/dav-mcp/issues)
+  with the error message Claude shows.
 
 ## What runs and where data goes
 
