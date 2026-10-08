@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead in the same call. Likewise, a new rule that would leave a moved or
   cancelled occurrence on a date the series no longer has is refused. The
   reply says what else moved: the old and new rule and how many changed,
-  cancelled and extra dates went along. This comes with tsdav-utils 0.6.0.
+  cancelled and extra dates went along. This comes with tsdav-utils 0.7.0.
 - **A time given in UTC keeps an event in its own time zone** (#107). A
   start like `2026-10-06T08:00:00Z` for a weekly 09:00 Europe/Berlin series
   used to turn the whole series into UTC, so after the change to winter time
