@@ -302,7 +302,7 @@ describe('moving a recurring series (#107)', () => {
     // the library's reason and remedy, whole
     expect(reply.message).toMatch(/^Moving DTSTART \(DTSTART:20261005T090000Z to DTSTART:20261006T090000Z\) does not move the whole series: RRULE:FREQ=WEEKLY;BYDAY=MO,WE has BYDAY, .* Give RRULE in the same call to fit the new start/);
     // and where those remedies live in dav-mcp
-    expect(reply.message).toContain('In update_event, "in the same call" means in fields of this same call (e.g. fields.RRULE, next to start_date and end_date).');
+    expect(reply.message).toContain('In update_event, "in the same call" means in fields of this same call (e.g. fields.RRULE, fields.EXDATE).');
     expect(reply.message).toContain('fetch it with calendar_multi_get');
     expect(reply.message).toContain('send the whole object with update_event_raw.');
     expect(updateCalendarObject).not.toHaveBeenCalled();
@@ -336,7 +336,7 @@ describe('moving a recurring series (#107)', () => {
     const reply = await errorReply(setTodo({ RRULE: 'FREQ=WEEKLY;BYDAY=TU' }));
     expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
     expect(reply.message).toMatch(/^The new RRULE leaves the override for RECURRENCE-ID:20261005T080000Z naming no occurrence/);
-    expect(reply.message).toContain('In update_todo, "in the same call" means in fields of this same call (e.g. fields.RRULE).');
+    expect(reply.message).toContain('In update_todo, "in the same call" means in fields of this same call (e.g. fields.RRULE, fields.EXDATE).');
     expect(reply.message).toMatch(/todo_multi_get .* update_todo_raw\.$/);
     expect(updateTodo).not.toHaveBeenCalled();
   });
@@ -346,7 +346,71 @@ describe('moving a recurring series (#107)', () => {
     const reply = await errorReply(setTodo({ SUMMARY: 'x' }));
     expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
     expect(reply.message).toBe('No VTODO found in VCALENDAR (it holds: VEVENT). ' +
-      'This object holds no todo, so update_todo cannot change it. If it is an event, use update_event.');
+      'This object holds no todo, so update_todo cannot change it. Use update_event for its VEVENT.');
+  });
+
+  test('update_todo on a journal says there is no field tool for it, not "use update_event"', async () => {
+    storedTodo = calendar('VJOURNAL', ['UID:j@test', 'SUMMARY:Notes', 'DTSTART:20261005T090000Z']);
+    const reply = await errorReply(setTodo({ SUMMARY: 'x' }));
+    expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+    expect(reply.message).toMatch(/^No VTODO found in VCALENDAR \(it holds: VJOURNAL\)\. .* dav-mcp has no field-update tool for VJOURNAL\.$/);
+  });
+
+  // refusals naming several properties: "The new DTSTART and RRULE leaves",
+  // "Writing RRULE and RDATE is refused"
+  test('a move plus a new RRULE that orphans the override is a validation error', async () => {
+    storedEvent = weekly('FREQ=WEEKLY;BYDAY=MO');
+    const reply = await errorReply(setEvent({
+      start_date: '2026-10-06T09:00:00Z', end_date: '2026-10-06T10:00:00Z',
+      fields: { RRULE: 'FREQ=WEEKLY;BYDAY=WE' },
+    }));
+    expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+    expect(reply.message).toMatch(/^The new DTSTART and RRULE leaves /);
+    expect(reply.message).toMatch(/update_event_raw\.$/);
+  });
+
+  const BERLIN = [
+    'BEGIN:VTIMEZONE', 'TZID:Europe/Berlin',
+    'BEGIN:DAYLIGHT', 'TZOFFSETFROM:+0100', 'TZOFFSETTO:+0200', 'TZNAME:CEST',
+    'DTSTART:19700329T020000', 'RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU', 'END:DAYLIGHT',
+    'BEGIN:STANDARD', 'TZOFFSETFROM:+0200', 'TZOFFSETTO:+0100', 'TZNAME:CET',
+    'DTSTART:19701025T030000', 'RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU', 'END:STANDARD',
+    'END:VTIMEZONE',
+  ];
+  // daily at 02:30 Berlin across the spring-forward gap, the 03:30 it turns into excluded
+  const acrossTheGap = () => calendar('VEVENT', [
+    'UID:gap@test', 'SUMMARY:Night shift', 'RRULE:FREQ=DAILY;COUNT=10',
+    'DTSTART;TZID=Europe/Berlin:20260325T023000', 'DTEND;TZID=Europe/Berlin:20260325T030000',
+    'EXDATE;TZID=Europe/Berlin:20260329T033000',
+  ]).replace('BEGIN:VEVENT', [...BERLIN, 'BEGIN:VEVENT'].join('\r\n'));
+
+  test('a new RRULE and RDATE that would make a twin is a validation error', async () => {
+    storedEvent = acrossTheGap();
+    const reply = await errorReply(setEvent({
+      fields: { RRULE: 'FREQ=DAILY;COUNT=12', RDATE: '2026-04-20T02:30:00' },
+    }));
+    expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+    expect(reply.message).toMatch(/^Writing RRULE and RDATE is refused: /);
+  });
+
+  test('a move that would make a twin is a validation error', async () => {
+    storedEvent = acrossTheGap();
+    const reply = await errorReply(setEvent({ start_date: '2026-03-25T02:45:00', end_date: '2026-03-25T03:15:00' }));
+    expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+    expect(reply.message).toMatch(/^Moving DTSTART is refused: /);
+  });
+
+  test.each([
+    ['an all-day EXDATE on a timed series, moved by an hour', /^DTSTART changed, and the existing EXDATE;VALUE=DATE:20261019 /,
+      ['EXDATE;VALUE=DATE:20261019'], { start_date: '2026-10-05T10:00:00Z', end_date: '2026-10-05T11:00:00Z' }],
+    ['an EXDATE off the series time, the series made all-day', /^DTSTART changed to a date, and /,
+      ['EXDATE:20261019T110000Z'], { start_date: '2026-10-05', end_date: '2026-10-06' }],
+  ])('%s is a validation error', async (_, opening, extra, move) => {
+    storedEvent = calendar('VEVENT', ['UID:w@test', 'SUMMARY:W', 'RRULE:FREQ=WEEKLY',
+      'DTSTART:20261005T090000Z', 'DTEND:20261005T100000Z', ...extra]);
+    const reply = await errorReply(setEvent(move));
+    expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+    expect(reply.message).toMatch(opening);
   });
 
   test('any other error is passed on as it is', () => {

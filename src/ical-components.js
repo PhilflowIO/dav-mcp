@@ -288,25 +288,45 @@ export function assertFieldUpdatable(object, type) {
  *
  * tsdav-utils 0.5.0 throws plain Errors, without a class or code to tell a
  * refusal of the write from a fault, so the message is all there is. Each
- * pattern is anchored on the opening words of one refusal and is exercised
- * against the installed library in __tests__/series-master.test.js; a
- * rewording there fails those tests rather than silently turning the
- * refusal back into an internal error.
+ * pattern is anchored on the opening words of one refusal. The series-master
+ * and component-type tests run every one of them through the real handlers
+ * except "Cannot check that", whose limits take a pathological series to
+ * reach. Typed error codes (tsdav-utils 0.6.0) replace this list.
  */
 const LIBRARY_REFUSALS = [
   // a DTSTART move the rule, an UNTIL, an EXDATE/RDATE or an override cannot follow
   /^Moving DTSTART \(/,
   /^DTSTART changed(?:,| to a date,) and /,
-  // a move or a new RRULE/RDATE that would create a twin of an occurrence
-  /^(?:Moving DTSTART|Writing [A-Z ]+) is refused: /,
-  // a new RRULE/RDATE that leaves overrides or EXDATEs naming no occurrence
-  /^The new [A-Z ]+ leaves /,
+  // a move or a new RRULE/RDATE that would create a twin of an occurrence;
+  // several names read "Writing RRULE and RDATE"
+  /^(?:Moving DTSTART|Writing [A-Za-z ]+) is refused: /,
+  // a new DTSTART/RRULE/RDATE that leaves overrides or EXDATEs naming no
+  // occurrence ("The new DTSTART and RRULE leaves ...")
+  /^The new [A-Za-z ]+ leaves /,
   // a series too sparse or too irregular to verify within the work limit
   /^Cannot check that /,
   /^RECURRENCE-ID cannot be written on the series master/,
   // the object holds no component of the type the tool writes
   /^No [A-Z, ]+ found in VCALENDAR/,
 ];
+
+/** the field-update tool for a component type the object may hold instead */
+const FIELD_TOOL = { VEVENT: 'update_event', VTODO: 'update_todo' };
+
+/**
+ * What to do with an object that holds no component of the tool's type, from
+ * the types the library's message lists ("(it holds: VJOURNAL)").
+ */
+function wrongTypeHint(message, { noun, update }) {
+  const held = /\(it holds: ([A-Z, ]+)\)/.exec(message)?.[1].split(/,\s*/) ?? [];
+  const tools = held.map((name) => FIELD_TOOL[name] ? `${FIELD_TOOL[name]} for its ${name}` : null)
+    .filter(Boolean);
+  const hint = `This object holds no ${noun}, so ${update} cannot change it.`;
+  if (tools.length) return `${hint} Use ${tools.join(', or ')}.`;
+  return held.length
+    ? `${hint} dav-mcp has no field-update tool for ${held.join(', ')}.`
+    : hint;
+}
 
 /**
  * Turn a refusal of updateFields into a validation error the caller can act
@@ -332,19 +352,15 @@ export function explainWriteRefusal(error, type) {
     return error;
   }
 
-  const { noun, update, raw, fetch } = kind;
+  const { update, raw, fetch } = kind;
   const hints = [];
   if (/^No [A-Z, ]+ found in VCALENDAR/.test(message)) {
-    const other = Object.values(KINDS).find((k) => k !== kind);
-    hints.push(
-      `This object holds no ${noun}, so ${update} cannot change it. ` +
-      `If it is ${other.noun === 'event' ? 'an' : 'a'} ${other.noun}, use ${other.update}.`
-    );
+    hints.push(wrongTypeHint(message, kind));
   } else {
     if (/in the same call/.test(message)) {
       hints.push(
         `In ${update}, "in the same call" means in fields of this same call ` +
-        `(e.g. fields.RRULE${type === 'vevent' ? ', next to start_date and end_date' : ''}).`
+        `(e.g. fields.RRULE, fields.EXDATE).`
       );
     }
     hints.push(
