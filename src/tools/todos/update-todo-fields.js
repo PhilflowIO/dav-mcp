@@ -131,7 +131,7 @@ export const updateTodoFields = {
     // Step 2: Update fields (field-agnostic; date-typed values such as DUE
     // are encoded by tsdav-utils), then keep DUE/DTSTART/DURATION coherent
     const updatedData = reconcileTodoDates(
-      writeFields(todoObject, validated.fields || {}),
+      writeFields(todoObject, validated.fields || {}, 'vtodo'),
       Object.keys(validated.fields || {})
     );
 

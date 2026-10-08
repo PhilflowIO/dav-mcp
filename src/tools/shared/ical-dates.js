@@ -12,12 +12,19 @@ import { updateFields, seriesMaster } from 'tsdav-utils';
  * UTC, which is what create_event has always done, so the same input lands on
  * the same instant whichever tool it goes through.
  *
+ * A calendar object may hold more than one component type — a VEVENT next to
+ * a VTODO. Left to choose, tsdav-utils takes the VEVENT first, so the todo
+ * tools name 'vtodo' and the event tools 'vevent'; an object without that
+ * component is refused by the library ("No VTODO found in VCALENDAR (it holds:
+ * VEVENT)"). A vCard has no component type, so the contact tools pass none.
+ *
  * @param {string|{data: string}} object - calendar object or vCard
  * @param {Record<string, string>} fields - bare property name -> value
+ * @param {'vevent'|'vtodo'} [type] - the component to write into
  * @returns {string} the rewritten object
  */
-export function writeFields(object, fields) {
-  return updateFields(object, fields, { floatingTime: 'local' });
+export function writeFields(object, fields, type) {
+  return updateFields(object, fields, { floatingTime: 'local', type });
 }
 
 /**
@@ -51,13 +58,13 @@ export function writeFields(object, fields) {
  * @returns {string} the rewritten calendar object
  */
 export function writeEventFields(object, fields, dates) {
-  if (!dates) return writeFields(object, fields);
+  if (!dates) return writeFields(object, fields, 'vevent');
 
   const written = writeFields(object, {
     ...fields,
     DTSTART: dates.startDate,
     DTEND: dates.endDate,
-  });
+  }, 'vevent');
   return editComponent(written, 'vevent', (vevent) => {
     vevent.removeAllProperties('duration');
     assertEndAfterStart(vevent);
@@ -309,11 +316,12 @@ function frameOf(property) {
 /**
  * Parse, hand the component updateFields just wrote to `edit`, serialize.
  *
- * That component is the series master (tsdav-utils' seriesMaster), not the
- * first one in the file: with an override stored first, a check or a
- * DURATION removal on the first component would miss what was written. The
- * object updateFields refused to edit (several instances, no master) cannot
- * reach this point, and seriesMaster would throw the same error if it did.
+ * That component is the series master (tsdav-utils' seriesMaster) of the
+ * type written, not the first one in the file: with an override stored first,
+ * or a VEVENT next to the VTODO, a check or a DURATION removal on the first
+ * component would miss what was written. An object updateFields refused to
+ * edit (no component of the type; several instances, no master) cannot reach
+ * this point, and seriesMaster would throw the same error if it did.
  */
 function editComponent(iCalString, name, edit) {
   let calendar;
@@ -323,9 +331,6 @@ function editComponent(iCalString, name, edit) {
     throw new Error(`Failed to parse iCal data: ${error.message}`);
   }
 
-  if (calendar.name !== name && calendar.getAllSubcomponents(name).length === 0) {
-    throw new Error(`No ${name.toUpperCase()} found in the calendar object`);
-  }
   const component = calendar.name === name ? calendar : seriesMaster(calendar, name);
 
   edit(component);
