@@ -348,15 +348,22 @@ describe('the expansion still starts near the range', () => {
     // one day: the 1440 occurrences of the day itself are not what is measured
     const day = { start: new Date('2026-10-12T00:00:00Z'), end: new Date('2026-10-13T00:00:00Z') };
 
+    // counted in expansion steps, not milliseconds, so a loaded CI runner
+    // cannot make it flaky: checking each override from days before its
+    // id (123 s before the fix) took ~180 steps per override
+    const next = jest.spyOn(ICAL.RecurExpansion.prototype, 'next');
     const started = performance.now();
     const { incomplete } = calculateFreeBusy([heavy], day);
+    const freeBusySteps = next.mock.calls.length;
     const shown = shownEvent(new ICAL.Component(ICAL.parse(heavy.data)),
       { start: day.start.toISOString(), end: day.end.toISOString() }, (v) => /^ov /.test(v.getFirstPropertyValue('summary')));
     const elapsed = performance.now() - started;
 
     expect(incomplete).toEqual([]);
     expect(shown.item.summary).toBe('ov 0');
-    expect(elapsed).toBeLessThan(1000);
+    // the day's 1440 occurrences plus a few steps per override
+    expect(freeBusySteps).toBeLessThan(1440 + 5 * 1000);
+    expect(elapsed).toBeLessThan(5000);
   });
 
   test('200 overrides moved in from years away are checked in one pass', () => {
@@ -372,8 +379,12 @@ describe('the expansion still starts near the range', () => {
     const heavy = object(lines);
     const week = { start: new Date('2026-10-12T00:00:00Z'), end: new Date('2026-10-19T00:00:00Z') };
 
+    // in expansion steps, not milliseconds (see below); one walk per
+    // override from DTSTART took ~10 000 each before the fix
+    const next = jest.spyOn(ICAL.RecurExpansion.prototype, 'next');
     const started = performance.now();
     const { busy, incomplete } = calculateFreeBusy([heavy], week);
+    const freeBusySteps = next.mock.calls.length;
     const shown = shownEvent(new ICAL.Component(ICAL.parse(heavy.data)),
       { start: week.start.toISOString(), end: week.end.toISOString() });
     const elapsed = performance.now() - started;
@@ -381,7 +392,8 @@ describe('the expansion still starts near the range', () => {
     expect(incomplete).toEqual([]);
     expect(busy.length).toBeGreaterThan(7);
     expect(shown.item.summary).toMatch(/^ov /);
-    expect(elapsed).toBeLessThan(1000);
+    expect(freeBusySteps).toBeLessThan(5 * 200 + 100);
+    expect(elapsed).toBeLessThan(5000);
   });
 });
 
