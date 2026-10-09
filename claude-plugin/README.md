@@ -53,12 +53,12 @@ version for chat is tracked in
 ## Requirements
 
 - Claude Code 2.1.271 or newer (the plugin's server runs on your computer)
-- Node.js 18 or newer (20 or newer for `Digest`), with `npx` on your `PATH`
+- Node.js 22 or newer, with `npx` on your `PATH`
 
 ## If it doesn't work
 
 - **No dav-mcp tools appear**: Claude Code could not start the server. Check
-  that `node --version` prints 18 or newer and that `npx` runs in a terminal;
+  that `node --version` prints 22 or newer and that `npx` runs in a terminal;
   install Node.js from [nodejs.org](https://nodejs.org) if not, then restart
   Claude Code. `/mcp` shows whether the dav-mcp server is connected.
 - **Login fails** (tool calls end in an authentication error):
