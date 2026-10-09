@@ -7,18 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.0] - 2026-10-09
+
 ### Breaking changes
-- **`make_calendar` refuses a time zone that is no IANA name** (#78). It used
-  to accept any `timezone` and not apply it; a name such as `CEST`, `Berlin`
-  or `+02:00` is now invalid input, and nothing is created.
-- **`freebusy_query` prints local times, no longer UTC** (#125). Free and
-  busy slots and the window were printed in UTC (`01:30 PM UTC`) while
-  `list_events` and `calendar_query` print local times (`03:30 PM GMT+2`), so
-  an answer to "when am I free?" could pass UTC times off as local ones. They
-  are now printed in the calendar's time zone, the same wall times the
-  listings show, and a new `Time zone` line names it. Several calendars that
-  set the same zone are shown in it; calendars in different zones are shown
-  in the zone dav-mcp runs in, and the line says which calendar has which.
+- **Node.js 22 or newer is required.** Node.js 18 and 20 are end-of-life;
+  `engines`, the MCP Bundle's runtime range and the CI matrix now start at 22,
+  and the Node.js 18 workarounds (WebCrypto shim, Digest startup error) are
+  removed (#85).
+- **Write tools refuse parameters they do not take** (#126). Unknown keys
+  were dropped silently, so a call with a misspelled or newer parameter
+  reported success for a change it never made (dav-mcp 4.3.1 drops
+  `cancel_occurrences` and answers "Updated 0 field(s)"). The create, update
+  and delete tools now answer such a call with a validation error naming the
+  parameter.
+- **`update_event` and `update_todo` refuse `EXDATE` and `RDATE` in
+  `fields`** (#126), with a validation error naming `cancel_occurrences` /
+  `restore_occurrences`. Written as a field, either list replaced every value
+  already in the series. Single occurrences are cancelled and restored with
+  `cancel_occurrences` / `restore_occurrences` (see Fixed); extra dates
+  (RDATE) of a series are edited only through `update_event_raw` /
+  `update_todo_raw`.
+- **Moving a recurring event or todo moves the whole series** (#107). A new
+  start given to `update_event` (or `DTSTART` to `update_todo`) now takes every
+  occurrence along: moved and cancelled occurrences, extra dates and the end
+  of the series shift by the same amount, so they keep applying to the
+  occurrences they were made for. A weekday or day of month the rule only
+  repeats from the start follows it: a series every Monday, moved to a Tuesday,
+  becomes every Tuesday. Where the rule cannot follow (every Monday and
+  Wednesday, moved by one day), the update is refused and says what to give
+  instead in the same call. Likewise, a new rule that would leave a moved or
+  cancelled occurrence on a date the series no longer has is refused. The
+  reply says what else moved: the old and new rule and how many changed,
+  cancelled and extra dates went along.
+  This includes starting a series later: a start several weeks later used to
+  leave cancelled and moved occurrences where they were; it now takes them
+  along, so a cancellation can land on a meeting nobody cancelled. To start a
+  series later without moving it, give the new start together with an
+  `RRULE` that keeps the occurrences, and fix its exceptions with
+  `restore_occurrences` / `cancel_occurrences` in the same call; a series
+  with changed occurrences (overrides) to keep in place is rewritten with the
+  raw tools. The `start_date` and `DTSTART` descriptions now say it is the
+  series' first start, not the occurrence a listing showed.
 - **Times without a zone are read in the calendar's time zone** (#117). An
   event written without a zone (`DTSTART:20261010T090000`) or as an all-day
   date was placed on the clock of the machine dav-mcp runs on, so an HTTP or
@@ -27,16 +56,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   read in the calendar's own time zone, as CalDAV specifies, and only for a
   calendar without one in the zone dav-mcp runs in (`TZ`). All-day events
   now cover the calendar's day rather than the UTC day. This applies to every
-  tool that reads events or todos. Since servers apply their own reading to
-  a time-range search (Nextcloud and Baïkal read such times as UTC),
-  `list_events`, `calendar_query` and `freebusy_query` ask the server for a
-  wider range and decide themselves what falls inside: a recurring event
-  with no occurrence in the range is no longer listed with a note saying
-  so, it is left out.
-- **Node.js 22 or newer is required.** Node.js 18 and 20 are end-of-life;
-  `engines`, the MCP Bundle's runtime range and the CI matrix now start at 22,
-  and the Node.js 18 workarounds (WebCrypto shim, Digest startup error) are
-  removed (#85).
+  tool that reads events or todos, and to the times without a zone given to
+  the create and update tools: `create_event` with `2026-10-26T09:00:00` in a
+  Berlin calendar starts at 09:00 Berlin time on any server. Since servers
+  apply their own reading to a time-range search (Nextcloud and Baïkal read
+  such times as UTC), `list_events`, `calendar_query` and `freebusy_query`
+  ask the server for a wider range and decide themselves what falls inside: a
+  recurring event with no occurrence in the range is no longer listed with a
+  note saying so, it is left out.
+- **`make_calendar` and `update_calendar` refuse a time zone that is no IANA
+  name** (#78). `make_calendar` used to accept any `timezone` and not apply
+  it; a name such as `CEST`, `Berlin` or `+02:00` is now invalid input, and
+  nothing is sent. Any IANA zone name, `UTC` included, is taken (see
+  Changed).
+- **`freebusy_query` prints local times, no longer UTC** (#125). Free and
+  busy slots and the window were printed in UTC (`01:30 PM UTC`) while
+  `list_events` and `calendar_query` print local times (`03:30 PM GMT+2`), so
+  an answer to "when am I free?" could pass UTC times off as local ones. They
+  are now printed in the calendar's time zone, the same wall times the
+  listings show, and a new `Time zone` line names it. Several calendars that
+  set the same zone are shown in it; calendars in different zones are shown
+  in the zone dav-mcp runs in, and the line says which calendar has which.
 - **A failed login is a tool error with its own code** (#123). Over stdio,
   a login that failed at startup is retried on the first tool call; its
   failure used to escape the call as a JSON-RPC internal error (-32603). It
@@ -46,9 +86,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   configuration error (-32008) when it answered but not as a DAV server (a
   405, 404 or other 4xx to the login, or a web page), saying to check the
   server URL; a wrong AUTH_METHOD or missing setting has that code too.
-  OAuth without
-  `GOOGLE_USER` now stops the server at startup, like every other missing
-  setting, instead of failing each tool call.
+  OAuth without `GOOGLE_USER` now stops the server at startup, like every
+  other missing setting, instead of failing each tool call.
 - **Lookup and input mistakes carry their own error code; nothing is
   guessed from a message any more** (#115). Every tool that takes a
   `calendar_url` or `addressbook_url` looks it up first, and one that names
@@ -73,126 +112,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   what the lookup ran into (a 401 as a refused login, no answer as a
   network error); a zone value the server stores but nobody can read stays
   a CalDAV error.
-- **Write tools refuse parameters they do not take.** A create, update or
-  delete call with an unknown parameter is a validation error naming it,
-  instead of succeeding without it (#126).
-- **`update_event` and `update_todo` refuse `EXDATE` and `RDATE` in
-  `fields`.** Single occurrences are cancelled and restored with
-  `cancel_occurrences` / `restore_occurrences`; extra dates (RDATE) are edited
-  only through `update_event_raw` / `update_todo_raw` (#126).
-- **Moving a series takes its exceptions along.** A new start moves every
-  occurrence, the cancelled and changed ones and the extra dates included, or
-  is refused (#107).
-
-### Changed
-- **Docker builds and CI no longer pull from Docker Hub** (#140), which
-  refused CI runners' anonymous pulls with 429. The image's build stage pulls
-  Node.js from ECR Public, the Docker Official Images mirror, at the same
-  digest, and the Dockerfile uses BuildKit's built-in frontend instead of
-  fetching `docker/dockerfile`. The CI image builds take QEMU and BuildKit
-  from ECR Public at Docker Hub's digests. The smoke tests' CalDAV backend
-  is Radicale 3.8.3 from PyPI, pinned with hashes, on the official Python
-  image from ECR Public, configured like the `tomsquest/docker-radicale:latest`
-  image it replaces.
-- **@philflow/tsdav 2.5.0**, for its typed errors (`DAVResponseError`,
-  `DAVAuthenticationError`) that carry the status and URL of a failed
-  request; dav-mcp classifies errors by them (#115, #123).
-- **One more request for a calendar's time zone** (#117). Tools that know a
-  calendar only by its URL ask the server for its time zone once per call:
-  `calendar_multi_get`, `list_todos`, `todo_multi_get` (once per task list),
-  `create_todo` with a due date, and `update_event` / `update_todo` when they
-  write a date. Time-range searches (`list_events`, `calendar_query`,
-  `freebusy_query`) ask the server for 26 hours more on each side and filter
-  the extra events out themselves, which costs some transfer on busy
-  calendars.
-- **A calendar time zone that cannot be read is reported** (#117). A read
-  goes ahead in the zone dav-mcp runs in and says so in a note; a write that
-  would need the zone (a time without a zone, a move of an event stored
-  without one) is refused, so nothing lands an hour off unsaid. A local time
-  the clock change skips or shows twice is refused as well where it would
-  otherwise be stored shifted or shortened, with what to give instead; for
-  an event with its own time zone too, where a time without an offset in
-  the repeated autumn hour was silently taken as the first.
-- **`update_calendar` finds the calendar under another spelling of its URL**
-  (an escaped character, a trailing slash) when it reads the result back. If
-  it still is not among the calendars the server lists, it says that the
-  update was accepted but cannot be confirmed, instead of an internal error.
-- **Moving a series without a time zone keeps it without one** (#128). An
-  event stored with a "floating" time (`DTSTART:20270402T113000`) was written
-  back in UTC when moved with `update_event`, so it stopped following the
-  calendar's local time and its changed occurrences sat off by the server's
-  UTC offset. It now stays floating: a new start without a zone is kept as
-  given, and one with `Z` or an offset becomes its local time in the
-  calendar's time zone (`2027-04-03T09:30:00Z` in a Berlin calendar is 11:30).
-  The same goes for `update_todo` on a todo without a zone.
-- **Times without a zone given to the create and update tools are read in the
-  calendar's time zone** (#117), no longer in the zone of the machine dav-mcp
-  runs on: `create_event` with `2026-10-26T09:00:00` in a Berlin calendar
-  starts at 09:00 Berlin time on any server.
-- **Calendars get a real time zone** (#78). `make_calendar` now applies
-  `timezone` (it used to create the calendar without one and say so), and
-  `update_calendar` sends it as the VTIMEZONE CalDAV asks for instead of the
-  bare name (`Europe/Berlin`), which stricter servers reject or ignore. Both
-  take any IANA zone name, `UTC` included, and refuse anything else (`Berlin`,
-  `CEST`, `+02:00`) as invalid input before sending anything.
-  `update_calendar` reports the zone the server holds afterwards, and
-  `list_calendars` shows each calendar's zone.
-- **tsdav-utils 0.7.0** (`@philflow/tsdav-utils`), for its bounded,
-  zone-correct occurrence expansion and its occurrence edits. Its write
-  semantics change too: moving a series' DTSTART now moves its overrides with
-  it, and an `EXDATE` or `RDATE` written as a field would be the whole list —
-  so the update tools no longer take them in `fields`; single occurrences are
-  cancelled and restored with `cancel_occurrences` / `restore_occurrences`
-  (#126, below).
-- **Moving a recurring event or todo moves the whole series** (#107). A new
-  start given to `update_event` (or `DTSTART` to `update_todo`) now takes every
-  occurrence along: moved and cancelled occurrences, extra dates and the end
-  of the series shift by the same amount, so they keep applying to the
-  occurrences they were made for. A weekday or day of month the rule only
-  repeats from the start follows it: a series every Monday, moved to a Tuesday,
-  becomes every Tuesday. Where the rule cannot follow (every Monday and
-  Wednesday, moved by one day), the update is refused and says what to give
-  instead in the same call. Likewise, a new rule that would leave a moved or
-  cancelled occurrence on a date the series no longer has is refused. The
-  reply says what else moved: the old and new rule and how many changed,
-  cancelled and extra dates went along.
-- **A time given in UTC keeps an event in its own time zone** (#107). A
-  start like `2026-10-06T08:00:00Z` for a weekly 09:00 Europe/Berlin series
-  used to turn the whole series into UTC, so after the change to winter time
-  every meeting sat an hour earlier in Berlin. The time is now written in the
-  event's (or to-do's) own zone at the same instant: 10:00 in Berlin, every
-  week. Events and to-dos without a zone are written in UTC as before.
-- **Starting a series later now moves its exceptions too** (#107). A start
-  several weeks later used to leave cancelled and moved occurrences where
-  they were; it now takes them along, so a cancellation can land on a
-  meeting nobody cancelled. To start a series later without moving it, give
-  the new start together with an `RRULE` that keeps the occurrences, and fix
-  its exceptions with `restore_occurrences` / `cancel_occurrences` in the same
-  call; a series with changed occurrences (overrides) to keep in place is
-  rewritten with the raw tools. The `start_date` and
-  `DTSTART` descriptions now say it is the series' first start, not the
-  occurrence a listing showed.
-- **Single occurrences are moved or retitled with the raw tools** (#107).
-  `update_event` and `update_todo` edit the whole series and refuse
-  `RECURRENCE-ID`, which would have turned the series into one occurrence. To
-  move or retitle one occurrence, fetch the object with `calendar_multi_get` /
-  `todo_multi_get` and send it back with `update_event_raw` /
-  `update_todo_raw`; to cancel one, use `cancel_occurrences` (#126).
-- **`fields.EXDATE` and `fields.RDATE` are refused** by `update_event` and
-  `update_todo` (#126), with a validation error naming `cancel_occurrences` /
-  `restore_occurrences`. Written as a field, either list replaced every value
-  already in the series. Extra dates (RDATE) of a series are edited through
-  `update_event_raw`/`update_todo_raw`.
-- **Write tools refuse parameters they do not take** (#126). Unknown keys
-  were dropped silently, so a call with a misspelled or newer parameter
-  reported success for a change it never made (dav-mcp 4.3.1 drops
-  `cancel_occurrences` and answers "Updated 0 field(s)"). The create, update
-  and delete tools now answer such a call with a validation error naming the
-  parameter.
-- **An update that asks for nothing writes nothing.** `update_event` and
-  `update_todo` without fields, dates or occurrence names (empty lists count
-  as none), or whose occurrences are already as asked, reply "not changed"
-  instead of writing the object back with a new etag.
+- **Invalid input is a validation error (-32002), no longer an internal
+  error (-32603)** (#107, refs #115 in part). A refused series change (above)
+  keeps the reason and the suggested rule, and names the tools to use
+  instead. An event ending before it starts, or a todo moved by `DTSTART`
+  alone past its due date, is a validation error too, and the todo case says
+  to give `DTSTART` and `DUE` together. A date or rule the update tools
+  cannot read (`EXDATE: "garbage"`, an unknown rule part) is a validation
+  error that names the property to correct, for events, to-dos and contacts
+  alike. A stored object that cannot be parsed is reported as a
+  CalDAV/CardDAV error, with the raw tool that can replace it.
+- **Weak and malformed ETags are neither accepted nor handed out** (#124,
+  #136). An etag parameter that cannot be an entity-tag (inner whitespace, a
+  stray quote, more than 1024 characters) or is weak (`W/"…"`) is a
+  validation error before any request: If-Match compares strongly, so a weak
+  one could only end in a 412. The list, query and multi-get tools passed a
+  weak `W/"…"` getetag on as `etag`, and todos labelled it "required for
+  updates": a model fetched, was refused, fetched the same ETag again. An
+  `etag` field, in listings and in write results, is now only ever one the
+  etag parameters take (one rule for both); a weak, missing or malformed one
+  is an `etag_note` saying the object cannot be updated or deleted through
+  dav-mcp and that the server has to be fixed (after a write: fetch the
+  object first). The delete tools say what an `etag_note` means. CalDAV and
+  CardDAV require strong ETags, and a compressing proxy, which only changes
+  ETag headers, cannot cause a weak getetag. Strong ETags are shown as
+  before; a todo without one no longer reads `undefined`.
 
 ### Added
 - **Listings name occurrences the way the update tools take them** (#126).
@@ -213,8 +157,112 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The reply of `update_event`/`update_todo` says which occurrences were
   cancelled or restored and which changed versions were removed, compared by
   occurrence, not by the stored text.
+- **Listed events show their STATUS** (e.g. CANCELLED; for a series, the
+  occurrence listed), and `freebusy_query`'s event details list exactly the
+  occurrences that make up the busy time.
+
+### Changed
+- **Docker builds and CI no longer pull from Docker Hub** (#140), which
+  refused CI runners' anonymous pulls with 429. The image's build stage pulls
+  Node.js from ECR Public, the Docker Official Images mirror, at the same
+  digest, and the Dockerfile uses BuildKit's built-in frontend instead of
+  fetching `docker/dockerfile`. The CI image builds take QEMU and BuildKit
+  from ECR Public at Docker Hub's digests. The smoke tests' CalDAV backend
+  is Radicale 3.8.3 from PyPI, pinned with hashes, on the official Python
+  image from ECR Public, configured like the `tomsquest/docker-radicale:latest`
+  image it replaces.
+- **Dependencies: @philflow/tsdav 2.5.0 and @philflow/tsdav-utils 0.7.0.**
+  tsdav for its typed errors (`DAVResponseError`, `DAVAuthenticationError`)
+  that carry the status and URL of a failed request; dav-mcp classifies
+  errors by them (#115, #123). tsdav-utils for its bounded, zone-correct
+  occurrence expansion and its occurrence edits (#98, #107, #126).
+- **Calendars get a real time zone** (#78). `make_calendar` now applies
+  `timezone` (it used to create the calendar without one and say so), and
+  `update_calendar` sends it as the VTIMEZONE CalDAV asks for instead of the
+  bare name (`Europe/Berlin`), which stricter servers reject or ignore.
+  `update_calendar` reports the zone the server holds afterwards, and
+  `list_calendars` shows each calendar's zone.
+- **One more request for a calendar's time zone** (#117). Tools that know a
+  calendar only by its URL ask the server for its time zone once per call:
+  `calendar_multi_get`, `list_todos`, `todo_multi_get` (once per task list),
+  `create_todo` with a due date, and `update_event` / `update_todo` when they
+  write a date. Time-range searches (`list_events`, `calendar_query`,
+  `freebusy_query`) ask the server for 26 hours more on each side and filter
+  the extra events out themselves, which costs some transfer on busy
+  calendars.
+- **A calendar time zone that cannot be read is reported** (#117). A read
+  goes ahead in the zone dav-mcp runs in and says so in a note; a write that
+  would need the zone (a time without a zone, a move of an event stored
+  without one) is refused, so nothing lands an hour off unsaid. A local time
+  the clock change skips or shows twice is refused as well where it would
+  otherwise be stored shifted or shortened, with what to give instead; for
+  an event with its own time zone too, where a time without an offset in
+  the repeated autumn hour was silently taken as the first.
+- **A time given in UTC keeps an event in its own time zone** (#107). A
+  start like `2026-10-06T08:00:00Z` for a weekly 09:00 Europe/Berlin series
+  used to turn the whole series into UTC, so after the change to winter time
+  every meeting sat an hour earlier in Berlin. The time is now written in the
+  event's (or to-do's) own zone at the same instant: 10:00 in Berlin, every
+  week.
+- **Moving a series without a time zone keeps it without one** (#128). An
+  event stored with a "floating" time (`DTSTART:20270402T113000`) was written
+  back in UTC when moved with `update_event`, so it stopped following the
+  calendar's local time and its changed occurrences sat off by the server's
+  UTC offset. It now stays floating: a new start without a zone is kept as
+  given, and one with `Z` or an offset becomes its local time in the
+  calendar's time zone (`2027-04-03T09:30:00Z` in a Berlin calendar is 11:30).
+  The same goes for `update_todo` on a todo without a zone.
+- **Single occurrences are moved or retitled with the raw tools** (#107).
+  `update_event` and `update_todo` edit the whole series and refuse
+  `RECURRENCE-ID`, which would have turned the series into one occurrence. To
+  move or retitle one occurrence, fetch the object with `calendar_multi_get` /
+  `todo_multi_get` and send it back with `update_event_raw` /
+  `update_todo_raw`; to cancel one, use `cancel_occurrences` (#126).
+- **An update that asks for nothing writes nothing.** `update_event` and
+  `update_todo` without fields, dates or occurrence names (empty lists count
+  as none), or whose occurrences are already as asked, reply "not changed"
+  instead of writing the object back with a new etag.
+- **`update_calendar` finds the calendar under another spelling of its URL**
+  (an escaped character, a trailing slash) when it reads the result back. If
+  it still is not among the calendars the server lists, it says that the
+  update was accepted but cannot be confirmed, instead of an internal error.
 
 ### Fixed
+- **Cancelling one occurrence no longer brings back the ones cancelled
+  before** (#126). `update_event` wrote `fields.EXDATE` as the complete list of
+  exclusions, so a model that wrote one date to cancel one more occurrence
+  dropped every earlier exclusion and those occurrences came back.
+  `update_event` and `update_todo` now take `cancel_occurrences` and
+  `restore_occurrences`: each names an occurrence by its original start, as
+  the listings show it, and adds to or takes from the exclusions without
+  touching the others (tsdav-utils `cancelOccurrences`/`restoreOccurrences`).
+  Cancelling a changed occurrence removes its changed version too; restoring
+  one occurrence of a day excluded as a whole brings back only that one. A
+  name in the wrong form is refused rather than cancelling another
+  occurrence: a time without a zone on a UTC series is not read in the
+  host's zone. A refused name comes back as a validation error naming it,
+  with the occurrences that day (or the cancelled ones) and how the series
+  names occurrences, and saying to use the name exactly as listed. Names
+  refer to the series as it is before the call; restores, then cancels, then
+  fields and dates are applied, so a move in the same call takes the new
+  exclusions along. On an event or todo that does not recur both are refused
+  (instead of excluding its only occurrence). A new RRULE that would leave an
+  exclusion naming no occurrence is refused as a validation error that names
+  the way out: `restore_occurrences` in the same call, or the raw tool.
+- **`update_todo` writes into the to-do, not an event next to it** (#107).
+  For a calendar object holding both an event and a to-do, `update_todo` wrote
+  its fields (a new due date, say) into the event. It now writes into the
+  to-do, `update_event` into the event, and either tool refuses an object that
+  holds nothing of its kind and names the other tool.
+- **An etag passed without its quotes no longer fails the write with 412**
+  (#124). The update and delete tools sent the etag parameter unchanged as
+  `If-Match`, so `abc123` instead of the `"abc123"` the server returned never
+  matched its entity-tag, and Baïkal and Nextcloud refused the write as if the
+  object had changed. Every etag parameter is now normalised in one place: a
+  bare tag gets its quotes, a quoted one is kept, and surrounding whitespace
+  is dropped. A stale etag is still refused with 412, quoted or not; when
+  dav-mcp added the quotes, the error says so, since a server that does not
+  quote its ETags fails the same way.
 - **One contact or event with a huge parameter list no longer stalls the
   server** (#109). ical.js reads parameters in time that grows with their
   number times the line length: a 1 MB vCard line with 500 000 parameters
@@ -232,30 +280,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   name the ones no filter could search; `freebusy_query` reports its answer
   as incomplete, naming the object, instead of losing its busy time
   silently. The reason never quotes the stored text.
-- **An etag passed without its quotes no longer fails the write with 412**
-  (#124). The update and delete tools sent the etag parameter unchanged as
-  `If-Match`, so `abc123` instead of the `"abc123"` the server returned never
-  matched its entity-tag, and Baïkal and Nextcloud refused the write as if the
-  object had changed. Every etag parameter is now normalised in one place: a
-  bare tag gets its quotes, a quoted one is kept, surrounding whitespace is
-  dropped, and a value that cannot be an entity-tag (inner whitespace, a stray
-  quote, more than 1024 characters) is a validation error before any request. A weak etag (`W/"…"`)
-  is refused the same way: If-Match compares strongly, so it could only end
-  in a 412. A stale etag is still refused with 412, quoted or not; when
-  dav-mcp added the quotes, the error says so, since a server that does not
-  quote its ETags fails the same way.
-- **Listings no longer hand out a weak ETag as one to update with** (#136).
-  The list, query and multi-get tools passed a weak `W/"…"` getetag on as
-  `etag`, and todos labelled it "required for updates", although the update
-  and delete tools refuse it: a model fetched, was refused, fetched the same
-  ETag again. An `etag` field, in listings and in write results, is now only
-  ever one the etag parameters take (one rule for both); a weak, missing or
-  malformed one is an `etag_note` saying the object cannot be updated or
-  deleted through dav-mcp and that the server has to be fixed (after a write:
-  fetch the object first). The delete tools say what an `etag_note` means. CalDAV and
-  CardDAV require strong ETags, and a compressing proxy, which only changes
-  ETag headers, cannot cause a weak getetag. Strong ETags are shown as
-  before; a todo without one no longer reads `undefined`.
 - **A wrong collection or object URL says what to send instead** (#115).
   The error names the parameter and the URL, lists up to 20 of the calendars
   or address books there are (and how many more the list tool shows), and
@@ -285,45 +309,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   login, not as a CalDAV error. A login answered with another error status
   says which: a 403 is forbidden (-32003), an OAuth token endpoint answering
   429 a rate limit (-32004), instead of "cannot find principalUrl".
-- **Cancelling one occurrence no longer brings back the ones cancelled
-  before** (#126). `update_event` wrote `fields.EXDATE` as the complete list of
-  exclusions, so a model that wrote one date to cancel one more occurrence
-  dropped every earlier exclusion and those occurrences came back.
-  `update_event` and `update_todo` now take `cancel_occurrences` and
-  `restore_occurrences`: each names an occurrence by its original start, as
-  the listings show it, and adds to or takes from the exclusions without
-  touching the others (tsdav-utils `cancelOccurrences`/`restoreOccurrences`).
-  Cancelling a changed occurrence removes its changed version too; restoring
-  one occurrence of a day excluded as a whole brings back only that one. A
-  name in the wrong form is refused rather than cancelling another
-  occurrence: a time without a zone on a UTC series is not read in the
-  host's zone. A refused name comes back as a validation error naming it,
-  with the occurrences that day (or the cancelled ones) and how the series
-  names occurrences, and saying to use the name exactly as listed. Names
-  refer to the series as it is before the call; restores, then cancels, then
-  fields and dates are applied, so a move in the same call takes the new exclusions along. On an
-  event or todo that does not recur both are refused (instead of excluding
-  its only occurrence). A new RRULE that would leave an exclusion naming no
-  occurrence is refused as a validation error that names the way out:
-  `restore_occurrences` in the same call, or the raw tool.
-- **`update_todo` writes into the to-do, not an event next to it** (#107).
-  For a calendar object holding both an event and a to-do, `update_todo` wrote
-  its fields (a new due date, say) into the event. It now writes into the
-  to-do, `update_event` into the event, and either tool refuses an object that
-  holds nothing of its kind and names the other tool.
-- **A refused series change is reported as invalid input, not as a server
-  error** (#107). The refusals above reached the client as an internal error
-  (-32603). They now come back as a validation error (-32002) that keeps the
-  reason and the suggested rule, and names the tools to use instead.
-- **Date-order mistakes are reported as invalid input** (refs #115, in part). An event
-  ending before it starts, or a todo moved by `DTSTART` alone past its due
-  date, answered with an internal error; it is now a validation error, and the
-  todo case says to give `DTSTART` and `DUE` together.
-- **Unreadable values are reported as invalid input** (refs #115, in part). A date or rule
-  the update tools cannot read (`EXDATE: "garbage"`, an unknown rule part) is
-  now a validation error that names the property to correct, for events,
-  to-dos and contacts alike. A stored object that cannot be parsed is reported
-  as a CalDAV/CardDAV error, with the raw tool that can replace it.
 - **Free/busy and event queries judge each occurrence as it now stands**
   (#98). A recurring series was expanded from its original dates, and every
   occurrence counted with the series' own STATUS and TRANSP. So a single
@@ -340,8 +325,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "no occurrence falls inside the queried range". All of them now use the
   CalDAV time-range test (RFC 4791 9.9): it starts before the range ends and
   ends after it starts; one without duration counts when it starts in
-  [start, end). A floating time is read on the clock of the machine running dav-mcp
-  throughout.
+  [start, end). A floating time is read the same way throughout, in the
+  calendar's time zone (see Breaking changes).
 - **Recurring events are expanded by tsdav-utils** (#98), the reader the
   write side uses, so dav-mcp and the library agree on which occurrences a
   series has. An override replaces the occurrence its RECURRENCE-ID names,
@@ -399,9 +384,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `freebusy_query`, which used to answer "Nothing blocks this window" for
   it, names it and says its busy time may be missing, and an event list
   says the series could not be expanded fully.
-- **Listed events show their STATUS** (e.g. CANCELLED; for a series, the
-  occurrence listed), and `freebusy_query`'s event details list exactly the
-  occurrences that make up the busy time.
 
 ## [4.3.1] - 2026-10-08
 
