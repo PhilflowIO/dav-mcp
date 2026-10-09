@@ -145,11 +145,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   called, so the message carried no hint at all). A refused or failed login,
   and a write refused with 401 later on, now name the server and the three
   places the settings live: the plugin's options (`/plugin` → Installed →
-  dav-mcp → Configure options), the extension's settings in Claude Desktop,
+  dav-mcp → Configure options), the extension's settings in Claude Desktop
+  (Settings → Extensions → dav-mcp: Calendars, Contacts & Tasks),
   and the `CALDAV_*` environment variables (MCP client config, `docker -e`
   or `.env`) for npx, Docker and checkouts. dav-mcp cannot tell which of
   them started it, so it names all three; with OAuth, which only the
-  environment variables set up, it names the `GOOGLE_*` variables.
+  environment variables set up, it names the `GOOGLE_*` variables. Whether
+  the credentials were refused comes from the error tsdav throws
+  (`DAVAuthenticationError`, @philflow/tsdav 2.5.0), so a server that answers
+  401 on its DAV path and 405 on its root (Baïkal) is reported as a refused
+  login, not as a CalDAV error.
 - **Cancelling one occurrence no longer brings back the ones cancelled
   before** (#126). `update_event` wrote `fields.EXDATE` as the complete list of
   exclusions, so a model that wrote one date to cancel one more occurrence

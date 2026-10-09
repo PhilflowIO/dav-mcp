@@ -13,6 +13,7 @@ jest.unstable_mockModule('tsdav', () => ({
     }
     async login() {}
   },
+  isDAVAuthenticationError: () => false,
 }));
 
 const logged = [];

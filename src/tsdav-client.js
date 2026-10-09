@@ -1,4 +1,4 @@
-import { DAVClient } from 'tsdav';
+import { DAVClient, isDAVAuthenticationError } from 'tsdav';
 import { logger } from './logger.js';
 import { CalDAVError, CardDAVError, AuthenticationError, MCP_ERROR_CODES } from './error-handler.js';
 import { ConfigurationError, settingsHint } from './auth-config.js';
@@ -29,7 +29,7 @@ class OriginCheckedDAVClient extends DAVClient {
   // caller passes, token requests only go to the token endpoint.
   async authenticate(force, fetchOptions) {
     return super.authenticate(force, fetchOptions,
-      this.answers.watch(this.requestOrigins.tokenFetch(), { tokenEndpoint: true }));
+      this.answers.watch(this.requestOrigins.tokenFetch()));
   }
 
   async invoke(fn, params) {
@@ -58,74 +58,57 @@ class OriginCheckedDAVClient extends DAVClient {
 }
 
 /**
- * The last answer a login got, so a failed login can be told apart by what
- * happened on the wire rather than by tsdav's wording: the server refused
- * the credentials (401, or a token endpoint refusing the OAuth grant), the
- * server could not be reached at all, or it answered but not as a DAV server.
+ * Whether a login got any answer at all, to tell a server that cannot be
+ * reached from one that answered but not as a DAV server. Whether the
+ * credentials were refused is not read here: tsdav tries several URLs and the
+ * last answer need not be the refusal (Baïkal answers 401 on /dav.php/, then
+ * 405 on the server root); the error tsdav throws says so itself.
  */
 class LoginAnswers {
   constructor() {
-    this.last = null;
+    this.answered = false;
   }
 
   /**
    * @param {Function} fetchFn - the fetch to watch
-   * @param {object} [options]
-   * @param {boolean} [options.tokenEndpoint] - it reaches the OAuth token endpoint
-   * @returns {Function} a fetch that records each answer, or that none came
+   * @returns {Function} a fetch that notes that an answer came
    */
-  watch(fetchFn, { tokenEndpoint = false } = {}) {
+  watch(fetchFn) {
     return async (input, init) => {
-      try {
-        const response = await fetchFn(input, init);
-        this.last = { status: response.status, statusText: response.statusText || '', tokenEndpoint };
-        return response;
-      } catch (error) {
-        this.last = { unreachable: true };
-        throw error;
-      }
+      const response = await fetchFn(input, init);
+      this.answered = true;
+      return response;
     };
-  }
-
-  /** The credentials were refused (RFC 9110 15.5.2; RFC 6749 5.2 for OAuth). */
-  get refused() {
-    const { status, tokenEndpoint } = this.last ?? {};
-    return status === 401 || (tokenEndpoint === true && status >= 400 && status < 500);
-  }
-
-  get unreachable() {
-    return this.last?.unreachable === true;
   }
 }
 
 /**
  * The error a failed login is reported as. Every one of them is fixed where
  * dav-mcp's settings are kept, so each names that place (#123); the code says
- * which kind of failure it was, instead of leaving it to the message
- * heuristics of the error handler.
+ * which kind of failure it was, instead of leaving it to the message.
  *
  * @param {Error} cause - what tsdav threw
- * @param {object} config - the configuration the login used
- * @param {LoginAnswers} answers - what the server answered
+ * @param {object} config - the configuration the login used, tokenUrl resolved
+ * @param {LoginAnswers} answers - whether the server answered at all
  * @returns {Error}
  */
 function loginError(cause, config, answers) {
   const hint = settingsHint(config.authMethod);
-  const { status, statusText, tokenEndpoint } = answers.last ?? {};
-  // tsdav only says the token endpoint gave no access token; the status says why
-  const tokenAnswer = answers.refused && tokenEndpoint
-    ? ` (the token endpoint answered ${`${status} ${statusText}`.trim()})`
+  const refused = isDAVAuthenticationError(cause);
+  // tsdav's message for a refused grant only says no access token came
+  const tokenAnswer = refused && cause.url === config.tokenUrl
+    ? ` (the token endpoint answered ${cause.status})`
     : '';
   const message = `Login to ${config.serverUrl} failed: ${String(cause.message).replace(/\.$/, '')}${tokenAnswer}. ${hint}`;
 
-  if (answers.refused) {
-    return new AuthenticationError(message, { serverUrl: config.serverUrl, status });
+  if (refused) {
+    return new AuthenticationError(message, { serverUrl: config.serverUrl, status: cause.status, url: cause.url });
   }
   const error = new Error(message, { cause });
   // A typed error (a redirect off the server, say) keeps its code.
   error.code = Number.isInteger(cause.code) ? cause.code
-    : answers.unreachable ? MCP_ERROR_CODES.NETWORK_ERROR
-      : MCP_ERROR_CODES.CALDAV_ERROR;
+    : answers.answered ? MCP_ERROR_CODES.CALDAV_ERROR
+      : MCP_ERROR_CODES.NETWORK_ERROR;
   error.details = { serverUrl: config.serverUrl };
   return error;
 }
@@ -170,10 +153,10 @@ class TsdavClientManager {
     this.config = config;
     this.authMethod = config.authMethod || 'Basic';
     const answers = new LoginAnswers();
+    const useOAuth = this.authMethod === 'OAuth' || this.authMethod === 'Oauth';
+    const tokenUrl = useOAuth ? (config.tokenUrl || DEFAULT_OAUTH_TOKEN_URL) : undefined;
 
     try {
-      // Determine authentication method
-      const useOAuth = this.authMethod === 'OAuth' || this.authMethod === 'Oauth';
 
       if (!useOAuth && this.authMethod !== 'Basic' && this.authMethod !== 'Digest') {
         throw new ConfigurationError(`Unsupported authMethod '${this.authMethod}'. Use Basic, Digest or OAuth.`);
@@ -183,7 +166,6 @@ class TsdavClientManager {
       // configured server, what it redirects the login to and the account it
       // describes; their token requests only the OAuth token endpoint
       // (see request-origins.js).
-      const tokenUrl = useOAuth ? (config.tokenUrl || DEFAULT_OAUTH_TOKEN_URL) : undefined;
       const origins = new RequestOrigins({ serverUrl: config.serverUrl, tokenUrl });
 
       let clients;
@@ -218,7 +200,7 @@ class TsdavClientManager {
         ...(this.authMethod === 'Basic' && { note: 'Digest is used instead if the server only offers Digest' }),
       }, 'tsdav clients initialized and logged in');
     } catch (cause) {
-      const error = cause.name === 'ConfigurationError' ? cause : loginError(cause, config, answers);
+      const error = cause.name === 'ConfigurationError' ? cause : loginError(cause, { ...config, tokenUrl }, answers);
       logger.error({
         error: error.message,
         serverUrl: config.serverUrl,

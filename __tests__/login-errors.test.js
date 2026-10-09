@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeEach, jest } from '@jest/globals';
 import { spawn } from 'child_process';
 import { createServer } from 'http';
+import { readFileSync } from 'fs';
 
 // A failed login has to tell the user where dav-mcp's settings live (#123).
 // They are not always in a .env file: the Claude Code plugin keeps them in
@@ -35,14 +36,16 @@ const oauthEnv = {
   GOOGLE_TOKEN_URL: TOKEN_URL,
 };
 
+const EXTENSION_NAME = JSON.parse(readFileSync(new URL('../manifest.json', import.meta.url), 'utf8')).display_name;
+
 const loginError = (env) => tsdavManager.initialize(buildTsdavConfig(env)).catch(e => e);
 
 const expectPasswordSettingsNamed = (message) => {
   // the Claude Code plugin
   expect(message).toContain('/plugin');
   expect(message).toContain('Configure options');
-  // the Claude Desktop extension (MCP bundle)
-  expect(message).toContain('Claude Desktop');
+  // the Claude Desktop extension (MCP bundle), listed under its display name
+  expect(message).toContain(`Settings → Extensions → ${EXTENSION_NAME}`);
   // npx, Docker, a checkout
   expect(message).toContain('CALDAV_USERNAME');
   expect(message).toContain('CALDAV_PASSWORD');
@@ -70,6 +73,26 @@ describe('a login the server refuses', () => {
     expect(error.message).toContain('401 Unauthorized');
     expectPasswordSettingsNamed(error.message);
     expect(error.message).not.toContain('Verify server settings in .env file');
+  });
+
+  // Baïkal: the configured /dav.php/ answers 401, tsdav then tries the server
+  // root as another candidate, which answers 405. The refusal must survive the
+  // later answer (review of #134: it used to be read from the last response).
+  test('Baïkal shape: a 405 from the server root after the 401 is still a refused login', async () => {
+    respond = async (url) => {
+      const { pathname } = new URL(url);
+      if (pathname.startsWith('/.well-known/')) return new Response('', { status: 404, statusText: 'Not Found' });
+      if (pathname === '/') return new Response('', { status: 405, statusText: 'Method Not Allowed' });
+      return new Response('', {
+        status: 401, statusText: 'Unauthorized', headers: { 'www-authenticate': 'Basic realm="dav"' },
+      });
+    };
+
+    const error = await loginError({ ...passwordEnv, CALDAV_SERVER_URL: `${SERVER}dav.php/` });
+
+    expect(error.name).toBe('AuthenticationError');
+    expect(formatMCPError(error).code).toBe(MCP_ERROR_CODES.AUTH_ERROR);
+    expect(error.message).toContain('401 Unauthorized');
   });
 
   test('OAuth: a refused refresh token names the GOOGLE_ variables, not the plugin options', async () => {

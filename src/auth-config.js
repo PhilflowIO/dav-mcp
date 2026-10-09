@@ -48,7 +48,7 @@ export function settingsHint(authMethod) {
   }
   return 'Check the server URL, username and password where dav-mcp was set up: ' +
     'Claude Code plugin: /plugin → Installed → dav-mcp → Configure options; ' +
-    'Claude Desktop extension: Settings → Extensions → dav-mcp; ' +
+    'Claude Desktop extension: Settings → Extensions → dav-mcp: Calendars, Contacts & Tasks; ' +
     'npx, Docker or a checkout: CALDAV_SERVER_URL, CALDAV_USERNAME and CALDAV_PASSWORD ' +
     '(the MCP client\'s config, docker -e, or .env).';
 }
