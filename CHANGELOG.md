@@ -24,7 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   read in the calendar's own time zone, as CalDAV specifies, and only for a
   calendar without one in the zone dav-mcp runs in (`TZ`). All-day events
   now cover the calendar's day rather than the UTC day. This applies to every
-  tool that reads events or todos.
+  tool that reads events or todos. Since servers apply their own reading to
+  a time-range search (Nextcloud and Baïkal read such times as UTC),
+  `list_events`, `calendar_query` and `freebusy_query` ask the server for a
+  wider range and decide themselves what falls inside: a recurring event
+  with no occurrence in the range is no longer listed with a note saying
+  so, it is left out.
 - **Node.js 22 or newer is required.** Node.js 18 and 20 are end-of-life;
   `engines`, the MCP Bundle's runtime range and the CI matrix now start at 22,
   and the Node.js 18 workarounds (WebCrypto shim, Digest startup error) are

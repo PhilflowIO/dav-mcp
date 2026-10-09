@@ -22,6 +22,7 @@ const calendars = [
   { url: BERLIN, displayName: 'Berlin', timezone: calendarTimezoneValue('Europe/Berlin').text },
   { url: NEW_YORK, displayName: 'New York', timezone: 'America/New_York' }, // the bare form dav-mcp wrote before 5.0.0
 ];
+const fetchCalendarObjects = jest.fn(async ({ calendar }) => objectsByCalendar[calendar.url] ?? []);
 const propfind = jest.fn(async ({ url }) => [{
   ok: true, status: 207,
   props: { calendarTimezone: calendars.find((c) => c.url === url)?.timezone ?? '' },
@@ -31,7 +32,7 @@ jest.unstable_mockModule('../src/tsdav-client.js', () => ({
   tsdavManager: {
     getCalDavClient: () => ({
       fetchCalendars: async () => calendars,
-      fetchCalendarObjects: async ({ calendar }) => objectsByCalendar[calendar.url] ?? [],
+      fetchCalendarObjects,
       fetchTodos: async ({ calendar }) => objectsByCalendar[calendar.url] ?? [],
       propfind,
     }),
@@ -42,6 +43,8 @@ jest.unstable_mockModule('../src/tsdav-client.js', () => ({
 const { calendarQuery } = await import('../src/tools/calendar/calendar-query.js');
 const { todoQuery } = await import('../src/tools/todos/todo-query.js');
 const { listTodos } = await import('../src/tools/todos/list-todos.js');
+const { listEvents } = await import('../src/tools/calendar/list-events.js');
+const { freeBusyQuery } = await import('../src/tools/calendar/freebusy-query.js');
 
 const object = (calendarUrl, name, component, ...lines) => ({
   url: `${calendarUrl}${name}.ics`,
@@ -54,6 +57,7 @@ const urls = (result) => [...result.content[0].text.matchAll(/- \*\*URL\*\*: (\S
 beforeEach(() => {
   objectsByCalendar = {};
   propfind.mockClear();
+  fetchCalendarObjects.mockClear();
 });
 
 describe('floating times are read in their calendar\'s zone', () => {
@@ -68,12 +72,11 @@ describe('floating times are read in their calendar\'s zone', () => {
         /no occurrence of this series falls inside/.test(entry) ? 'none in range' : /- \*\*When\*\*: (.*?) to/.exec(entry)[1],
       ]).sort();
     };
+    // a series with no occurrence in the range, as read here, is not listed
     expect(await listed('2026-10-10T06:30:00Z', '2026-10-10T07:30:00Z')).toEqual([
       ['berlin', 'October 10, 2026, 09:00 AM GMT+2'],
-      ['new-york', 'none in range'],
     ]);
     expect(await listed('2026-10-10T12:30:00Z', '2026-10-10T13:30:00Z')).toEqual([
-      ['berlin', 'none in range'],
       ['new-york', 'October 10, 2026, 09:00 AM EDT'],
     ]);
   });
@@ -96,6 +99,30 @@ describe('floating times are read in their calendar\'s zone', () => {
     // 23:00-23:30 UTC on the 9th is already the 10th in Berlin
     expect(urls(await range('2026-10-09T22:30:00Z', '2026-10-09T23:00:00Z'))).toEqual(['todo.ics']);
     expect(urls(await range('2026-10-10T22:30:00Z', '2026-10-10T23:00:00Z'))).toEqual([]);
+  });
+});
+
+describe('the range is decided here, not by the server', () => {
+  // A server applies its own reading of floating times to a time-range
+  // REPORT: Nextcloud and Baïkal (SabreDAV) read them as UTC, so a floating
+  // 09:00 in a Berlin calendar was not returned for 07:30-08:30 UTC. The
+  // server is asked for a range wide enough for any zone, and the tools keep
+  // what touches the range as read in the calendar's zone.
+  const RANGE = { time_range_start: '2026-10-26T07:30:00Z', time_range_end: '2026-10-26T08:30:00Z' };
+  const WIDE = { start: '2026-10-25T05:30:00.000Z', end: '2026-10-27T10:30:00.000Z' };
+  const standup = () => object(BERLIN, 'standup', 'VEVENT', 'DTSTART:20261026T090000', 'DTEND:20261026T100000');
+  const lunch = () => object(BERLIN, 'lunch', 'VEVENT', 'DTSTART:20261026T120000', 'DTEND:20261026T130000');
+  const weekly = () => object(BERLIN, 'weekly', 'VEVENT', 'DTSTART:20261019T170000', 'DTEND:20261019T180000', 'RRULE:FREQ=WEEKLY');
+
+  test.each([
+    ['list_events', () => listEvents.handler({ calendar_url: BERLIN, ...RANGE })],
+    ['calendar_query', () => calendarQuery.handler({ calendar_url: BERLIN, ...RANGE })],
+    ['freebusy_query', () => freeBusyQuery.handler({ calendar_url: BERLIN, ...RANGE, include_event_details: true })],
+  ])('%s asks for a wider range and keeps only what touches the one asked', async (_, run) => {
+    objectsByCalendar = { [BERLIN]: [standup(), lunch(), weekly()] };
+    const result = await run();
+    expect(fetchCalendarObjects).toHaveBeenCalledWith(expect.objectContaining({ timeRange: WIDE }));
+    expect(urls(result)).toEqual(['standup.ics']);
   });
 });
 

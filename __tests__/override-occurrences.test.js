@@ -184,9 +184,9 @@ describe('one definition of "in the range" everywhere (RFC 4791 9.9)', () => {
     const { freebusy, query, list } = await tools(WINDOW);
     expect(freebusy).toContain('Nothing blocks this window');
     expect(freebusy).toContain('Events behind the busy blocks (0)');
+    // not listed: the tools decide the range themselves (#117)
     for (const text of [query, list]) {
-      expect(text).toContain('no occurrence of this series falls inside the queried range');
-      expect(text).not.toContain('October 14');
+      expect(text).toBe('No events found.');
     }
   });
 
@@ -528,7 +528,7 @@ describe('no series can stall a tool call (ical.js loops between candidates)', (
   test('a rule no date satisfies (30 February) returns', async () => {
     const { text, elapsed } = await timed([one('feb', 'DTSTART:20260101T100000Z', 'DURATION:PT1H',
       'RRULE:FREQ=DAILY;BYMONTH=2;BYMONTHDAY=30')], calendarQuery);
-    expect(text).toContain('no occurrence of this series falls inside the queried range');
+    expect(text).toBe('No events found.');
     expect(elapsed).toBeLessThan(2000);
   });
 });

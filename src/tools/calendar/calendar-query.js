@@ -3,8 +3,8 @@ import { validateInput, calendarQuerySchema } from '../../validation.js';
 import { formatEventList } from '../../formatters.js';
 import { buildTimeRangeOptions, limitResults, DEFAULT_RESULT_LIMIT } from '../shared/helpers.js';
 import ICAL from 'ical.js';
-import { shownEvent } from '../../ical-components.js';
-import { ZONE_SLACK_MS, budgetPool } from '../../occurrences.js';
+import { shownEvent, shownTouchesRange } from '../../ical-components.js';
+import { ZONE_SLACK_MS, budgetPool, serverTimeRange } from '../../occurrences.js';
 import { instantOf, hasAbsoluteInstant } from '../shared/ical-dates.js';
 import { floatingZoneFor, withFloatingZone } from '../../calendar-zone.js';
 import { parseObjects, textValues, containsText, dateKey, orNull } from '../shared/query-objects.js';
@@ -78,7 +78,8 @@ export const calendarQuery = {
     // Search across all selected calendars
     let allEvents = [];
     for (const calendar of calendarsToSearch) {
-      const options = { calendar, ...timeRangeOptions };
+      // wider than asked: the server reads floating times its own way
+      const options = { calendar, ...timeRangeOptions, timeRange: serverTimeRange(timeRangeOptions.timeRange) };
       // floating times and dates are read in each calendar's own zone
       const events = withFloatingZone(await client.fetchCalendarObjects(options), floatingZoneFor(calendar));
       allEvents = allEvents.concat(events);
@@ -94,6 +95,11 @@ export const calendarQuery = {
 
     if (matches) {
       parsed = parsed.filter((p) => isFound(p, matches, timeRange, budget));
+    }
+    // what touches the range as read in each calendar's zone, not the
+    // server's reading (see serverTimeRange)
+    if (timeRange) {
+      parsed = parsed.filter((p) => !p.root || shownTouchesRange(shownOf(p, matches, timeRange, budget), timeRange));
     }
 
     // Determine calendar name for display

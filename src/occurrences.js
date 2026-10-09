@@ -123,6 +123,27 @@ export function budgetPool(count) {
  */
 export const ZONE_SLACK_MS = 26 * 3600 * 1000;
 
+/**
+ * The range to ask the server for, wider than the one queried by
+ * ZONE_SLACK_MS on each side. A server reads floating times and dates in a
+ * zone of its own choosing for a time-range REPORT — Nextcloud and Baïkal
+ * (SabreDAV) in UTC, not in the calendar's calendar-timezone as RFC 4791 9.9
+ * says — so an exact range would lose a floating 09:00 Berlin meeting
+ * queried at 07:30-08:30 UTC. The tools decide on their own reading what
+ * touches the range (src/calendar-zone.js); the server only has to send
+ * every candidate.
+ *
+ * @param {{start: string, end: string}|undefined} timeRange - ISO 8601
+ * @returns {{start: string, end: string}|undefined}
+ */
+export function serverTimeRange(timeRange) {
+  if (!timeRange?.start || !timeRange?.end) return timeRange;
+  const start = new Date(timeRange.start).getTime();
+  const end = new Date(timeRange.end).getTime();
+  if (Number.isNaN(start) || Number.isNaN(end)) return timeRange;
+  return { start: new Date(start - ZONE_SLACK_MS).toISOString(), end: new Date(end + ZONE_SLACK_MS).toISOString() };
+}
+
 // A duration or a THISANDFUTURE move added on the wall clock can differ from
 // its length in instants by a DST change: this much margin covers it.
 const DST_SLACK_MS = 3 * 3600 * 1000;

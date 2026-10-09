@@ -3,6 +3,9 @@ import { validateInput, listEventsSchema } from '../../validation.js';
 import { formatEventList } from '../../formatters.js';
 import { findCalendarOrThrow, buildTimeRangeOptions } from '../shared/helpers.js';
 import { floatingZoneFor, withFloatingZone } from '../../calendar-zone.js';
+import { shownEvent, shownTouchesRange } from '../../ical-components.js';
+import { budgetPool, serverTimeRange } from '../../occurrences.js';
+import { parseObjects } from '../shared/query-objects.js';
 
 /**
  * List ALL events from a single calendar without filtering
@@ -42,13 +45,34 @@ export const listEvents = {
     const calendar = findCalendarOrThrow(calendars, validated.calendar_url);
 
     const timeRangeOptions = buildTimeRangeOptions(validated.time_range_start, validated.time_range_end);
-    const options = { calendar, ...timeRangeOptions };
+    // buildTimeRangeOptions fills in an end when only a start was given, so use
+    // its result rather than the raw arguments
+    const { timeRange } = timeRangeOptions;
+    // wider than asked: the server reads floating times its own way
+    const options = { calendar, ...timeRangeOptions, timeRange: serverTimeRange(timeRange) };
 
     // floating times and dates are read in the calendar's zone
     const events = withFloatingZone(await client.fetchCalendarObjects(options), floatingZoneFor(calendar));
+    if (!timeRange) return formatEventList(events, calendar, null);
 
-    // buildTimeRangeOptions fills in an end when only a start was given, so use
-    // its result rather than the raw arguments
-    return formatEventList(events, calendar, timeRangeOptions.timeRange);
+    // what touches the range as read in the calendar's zone, each resolved
+    // once for the filter and the display (one expansion budget for the call)
+    const budget = budgetPool(events.length);
+    const shown = new Map();
+    const listed = parseObjects(events, 'vevent').filter(({ object, root }) => {
+      if (!root) return true;
+      const share = budget.take();
+      let view = null;
+      try {
+        view = shownEvent(root, timeRange, null, share);
+      } catch {
+        view = null;
+      }
+      budget.give(share);
+      if (view) shown.set(object, view);
+      return shownTouchesRange(view, timeRange);
+    }).map(({ object }) => object);
+
+    return formatEventList(listed, calendar, timeRange, null, null, shown, budget);
   },
 };
