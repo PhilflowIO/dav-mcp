@@ -1,5 +1,5 @@
 import { tsdavManager } from '../../tsdav-client.js';
-import { validateInput, davFieldMapSchema, davUrl } from '../../validation.js';
+import { validateInput, davFieldMapSchema, davUrl, entityTag } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
 import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
 import { z } from 'zod';
@@ -17,7 +17,7 @@ import {
  */
 const updateTodoFieldsSchema = z.object({
   todo_url: davUrl('Todo URL must be a valid URL'),
-  todo_etag: z.string().min(1, 'Todo etag is required'),
+  todo_etag: entityTag,
   fields: davFieldMapSchema,
   ...occurrenceEditSchema,
 }).strict().superRefine((data, ctx) => {

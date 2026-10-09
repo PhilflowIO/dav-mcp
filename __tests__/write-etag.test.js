@@ -47,10 +47,22 @@ const multiget = (body) => {
 const fetchStub = jest.fn(async (url, init = {}) => {
   requests.push({ url, ...init });
   if (init.method === 'REPORT') return multiget(String(init.body));
-  if (init.method !== 'PUT') return new Response(null, { status: 405, statusText: 'Method Not Allowed' });
+  if (init.method !== 'PUT' && init.method !== 'DELETE') {
+    return new Response(null, { status: 405, statusText: 'Method Not Allowed' });
+  }
 
   const existing = store.get(url);
   const ifMatch = header(init, 'if-match');
+  // compared as the server would: the If-Match value against the stored
+  // entity-tag, quotes included (RFC 9110 13.1.1, strong comparison)
+  if (init.method === 'DELETE') {
+    if (!existing) return new Response('', { status: 404, statusText: 'Not Found' });
+    if (ifMatch !== undefined && existing.etag !== ifMatch) {
+      return new Response('', { status: 412, statusText: 'Precondition Failed' });
+    }
+    store.delete(url);
+    return new Response(null, { status: 204, statusText: 'No Content' });
+  }
   const refused = (header(init, 'if-none-match') === '*' && existing) ||
     (ifMatch !== undefined && (!existing || existing.etag !== ifMatch));
   if (refused) return new Response('', { status: 412, statusText: 'Precondition Failed' });
@@ -92,7 +104,12 @@ const { updateTodoFields } = await import('../src/tools/todos/update-todo-fields
 const { createContact } = await import('../src/tools/contacts/create-contact.js');
 const { updateContactRaw } = await import('../src/tools/contacts/update-contact-raw.js');
 const { updateContactFields } = await import('../src/tools/contacts/update-contact-fields.js');
+const { deleteEvent } = await import('../src/tools/calendar/delete-event.js');
+const { deleteTodo } = await import('../src/tools/todos/delete-todo.js');
+const { deleteContact } = await import('../src/tools/contacts/delete-contact.js');
 const { etagAfterWrite } = await import('../src/tools/shared/helpers.js');
+const { entityTag } = await import('../src/validation.js');
+const { ValidationError } = await import('../src/error-handler.js');
 
 const text = (result) => result.content[0].text;
 const rawData = (result) => JSON.parse(/```json\n([\s\S]*?)\n```/.exec(text(result))[1]);
@@ -112,6 +129,7 @@ const kinds = [
     updateRaw: (url, etag, data) => updateEventRaw.handler({ event_url: url, event_etag: etag, updated_ical_data: data }),
     updateFields: (url, etag) => updateEventFields.handler({ event_url: url, event_etag: etag, fields: { SUMMARY: 'Review (moved)' } }),
     edit: (data) => data.replace('SUMMARY:Review', 'SUMMARY:Review\r\nLOCATION:Room 2'),
+    remove: (url, etag) => deleteEvent.handler({ event_url: url, event_etag: etag }),
   },
   {
     kind: 'todo',
@@ -119,6 +137,7 @@ const kinds = [
     updateRaw: (url, etag, data) => updateTodoRaw.handler({ todo_url: url, todo_etag: etag, updated_ical_data: data }),
     updateFields: (url, etag) => updateTodoFields.handler({ todo_url: url, todo_etag: etag, fields: { SUMMARY: 'File the report' } }),
     edit: (data) => data.replace('SUMMARY:File report', 'SUMMARY:File report\r\nPRIORITY:1'),
+    remove: (url, etag) => deleteTodo.handler({ todo_url: url, todo_etag: etag }),
   },
   {
     kind: 'contact',
@@ -126,6 +145,7 @@ const kinds = [
     updateRaw: (url, etag, data) => updateContactRaw.handler({ vcard_url: url, vcard_etag: etag, updated_vcard_data: data }),
     updateFields: (url, etag) => updateContactFields.handler({ vcard_url: url, vcard_etag: etag, fields: { FN: 'Ada King' } }),
     edit: (data) => data.replace('FN:Ada Lovelace', 'FN:Ada Lovelace\r\nNOTE:met in 1833'),
+    remove: (url, etag) => deleteContact.handler({ vcard_url: url, vcard_etag: etag }),
   },
 ];
 
@@ -183,6 +203,89 @@ describe.each(kinds)('ETag round trip: $kind', ({ create, updateRaw, updateField
       expect(rawData(updated)).not.toHaveProperty('etag');
       expect(text(updated)).toContain(`- **ETag**: ${NO_ETAG}`);
     }
+  });
+});
+
+// A caller (an LLM) sometimes hands back an etag with its quotes stripped, or
+// with stray whitespace. Sent like that in If-Match it never equals the
+// server's entity-tag, and the write fails with 412 although nothing changed
+// (#124). Every etag parameter is normalised to the entity-tag form first.
+describe.each(kinds)('an etag without its quotes still matches: $kind', ({ create, updateRaw, updateFields, remove, edit }) => {
+  const bare = (etag) => etag.replace(/^"|"$/g, '');
+
+  test('raw update, field update and delete send the quoted entity-tag and succeed', async () => {
+    const { url, etag } = rawData(await create());
+    expect(bare(etag)).toBe('rev-1');
+
+    const afterRaw = await updateRaw(url, bare(etag), edit(store.get(url).data));
+    expect(header(puts()[1], 'if-match')).toBe('"rev-1"');
+    expect(rawData(afterRaw).etag).toBe('"rev-2"');
+
+    const afterFields = await updateFields(url, `  ${bare(rawData(afterRaw).etag)}\n`);
+    expect(header(puts()[2], 'if-match')).toBe('"rev-2"');
+    expect(rawData(afterFields).etag).toBe('"rev-3"');
+
+    await remove(url, bare(rawData(afterFields).etag));
+    const deleted = requests.filter(r => r.method === 'DELETE');
+    expect(header(deleted[0], 'if-match')).toBe('"rev-3"');
+    expect(store.has(url)).toBe(false);
+  });
+
+  test('a stale etag is still refused, quoted or not', async () => {
+    const { url, etag: first } = rawData(await create());
+    await updateRaw(url, first, edit(store.get(url).data));
+
+    for (const stale of [first, bare(first)]) {
+      const error = await updateRaw(url, stale, store.get(url).data).catch(e => e);
+      expect(error.httpStatus).toBe(412);
+      const refused = await remove(url, stale).catch(e => e);
+      expect(refused).toBeInstanceOf(Error);
+      expect(store.has(url)).toBe(true);
+    }
+  });
+
+  test('an etag that is no entity-tag at all is refused before any request', async () => {
+    const { url } = rawData(await create());
+    requests.length = 0;
+    for (const call of [
+      () => updateRaw(url, 'rev 1', store.get(url).data),
+      () => updateFields(url, '"rev-1'),
+      () => remove(url, '   '),
+    ]) {
+      const error = await call().catch(e => e);
+      expect(error).toBeInstanceOf(ValidationError);
+      expect(error.message).toMatch(/etag/i);
+    }
+    expect(requests).toHaveLength(0);
+  });
+});
+
+describe('entityTag', () => {
+  test.each([
+    ['abc', '"abc"'],
+    ['"abc"', '"abc"'],
+    ['  "abc"\n', '"abc"'],
+    [' 65b1bf42b308512c3095273949174631 ', '"65b1bf42b308512c3095273949174631"'],
+    ['W/"abc"', 'W/"abc"'],
+    ['W/abc', 'W/"abc"'],
+    ['""', '""'],
+    ['1234-5678:x/y', '"1234-5678:x/y"'],
+  ])('%j becomes %j', (input, expected) => {
+    expect(entityTag.parse(input)).toBe(expected);
+  });
+
+  test.each([
+    ['empty', ''],
+    ['only whitespace', ' \t '],
+    ['inner whitespace', 'rev 1'],
+    ['an opening quote only', '"abc'],
+    ['a closing quote only', 'abc"'],
+    ['a quote inside', '"a"b"'],
+    ['a lowercase weak prefix (RFC 9110 8.8.3 is case-sensitive)', 'w/"abc"'],
+    ['a control character', 'ab\u0000c'],
+    ['not a string', 42],
+  ])('refuses %s', (_, input) => {
+    expect(entityTag.safeParse(input).success).toBe(false);
   });
 });
 

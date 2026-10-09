@@ -235,6 +235,37 @@ export const davUrl = (message) =>
     if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem });
   });
 
+// The characters an entity-tag may hold between its quotes (RFC 9110 8.8.3:
+// etagc = %x21 / %x23-7E / obs-text): no whitespace, no control characters,
+// no double quote.
+const ETAGC = '[\\x21\\x23-\\x7E\\x80-\\xFF]';
+const QUOTED_ETAG = new RegExp(`^(?:W/)?"${ETAGC}*"$`);
+const BARE_ETAG = new RegExp(`^(W/)?(${ETAGC}+)$`);
+
+/**
+ * An etag parameter of a write or delete tool, normalised to the entity-tag
+ * form the server compares If-Match against (RFC 9110 13.1.1). The server
+ * sends `"abc"`; a caller sometimes passes it back as `abc`, and sent like
+ * that it never matches, so the write fails with 412 although the object did
+ * not change (#124). A bare opaque-tag therefore gets its quotes, a quoted or
+ * weak (`W/"…"`) one is kept as it is, surrounding whitespace is dropped, and
+ * anything that cannot be an entity-tag is refused here, before a request.
+ * Every etag parameter uses this, so tsdav always receives a valid If-Match.
+ */
+export const entityTag = z.string({ required_error: 'ETag is required' }).transform((value, ctx) => {
+  const etag = value.trim();
+  if (QUOTED_ETAG.test(etag)) return etag;
+  const bare = BARE_ETAG.exec(etag);
+  if (bare) return `${bare[1] ?? ''}"${bare[2]}"`;
+  ctx.addIssue({
+    code: z.ZodIssueCode.custom,
+    message: etag
+      ? 'not an ETag; pass the etag exactly as the list, query or get tool returned it, e.g. "abc123"'
+      : 'ETag is required',
+  });
+  return z.NEVER;
+});
+
 // Helper: Optional URL that gracefully handles LLM placeholder values
 // Transforms common LLM-generated placeholders ("", "unknown", "default", etc.) to undefined
 const optionalUrl = (message) =>
@@ -286,13 +317,13 @@ export const createEventSchema = z.object({
 
 export const updateEventSchema = z.object({
   event_url: davUrl('Invalid event URL'),
-  event_etag: z.string().min(1, 'ETag is required'),
+  event_etag: entityTag,
   updated_ical_data: z.string().min(1, 'iCal data is required'),
 }).strict();
 
 export const deleteEventSchema = z.object({
   event_url: davUrl('Invalid event URL'),
-  event_etag: z.string().min(1, 'ETag is required'),
+  event_etag: entityTag,
 }).strict();
 
 export const calendarQuerySchema = z.object({
@@ -376,13 +407,13 @@ export const createContactSchema = z.object({
 
 export const updateContactSchema = z.object({
   vcard_url: davUrl('Invalid vCard URL'),
-  vcard_etag: z.string().min(1, 'ETag is required'),
+  vcard_etag: entityTag,
   updated_vcard_data: z.string().min(1, 'vCard data is required'),
 }).strict();
 
 export const deleteContactSchema = z.object({
   vcard_url: davUrl('Invalid vCard URL'),
-  vcard_etag: z.string().min(1, 'ETag is required'),
+  vcard_etag: entityTag,
 }).strict();
 
 export const addressBookQuerySchema = z.object({
@@ -422,13 +453,13 @@ export const createTodoSchema = z.object({
 
 export const updateTodoSchema = z.object({
   todo_url: davUrl('Invalid todo URL'),
-  todo_etag: z.string().min(1, 'ETag is required'),
+  todo_etag: entityTag,
   updated_ical_data: z.string().min(1, 'iCal data is required'),
 }).strict();
 
 export const deleteTodoSchema = z.object({
   todo_url: davUrl('Invalid todo URL'),
-  todo_etag: z.string().min(1, 'ETag is required'),
+  todo_etag: entityTag,
 }).strict();
 
 export const todoQuerySchema = z.object({

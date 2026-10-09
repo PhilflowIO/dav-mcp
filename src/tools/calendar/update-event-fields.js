@@ -1,5 +1,5 @@
 import { tsdavManager } from '../../tsdav-client.js';
-import { validateInput, davFieldMapSchema, dateOrDateTime, refineDateRange, davUrl } from '../../validation.js';
+import { validateInput, davFieldMapSchema, dateOrDateTime, refineDateRange, davUrl, entityTag } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
 import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
 import { z } from 'zod';
@@ -22,7 +22,7 @@ import {
  */
 const updateEventFieldsSchema = z.object({
   event_url: davUrl('Event URL must be a valid URL'),
-  event_etag: z.string().min(1, 'Event etag is required'),
+  event_etag: entityTag,
   fields: davFieldMapSchema,
   start_date: dateOrDateTime.optional(),
   end_date: dateOrDateTime.optional(),
