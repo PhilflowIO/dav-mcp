@@ -1,5 +1,6 @@
 import ICAL from 'ical.js';
-import { updateFields, seriesMaster } from 'tsdav-utils';
+import { updateFields, seriesMaster, resolveZone } from 'tsdav-utils';
+import { serverZone, floatingZoneOf, zoneInstant } from '../../calendar-zone.js';
 import { explainWriteRefusal } from '../../ical-components.js';
 import { ValidationError } from '../../error-handler.js';
 
@@ -181,29 +182,49 @@ export function reconcileTodoDates(iCalString, changed) {
 }
 
 /**
- * Absolute instant for an ICAL.Time.
+ * The instant an ICAL.Time names.
  *
- * A date-only value is floating — "the 25th, wherever you are" — and has no
- * instant of its own. toJSDate() would resolve it against whatever zone the
- * server happens to run in, which makes the same query answer differently in
- * Berlin and in Auckland. Reading the fields as UTC is at least deterministic:
- * an all-day value covers the UTC day. The alternative would be to guess a
- * zone, and a wrong guess is worse than a stated convention.
+ * A date ("the 25th") and a floating time (no TZID, no Z) have no instant of
+ * their own: RFC 4791 9.9 reads them in the calendar's time zone, which is
+ * `zone` (see src/calendar-zone.js) — a date as the start of that day there.
+ * A TZID ical.js did not resolve (no VTIMEZONE in the object) is read as the
+ * IANA zone of that name where there is one, else like a floating time.
  *
  * @param {ICAL.Time} icalTime
+ * @param {Object} [zone] - the zone floating values are read in; the
+ *   server's when not given
  * @returns {number} milliseconds since the epoch
  */
-export function toInstant(icalTime) {
-  if (icalTime.isDate) {
-    return Date.UTC(icalTime.year, icalTime.month - 1, icalTime.day);
+export function toInstant(icalTime, zone = null) {
+  if (!icalTime.isDate && icalTime.zone && icalTime.zone !== ICAL.Timezone.localTimezone) {
+    return icalTime.toJSDate().getTime();
   }
-  return icalTime.toJSDate().getTime();
+  const wall = Date.UTC(icalTime.year, icalTime.month - 1, icalTime.day,
+    icalTime.isDate ? 0 : icalTime.hour, icalTime.isDate ? 0 : icalTime.minute, icalTime.isDate ? 0 : icalTime.second);
+  const named = !icalTime.isDate && icalTime.timezone && icalTime.timezone !== 'floating' ? ianaZone(icalTime.timezone) : null;
+  if (named) return named.toInstant(new Date(wall).toISOString().slice(0, 19)).getTime();
+  return zoneInstant(zone ?? serverZone(), wall);
+}
+
+const ianaZones = new Map();
+function ianaZone(tzid) {
+  if (!ianaZones.has(tzid)) {
+    if (ianaZones.size >= 64) ianaZones.clear();
+    let zone = null;
+    try {
+      zone = resolveZone(tzid);
+    } catch {
+      zone = null;
+    }
+    ianaZones.set(tzid, zone);
+  }
+  return ianaZones.get(tzid);
 }
 
 /**
  * The span a todo's DUE covers, for range queries: an instant for a
- * date-time, the whole UTC day for a date (see toInstant). null when there is
- * no todo or it has no DUE.
+ * date-time, the whole day in the calendar's zone for a date (see
+ * toInstant). null when there is no todo or it has no DUE.
  *
  * @param {ICAL.Component|null} vtodo - a parsed VTODO (see query-objects.js)
  * @returns {{start: number, end: number} | null}
@@ -212,12 +233,18 @@ export function dueSpan(vtodo) {
   const property = vtodo?.getFirstProperty('due');
   if (!property) return null;
   const start = instantOf(property);
-  return { start, end: property.getFirstValue().isDate ? start + 86400000 : start };
+  const value = property.getFirstValue();
+  if (!value.isDate) return { start, end: start };
+  const next = value.clone();
+  next.adjust(1, 0, 0, 0);
+  return { start, end: toInstant(next, floatingZoneOf(property)) };
 }
 
 /**
  * The instant a date or date-time property stands for: resolved against the
- * document's own VTIMEZONE where it names one, otherwise as toInstant reads it.
+ * document's own VTIMEZONE where it names one, otherwise as toInstant reads
+ * it — floating values and dates in the zone of the calendar the object was
+ * fetched from (floatingZoneOf).
  *
  * `value` reads another time in the property's frame — an occurrence of a
  * recurring DTSTART, which keeps its TZID.
@@ -227,13 +254,13 @@ export function dueSpan(vtodo) {
  * @returns {number} milliseconds since the epoch
  */
 export function instantOf(property, value = property.getFirstValue()) {
-  return absoluteInstant(property, value) ?? toInstant(value);
+  return absoluteInstant(property, value) ?? toInstant(value, floatingZoneOf(property));
 }
 
 /**
- * Does the property name an instant on its own — UTC, a date (read as its
- * UTC day), or a TZID whose VTIMEZONE is in the document? If not (a floating
- * time, a TZID without its VTIMEZONE), instantOf reads it in the host's zone.
+ * Does the property name an instant on its own — UTC, or a TZID whose zone
+ * is known (its VTIMEZONE in the document, else the IANA zone of that name)?
+ * If not (a date, a floating time), instantOf reads it in the calendar's zone.
  *
  * @param {ICAL.Property} property
  * @returns {boolean}
@@ -243,22 +270,27 @@ export function hasAbsoluteInstant(property) {
 }
 
 /**
- * The instant a date-time property names, or null when that needs a zone
- * this document does not define: a floating value, or a TZID without its
- * VTIMEZONE. A date is its UTC day start, as in toInstant.
+ * The instant a date-time property names, or null when that needs the
+ * calendar's zone: a date, a floating value, or a TZID that is neither in the
+ * document nor an IANA name.
  */
 function absoluteInstant(property, value = property.getFirstValue()) {
-  if (property.type === 'date' || value.isDate) return toInstant(value);
-  if (!property.getParameter('tzid')) {
+  if (property.type === 'date' || value.isDate) return null;
+  const tzid = property.getParameter('tzid');
+  if (!tzid) {
     return /Z$/i.test(String(property.toJSON()[3])) ? value.toUnixTime() * 1000 : null;
   }
-  const zone = documentZone(property);
-  if (!zone) return null;
-  const local = new ICAL.Time({
+  const fields = {
     year: value.year, month: value.month, day: value.day,
     hour: value.hour, minute: value.minute, second: value.second,
-  }, zone);
-  return local.toUnixTime() * 1000;
+  };
+  const zone = documentZone(property);
+  if (!zone) {
+    const named = ianaZone(tzid);
+    return named ? named.toInstant(new Date(Date.UTC(fields.year, fields.month - 1, fields.day,
+      fields.hour, fields.minute, fields.second)).toISOString().slice(0, 19)).getTime() : null;
+  }
+  return new ICAL.Time(fields, zone).toUnixTime() * 1000;
 }
 
 /**

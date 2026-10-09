@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Breaking changes
+- **Times without a zone are read in the calendar's time zone** (#117). An
+  event written without a zone (`DTSTART:20261010T090000`) or as an all-day
+  date was placed on the clock of the machine dav-mcp runs on, so an HTTP or
+  Docker deployment in UTC put a 09:00 Berlin meeting at 09:00 UTC: wrong in
+  `freebusy_query`, in time-range searches and in listings. Such times are now
+  read in the calendar's own time zone, as CalDAV specifies, and only for a
+  calendar without one in the zone dav-mcp runs in (`TZ`). All-day events
+  now cover the calendar's day rather than the UTC day. This applies to every
+  tool that reads events or todos.
 - **Node.js 22 or newer is required.** Node.js 18 and 20 are end-of-life;
   `engines`, the MCP Bundle's runtime range and the CI matrix now start at 22,
   and the Node.js 18 workarounds (WebCrypto shim, Digest startup error) are

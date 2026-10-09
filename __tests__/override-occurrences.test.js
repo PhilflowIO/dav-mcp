@@ -14,7 +14,9 @@ let stored = [];
 jest.unstable_mockModule('../src/tsdav-client.js', () => ({
   tsdavManager: {
     getCalDavClient: () => ({
-      fetchCalendars: async () => [{ url: CALENDAR_URL, displayName: 'Work' }],
+      // dates and floating times read in UTC, so the UTC days below are the
+      // calendar's days on any host (#117)
+      fetchCalendars: async () => [{ url: CALENDAR_URL, displayName: 'Work', timezone: 'UTC' }],
       fetchCalendarObjects: async () => stored,
     }),
     getCardDavClient: () => ({}),
@@ -26,6 +28,10 @@ const { formatEvent } = await import('../src/formatters.js');
 const { readSeries, shownEvent } = await import('../src/ical-components.js');
 const { relateSeries, seriesOccurrences } = await import('../src/occurrences.js');
 const { createRecurrenceBudget, expandOccurrences } = await import('tsdav-utils');
+const { floatingZoneFor, withFloatingZone, setFloatingZone } = await import('../src/calendar-zone.js');
+// an object of a calendar in UTC (see fetchCalendars above)
+const UTC_ZONE = floatingZoneFor({ timezone: 'UTC' });
+const inUtc = (obj) => withFloatingZone([obj], UTC_ZONE)[0];
 const { calendarQuery } = await import('../src/tools/calendar/calendar-query.js');
 const { listEvents } = await import('../src/tools/calendar/list-events.js');
 const { freeBusyQuery } = await import('../src/tools/calendar/freebusy-query.js');
@@ -49,7 +55,7 @@ const BERLIN = ['BEGIN:VTIMEZONE', 'TZID:Europe/Berlin',
 
 const day = (date) => ({ start: new Date(`${date}T00:00:00Z`), end: new Date(`${date}T23:59:59Z`) });
 const iso = (d) => d.toISOString().slice(0, 16);
-const busyOn = (obj, date) => calculateFreeBusy([obj], day(date)).busy.map((b) => `${iso(b.start)}-${iso(b.end).slice(11)}`);
+const busyOn = (obj, date) => calculateFreeBusy([inUtc(obj)], day(date)).busy.map((b) => `${iso(b.start)}-${iso(b.end).slice(11)}`);
 const isoRange = (date) => ({ start: `${date}T00:00:00Z`, end: `${date}T23:59:59Z` });
 
 describe('free/busy judges each occurrence as it now stands (#98)', () => {
@@ -363,7 +369,7 @@ describe('ordinary calendars are complete (review of #110)', () => {
 
 describe('an all-day occurrence without DTEND or DURATION lasts its day (RFC 5545 3.6.1)', () => {
   const day = (date) => ({ start: new Date(`${date}T00:00:00Z`), end: new Date(`${date}T23:59:59Z`) });
-  const busy = (obj, date) => calculateFreeBusy([obj], day(date)).busy.length;
+  const busy = (obj, date) => calculateFreeBusy([inUtc(obj)], day(date)).busy.length;
 
   test('a single one, a weekly one, and an override without its own end', () => {
     expect(busy(object(vevent('SUMMARY:Holiday', 'DTSTART;VALUE=DATE:20261013')), '2026-10-13')).toBe(1);
@@ -411,7 +417,7 @@ describe('periods that can be empty, and BY lists out of order (review of #110)'
   }).occurrences.map((o) => Date.parse(o.start.instant ?? `${o.start.value}T00:00:00Z`))
     .filter((at) => at >= range.start && at < range.end);
   const fast = (text, range) => {
-    const { master, overrides } = readSeries(new ICAL.Component(ICAL.parse(text)), 'vevent');
+    const { master, overrides } = readSeries(setFloatingZone(new ICAL.Component(ICAL.parse(text)), UTC_ZONE), 'vevent');
     const result = seriesOccurrences(relateSeries(master, overrides), range);
     expect(result.truncated).toBe(false);
     return result.occurrences.map((o) => o.startAt);

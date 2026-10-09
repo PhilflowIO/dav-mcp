@@ -145,7 +145,7 @@ export function shownEvent(calendar, timeRange = null, matches = null, budget = 
 
 function touches(event, range) {
   if (!event.startDate) return false;
-  const { start, end } = spanOf({ startDate: event.startDate, endDate: event.endDate });
+  const { start, end } = spanOf({ startDate: event.startDate, endDate: event.endDate, item: event });
   return touchesRange(start, end, range);
 }
 

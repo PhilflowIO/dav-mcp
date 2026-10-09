@@ -6,6 +6,7 @@ import ICAL from 'ical.js';
 import { shownEvent } from '../../ical-components.js';
 import { ZONE_SLACK_MS, budgetPool } from '../../occurrences.js';
 import { instantOf, hasAbsoluteInstant } from '../shared/ical-dates.js';
+import { floatingZoneFor, withFloatingZone } from '../../calendar-zone.js';
 import { parseObjects, textValues, containsText, dateKey, orNull } from '../shared/query-objects.js';
 
 /**
@@ -78,7 +79,8 @@ export const calendarQuery = {
     let allEvents = [];
     for (const calendar of calendarsToSearch) {
       const options = { calendar, ...timeRangeOptions };
-      const events = await client.fetchCalendarObjects(options);
+      // floating times and dates are read in each calendar's own zone
+      const events = withFloatingZone(await client.fetchCalendarObjects(options), floatingZoneFor(calendar));
       allEvents = allEvents.concat(events);
     }
 
@@ -201,9 +203,9 @@ function startLowerBound(parsed, rangeStart) {
 
 /**
  * The bound for a series: no occurrence touching the range starts before the
- * range does, less its duration — as an instant. A floating DTSTART (or a
- * TZID without its VTIMEZONE) is keyed by instantOf in the host's zone, so
- * the bound gives it a zone offset of slack. Slack only means a few more
+ * range does, less its duration — as an instant. A floating or date
+ * DTSTART (or a TZID that names no known zone) is keyed by instantOf in the
+ * calendar's zone; the bound gives it a zone offset of slack all the same. Slack only means a few more
  * candidates are resolved at the boundary.
  */
 function seriesBound(master, rangeStart, longest) {

@@ -2,6 +2,7 @@ import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, listEventsSchema } from '../../validation.js';
 import { formatEventList } from '../../formatters.js';
 import { findCalendarOrThrow, buildTimeRangeOptions } from '../shared/helpers.js';
+import { floatingZoneFor, withFloatingZone } from '../../calendar-zone.js';
 
 /**
  * List ALL events from a single calendar without filtering
@@ -43,7 +44,8 @@ export const listEvents = {
     const timeRangeOptions = buildTimeRangeOptions(validated.time_range_start, validated.time_range_end);
     const options = { calendar, ...timeRangeOptions };
 
-    const events = await client.fetchCalendarObjects(options);
+    // floating times and dates are read in the calendar's zone
+    const events = withFloatingZone(await client.fetchCalendarObjects(options), floatingZoneFor(calendar));
 
     // buildTimeRangeOptions fills in an end when only a start was given, so use
     // its result rather than the raw arguments

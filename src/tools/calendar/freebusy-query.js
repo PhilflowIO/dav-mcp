@@ -3,6 +3,7 @@ import { validateInput, freeBusyQuerySchema } from '../../validation.js';
 import { formatFreeBusy } from '../../formatters.js';
 import { buildTimeRangeOptions } from '../shared/helpers.js';
 import { calculateFreeBusy } from '../shared/freebusy.js';
+import { floatingZoneFor, withFloatingZone } from '../../calendar-zone.js';
 
 /**
  * Answer "when am I free?" from the events themselves.
@@ -71,7 +72,9 @@ export const freeBusyQuery = {
 
     let events = [];
     for (const calendar of calendarsToSearch) {
-      const found = await client.fetchCalendarObjects({ calendar, ...timeRangeOptions });
+      // floating times and dates are read in each calendar's own zone
+      const found = withFloatingZone(
+        await client.fetchCalendarObjects({ calendar, ...timeRangeOptions }), floatingZoneFor(calendar));
       events = events.concat(found);
     }
 

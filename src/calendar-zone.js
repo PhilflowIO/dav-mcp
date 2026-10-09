@@ -104,3 +104,206 @@ export function readCalendarTimezone(value) {
   // a bare TZID: one short line
   return !/[\r\n]/.test(text) && text.length <= 100 ? { tzid: text, vtimezone: null } : null;
 }
+
+// ---------------------------------------------------------------------------
+// The zone floating values are read in
+
+/**
+ * RFC 5545 3.3.5 leaves a floating time (no TZID, no Z) and a date to the
+ * reader; RFC 4791 9.9 reads them in the calendar collection's
+ * calendar-timezone. dav-mcp read them on the clock of the machine it runs
+ * on, which only coincides with the calendar for a local install: a server
+ * in UTC placed a 09:00 Berlin event at 09:00 UTC (#117). Now:
+ *
+ *  1. the calendar's calendar-timezone, by its VTIMEZONE where it has one,
+ *     else by the IANA zone of its name;
+ *  2. the zone dav-mcp runs in — the TZ environment variable, else the
+ *     system's — which is the server setting there is;
+ *  3. UTC, should the runtime name no zone at all.
+ *
+ * A zone here is { tzid, source: 'calendar'|'server', converter, intlName }:
+ * converter is tsdav-utils' (RFC 5545 3.3.5 at DST changes: a time shown
+ * twice is its first pass, one skipped is read with the offset before),
+ * intlName the name to hand Intl for display, or null when Intl does not
+ * know it (a VTIMEZONE named "W. Europe Standard Time").
+ *
+ * Calendar objects carry their zone from the tool that fetched them
+ * (withFloatingZone) to the parsed VCALENDAR (setFloatingZone), where every
+ * reader of a value finds it (floatingZoneOf). A value nobody tagged is read
+ * in the server's zone, as before.
+ */
+
+const zoneCache = new Map();
+const MAX_CACHED_ZONES = 64;
+
+function makeZone(tzid, vtimezone, source) {
+  const key = `${source}\n${tzid}\n${vtimezone ? vtimezone.toString() : ''}`;
+  if (zoneCache.has(key)) return zoneCache.get(key);
+  let converter = null;
+  if (vtimezone) {
+    try {
+      converter = resolveZone(tzid, vtimezone);
+      // a VTIMEZONE whose rules cannot be read throws on first use
+      converter?.offsetAt(new Date());
+    } catch {
+      converter = null;
+    }
+  }
+  if (!converter) {
+    try {
+      converter = resolveZone(tzid);
+    } catch {
+      converter = null;
+    }
+  }
+  const zone = converter
+    ? { tzid: converter.tzid ?? tzid, source, converter, intlName: intlName(converter.tzid ?? tzid) }
+    : null;
+  if (zoneCache.size >= MAX_CACHED_ZONES) zoneCache.clear();
+  zoneCache.set(key, zone);
+  return zone;
+}
+
+function intlName(tzid) {
+  if (!tzid || /^[+-]/.test(tzid)) return null;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tzid });
+    return tzid;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The zone dav-mcp runs in (TZ, else the system's), else UTC. Asked of Intl
+ * once per value of TZ: building a DateTimeFormat costs more than the
+ * conversions it serves.
+ */
+let server = { env: undefined, zone: null };
+export function serverZone() {
+  const env = process.env.TZ;
+  if (!server.zone || server.env !== env) {
+    const tzid = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    server = { env, zone: makeZone(tzid, null, 'server') ?? makeZone('UTC', null, 'server') };
+  }
+  return server.zone;
+}
+
+/**
+ * The calendar's own zone, from its calendar-timezone (tsdav's
+ * fetchCalendars gives it as `timezone`); null when it has none dav-mcp can
+ * read.
+ *
+ * @param {{timezone?: unknown}|null|undefined} calendar
+ */
+export function calendarZone(calendar) {
+  const read = readCalendarTimezone(calendar?.timezone);
+  return read ? makeZone(read.tzid, read.vtimezone, 'calendar') : null;
+}
+
+/** The zone floating values of a calendar are read in: its own, else the server's */
+export function floatingZoneFor(calendar) {
+  return calendarZone(calendar) ?? serverZone();
+}
+
+/**
+ * floatingZoneFor a calendar known only by its URL: one PROPFIND (Depth 0)
+ * for its calendar-timezone. A calendar the server will not describe is read
+ * in the server's zone, as one without a zone is: the tool asked about its
+ * objects, not about this property.
+ *
+ * @param {Object} client - tsdav DAVClient
+ * @param {string} calendarUrl
+ */
+export async function fetchFloatingZone(client, calendarUrl) {
+  try {
+    const responses = await client.propfind({
+      url: calendarUrl,
+      props: { 'c:calendar-timezone': {} },
+      depth: '0',
+    });
+    const response = (Array.isArray(responses) ? responses : []).find((r) => r?.ok !== false) ?? null;
+    return floatingZoneFor({ timezone: davText(response?.props?.calendarTimezone) });
+  } catch {
+    return serverZone();
+  }
+}
+
+function davText(value) {
+  if (typeof value === 'string') return value;
+  const text = value?._cdata ?? value?._text;
+  return typeof text === 'string' ? text : '';
+}
+
+const objectZones = new WeakMap();
+const rootZones = new WeakMap();
+
+/**
+ * Tag fetched calendar objects with the zone their calendar reads floating
+ * values in.
+ *
+ * @template T
+ * @param {T[]} objects - as tsdav returns them ({ url, etag, data })
+ * @param {Object} zone - floatingZoneFor / fetchFloatingZone
+ * @returns {T[]} the same array
+ */
+export function withFloatingZone(objects, zone) {
+  for (const object of objects ?? []) {
+    if (object && typeof object === 'object' && zone) objectZones.set(object, zone);
+  }
+  return objects;
+}
+
+/** The zone a fetched object was tagged with, or null */
+export function objectFloatingZone(object) {
+  return (object && typeof object === 'object' && objectZones.get(object)) || null;
+}
+
+/**
+ * Give a parsed VCALENDAR the zone its floating values are read in.
+ *
+ * @param {ICAL.Component} root
+ * @param {Object|null} zone - none: the server's
+ * @returns {ICAL.Component} root
+ */
+export function setFloatingZone(root, zone) {
+  if (root && zone) rootZones.set(root, zone);
+  return root;
+}
+
+/**
+ * The zone floating values of a component or property are read in: its
+ * VCALENDAR's (setFloatingZone), else the server's.
+ *
+ * @param {ICAL.Component|ICAL.Property|null|undefined} node
+ */
+export function floatingZoneOf(node) {
+  let root = node;
+  while (root?.parent) root = root.parent;
+  return (root && rootZones.get(root)) || serverZone();
+}
+
+/**
+ * The instant of a wall-clock time in a zone. `wall` is the wall clock as ms
+ * of its digits read as UTC (Date.UTC of its fields), the form occurrences.js
+ * computes in.
+ *
+ * @param {Object} zone
+ * @param {number} wall
+ * @returns {number} ms since the epoch
+ */
+export function zoneInstant(zone, wall) {
+  return zone.converter.toInstant(new Date(wall).toISOString().slice(0, 19)).getTime();
+}
+
+/**
+ * The wall clock of an instant in a zone, as ms of its digits read as UTC.
+ *
+ * @param {Object} zone
+ * @param {number} instant - ms since the epoch
+ * @returns {number}
+ */
+export function zoneWall(zone, instant) {
+  const [y, mo, d, h = 0, mi = 0, s = 0] = zone.converter.toWallTime(new Date(instant)).match(/\d+/g).map(Number);
+  return Date.UTC(y, mo - 1, d, h, mi, s);
+}

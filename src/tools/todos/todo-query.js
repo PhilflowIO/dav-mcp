@@ -5,6 +5,7 @@ import { limitResults, DEFAULT_RESULT_LIMIT } from '../shared/helpers.js';
 import { dueSpan } from '../shared/ical-dates.js';
 import { todoStatus } from '../../ical-components.js';
 import { parseObjects, textValues, containsText, dateKey, orNull } from '../shared/query-objects.js';
+import { floatingZoneFor, withFloatingZone } from '../../calendar-zone.js';
 
 /**
  * Search and filter todos efficiently
@@ -73,7 +74,8 @@ export const todoQuery = {
     // Fetch todos from all selected calendars
     let todos = [];
     for (const calendar of calendarsToSearch) {
-      const calendarTodos = await client.fetchTodos({ calendar });
+      // floating times and dates are read in each calendar's own zone
+      const calendarTodos = withFloatingZone(await client.fetchTodos({ calendar }), floatingZoneFor(calendar));
       todos = todos.concat(calendarTodos);
     }
 

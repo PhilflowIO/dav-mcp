@@ -12,10 +12,12 @@
 import ICAL from 'ical.js';
 import { readVCard, nameComponents, organizationText } from './vcard.js';
 import { readSeries, shownEvent, todoStatus } from './ical-components.js';
-import { shareTimezones } from './tools/shared/ical-dates.js';
+import { shareTimezones, toInstant } from './tools/shared/ical-dates.js';
 import { seriesNames, labelled } from './occurrence-names.js';
 import { budgetPool, zonedInstant } from './occurrences.js';
-import { readCalendarTimezone } from './calendar-zone.js';
+import {
+  readCalendarTimezone, serverZone, floatingZoneOf, setFloatingZone, objectFloatingZone, zoneWall,
+} from './calendar-zone.js';
 
 /**
  * Parse iCal data string to extract event properties (RFC 5545 compliant)
@@ -23,11 +25,12 @@ import { readCalendarTimezone } from './calendar-zone.js';
  * When a time range is given, a recurring series resolves to the occurrence
  * inside that range, including any RECURRENCE-ID override of it.
  */
-function parseICalEvent(icalData, timeRange = null, matches = null, resolved = null, budget = undefined) {
+function parseICalEvent(icalData, timeRange = null, matches = null, resolved = null, budget = undefined, zone = null) {
   try {
     // the occurrence calendar_query's text filters read too (see shownEvent);
     // resolved there already for a listed event
-    const shown = resolved ?? shownEvent(shareTimezones(new ICAL.Component(ICAL.parse(icalData))), timeRange, matches, budget);
+    const shown = resolved ?? shownEvent(
+      setFloatingZone(shareTimezones(new ICAL.Component(ICAL.parse(icalData))), zone), timeRange, matches, budget);
     if (!shown) {
       return {};
     }
@@ -38,6 +41,8 @@ function parseICalEvent(icalData, timeRange = null, matches = null, resolved = n
       description: item.description || '',
       location: item.location || '',
       status: String(item.component.getFirstPropertyValue('status') || '').toUpperCase(),
+      // the zone its floating times and dates are read in
+      zone: floatingZoneOf(vevent),
       uid: event.uid || '',
       dtstart: occurrence ? occurrence.startDate : event.startDate,
       dtend: occurrence ? occurrence.endDate : event.endDate,
@@ -51,7 +56,7 @@ function parseICalEvent(icalData, timeRange = null, matches = null, resolved = n
       occurrenceShown: Boolean(occurrence),
       isRecurring: event.isRecurring(),
       rrule: event.isRecurring() ? vevent.getFirstPropertyValue('rrule') : null,
-      series: seriesListing(vevent, 'vevent', occurrence),
+      series: seriesListing(vevent, 'vevent', occurrence, floatingZoneOf(vevent)),
       organizer: item.component.getFirstPropertyValue('organizer'),
       attendees: item.component.getAllProperties('attendee').map(att => ({
         email: att.getFirstValue(),
@@ -251,26 +256,21 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December'];
 
 /**
- * Resolve the IANA zone to render an ICAL.Time in.
- *
- * Returns undefined for "render in whatever zone the host is in", which is the
- * correct answer for a floating time and the only safe answer for a TZID Intl
- * does not know (Exchange emits "W. Europe Standard Time"). Handing such a TZID
- * to toLocaleDateString throws a RangeError.
+ * The TZID an ICAL.Time is written with: the zone ical.js resolved from the
+ * object's VTIMEZONE, else the name it could not resolve (ical.js keeps it in
+ * .timezone); null for a floating time.
  */
-function isFloating(icalTime) {
-  const tzid = icalTime.zone?.tzid || icalTime.timezone;
-  return !tzid || tzid === 'floating';
+function writtenTzid(icalTime) {
+  const zone = icalTime.zone;
+  if (zone && zone !== ICAL.Timezone.localTimezone && zone.tzid && zone.tzid !== 'floating') return zone.tzid;
+  const name = icalTime.timezone;
+  return name && name !== 'floating' ? name : null;
 }
 
-function displayTimeZone(icalTime) {
-  // ical.js populates .timezone only when the TZID could NOT be resolved, so
-  // .zone.tzid is the canonical accessor and .timezone the last-ditch one.
-  const tzid = icalTime.zone?.tzid || icalTime.timezone;
-
-  if (!tzid || tzid === 'floating') return undefined;
+/** The name to hand Intl for a TZID, or undefined when Intl does not know it */
+function intlZone(tzid) {
   if (tzid === 'UTC' || tzid === 'Z') return 'UTC';
-
+  if (/^[+-]/.test(tzid)) return undefined;
   try {
     new Intl.DateTimeFormat('en-US', { timeZone: tzid });
     return tzid;
@@ -280,72 +280,92 @@ function displayTimeZone(icalTime) {
 }
 
 /**
- * Render a time from its own UTC offset rather than from a named zone.
- *
- * Used when the TZID is not a name Intl knows — Exchange emits things like
- * "W. Europe Standard Time" — but the object carries a VTIMEZONE that ical.js
- * did resolve. Deferring to the host zone instead would show a wall time the
- * organiser never chose, and at a large host offset it moves the date.
+ * A wall-clock time with its UTC offset ("October 25, 2026, 02:30 AM
+ * UTC+2"), for a zone Intl cannot name: Exchange emits TZIDs like "W. Europe
+ * Standard Time", whose VTIMEZONE ical.js did resolve. Deferring to the host
+ * zone instead would show a wall time the organiser never chose, and at a
+ * large host offset it moves the date.
  */
-function formatWithFixedOffset(icalTime) {
-  const offsetSeconds = zonedInstant(icalTime)?.offset ?? icalTime.utcOffset();
+function fixedOffsetText({ year, month, day, hour, minute }, offsetSeconds) {
   const sign = offsetSeconds < 0 ? '-' : '+';
   const hours = Math.floor(Math.abs(offsetSeconds) / 3600);
   const minutes = Math.floor((Math.abs(offsetSeconds) % 3600) / 60);
   const offset = offsetSeconds === 0
     ? 'UTC'
     : `UTC${sign}${hours}${minutes ? `:${String(minutes).padStart(2, '0')}` : ''}`;
+  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+  const meridiem = hour < 12 ? 'AM' : 'PM';
+  const time = `${String(hour12).padStart(2, '0')}:${String(minute).padStart(2, '0')} ${meridiem}`;
+  return `${MONTHS[month - 1]} ${day}, ${year}, ${time} ${offset}`;
+}
 
-  const hour24 = icalTime.hour;
-  const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
-  const meridiem = hour24 < 12 ? 'AM' : 'PM';
-  const time = `${String(hour12).padStart(2, '0')}:${String(icalTime.minute).padStart(2, '0')} ${meridiem}`;
+function formatWithFixedOffset(icalTime) {
+  return fixedOffsetText(icalTime, zonedInstant(icalTime)?.offset ?? icalTime.utcOffset());
+}
 
-  return `${MONTHS[icalTime.month - 1]} ${icalTime.day}, ${icalTime.year}, ${time} ${offset}`;
+/** An instant as Intl shows it in a named zone: "October 10, 2026, 09:00 AM GMT+2" */
+function intlText(instant, timeZone) {
+  const jsDate = new Date(instant);
+  const dateStr = jsDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone });
+  const timeStr = jsDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZoneName: 'short', timeZone });
+  return `${dateStr}, ${timeStr}`;
 }
 
 /**
- * Format ICAL.Time to human-readable format with proper timezone support
+ * An instant on a zone's wall clock (a zone of src/calendar-zone.js): by
+ * Intl where it knows the zone's name, else with the zone's own offset.
+ *
+ * @param {number} instant - ms since the epoch
+ * @param {Object} zone
+ * @returns {string}
  */
-function formatDateTime(icalTime, at = null) {
+export function formatInstant(instant, zone) {
+  if (zone.intlName) return intlText(instant, zone.intlName);
+  const wall = new Date(zoneWall(zone, instant));
+  return fixedOffsetText({
+    year: wall.getUTCFullYear(), month: wall.getUTCMonth() + 1, day: wall.getUTCDate(),
+    hour: wall.getUTCHours(), minute: wall.getUTCMinutes(),
+  }, zone.converter.offsetAt(new Date(instant)));
+}
+
+/**
+ * Format an ICAL.Time for display, in the zone it is written in.
+ *
+ * A date has no time and no zone: its fields, as they are. A floating time
+ * (no TZID, no Z) is shown on the clock of the calendar's zone (`zone`, see
+ * src/calendar-zone.js) — the zone it was read in everywhere else — never on
+ * the host's. A TZID ical.js could not resolve is read as the IANA zone of
+ * that name, else like a floating time.
+ *
+ * @param {ICAL.Time} icalTime
+ * @param {number|null} [at] - the instant, where the expansion computed it
+ *   (exact at a DST change)
+ * @param {Object|null} [zone] - the calendar's zone; the server's when not given
+ */
+function formatDateTime(icalTime, at = null, zone = null) {
   if (!icalTime) return '';
 
   try {
-    // A date-only value has no time and no zone. Reading the fields directly
-    // is the only correct route: toJSDate() would anchor it to the host's
-    // offset, which shifts the date itself east of Greenwich.
     if (icalTime.isDate) {
       return `${MONTHS[icalTime.month - 1]} ${icalTime.day}, ${icalTime.year}`;
     }
 
-    const timeZone = displayTimeZone(icalTime);
-
-    // A zone Intl cannot name, but whose offset ical.js resolved from the
-    // object's own VTIMEZONE: render the organiser's wall time, not the host's.
-    if (!timeZone && !isFloating(icalTime)) {
+    const floatingZone = zone ?? serverZone();
+    const tzid = writtenTzid(icalTime);
+    const timeZone = tzid && intlZone(tzid);
+    if (timeZone) {
+      // the instant: the one the expansion computed, else the zone's own
+      // conversion (tsdav-utils; ical.js' toJSDate is up to an hour off near
+      // a DST change), else toInstant (UTC, or an IANA name without its
+      // VTIMEZONE in the object)
+      return intlText(at ?? zonedInstant(icalTime)?.at ?? toInstant(icalTime, floatingZone), timeZone);
+    }
+    // a zone Intl cannot name, but whose offset ical.js resolved from the
+    // object's own VTIMEZONE: the organiser's wall time with that offset
+    if (tzid && icalTime.zone && icalTime.zone !== ICAL.Timezone.localTimezone) {
       return formatWithFixedOffset(icalTime);
     }
-
-    // the instant: the one the expansion computed, else the zone's own
-    // conversion (tsdav-utils; ical.js' toJSDate is up to an hour off near a
-    // DST change), else ical.js for UTC and floating times
-    const jsDate = new Date(at ?? zonedInstant(icalTime)?.at ?? icalTime.toJSDate().getTime());
-
-    const dateStr = jsDate.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      timeZone,
-    });
-
-    const timeStr = jsDate.toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      timeZoneName: 'short',
-      timeZone,
-    });
-
-    return `${dateStr}, ${timeStr}`;
+    return formatInstant(at ?? toInstant(icalTime, floatingZone), floatingZone);
   } catch (error) {
     console.error('Error formatting datetime:', error);
     return '';
@@ -371,7 +391,7 @@ const listNames = (names) => names.length > MAX_LISTED_NAMES
  * @param {Object|null} [occurrence] - the occurrence shown (getOccurrenceDetails), if any
  * @returns {Object|null} null for something that does not recur
  */
-function seriesListing(master, type, occurrence = null) {
+function seriesListing(master, type, occurrence = null, zone = null) {
   try {
     const all = master.parent ? master.parent.getAllSubcomponents(type) : [];
     const uid = master.getFirstPropertyValue('uid');
@@ -390,13 +410,13 @@ function seriesListing(master, type, occurrence = null) {
       shown,
       shownIsOccurrence: Boolean(occurrence?.recurrenceId),
       shownChanged: Boolean(occurrence?.item?.component?.hasProperty('recurrence-id')),
-      shownNow: occurrence?.startDate ? formatDateTime(occurrence.startDate) : '',
+      shownNow: occurrence?.startDate ? formatDateTime(occurrence.startDate, occurrence.startAt ?? null, zone) : '',
       exclusions: names.exclusions.map(labelled),
       inert: names.inert.map(labelled),
       overrides: names.overrides.map(({ text, component }) => {
         const start = component.getFirstPropertyValue('dtstart');
         const status = String(component.getFirstPropertyValue('status') || '').toUpperCase();
-        const now = start ? `now ${formatDateTime(start)}` : 'changed';
+        const now = start ? `now ${formatDateTime(start, null, zone)}` : 'changed';
         return `${text} (${now}${status === 'CANCELLED' ? ', status CANCELLED' : ''})`;
       }),
     };
@@ -430,10 +450,10 @@ function seriesLines(series) {
  */
 export function formatEvent(event, calendar = 'Unknown Calendar', timeRange = null, matches = null, shown = null, budget = undefined) {
   const calendarName = collectionName(calendar, 'Unknown Calendar');
-  const parsed = parseICalEvent(event.data, timeRange, matches, shown, budget);
+  const parsed = parseICalEvent(event.data, timeRange, matches, shown, budget, objectFloatingZone(event));
 
-  const startDate = formatDateTime(parsed.dtstart, parsed.dtstartAt);
-  const endDate = formatDateTime(parsed.dtend, parsed.dtendAt);
+  const startDate = formatDateTime(parsed.dtstart, parsed.dtstartAt, parsed.zone);
+  const endDate = formatDateTime(parsed.dtend, parsed.dtendAt, parsed.zone);
 
   let output = `## ${parsed.summary || 'Untitled Event'}\n\n`;
   output += `- **When**: ${startDate}`;
@@ -467,7 +487,7 @@ export function formatEvent(event, calendar = 'Unknown Calendar', timeRange = nu
   if (parsed.occurrences && parsed.occurrences.length > 1) {
     output += `- **Occurrences in the window**: ${parsed.occurrences.length}\n`;
     parsed.occurrences.forEach((o) => {
-      output += `  - ${formatDateTime(o.startDate, o.startAt)} to ${formatDateTime(o.endDate, o.endAt)}\n`;
+      output += `  - ${formatDateTime(o.startDate, o.startAt, parsed.zone)} to ${formatDateTime(o.endDate, o.endAt, parsed.zone)}\n`;
     });
   }
 
@@ -934,10 +954,10 @@ export function formatCalendarAlreadyDeleted(calendarUrl) {
 /**
  * Parse VTODO (task) from iCal data
  */
-function parseVTodo(icalData) {
+function parseVTodo(icalData, zone = null) {
   try {
     const jcalData = ICAL.parse(icalData);
-    const comp = new ICAL.Component(jcalData);
+    const comp = setFloatingZone(new ICAL.Component(jcalData), zone);
     // the master, the todo update_todo edits, not whichever VTODO comes first
     const vtodo = readSeries(comp, 'vtodo')?.master;
 
@@ -956,7 +976,8 @@ function parseVTodo(icalData) {
       completed: vtodo.getFirstPropertyValue('completed'),
       dtstart: vtodo.getFirstPropertyValue('dtstart'),
       rrule: vtodo.getFirstPropertyValue('rrule'),
-      series: seriesListing(vtodo, 'vtodo'),
+      zone: floatingZoneOf(vtodo),
+      series: seriesListing(vtodo, 'vtodo', null, floatingZoneOf(vtodo)),
     };
   } catch (error) {
     // the parser's message quotes the offending line: personal data, so only its type
@@ -993,7 +1014,7 @@ function formatPriority(priority) {
  */
 export function formatTodo(todo, calendar = 'Unknown Calendar') {
   const calendarName = collectionName(calendar, 'Unknown Calendar');
-  const parsed = parseVTodo(todo.data);
+  const parsed = parseVTodo(todo.data, objectFloatingZone(todo));
   const statusEmoji = getStatusEmoji(parsed.status);
 
   let output = `## ${statusEmoji} ${parsed.summary || 'Untitled Task'}\n\n`;
@@ -1001,7 +1022,7 @@ export function formatTodo(todo, calendar = 'Unknown Calendar') {
   output += `- **Status**: ${parsed.status}\n`;
 
   if (parsed.due) {
-    output += `- **Due**: ${formatDateTime(parsed.due)}\n`;
+    output += `- **Due**: ${formatDateTime(parsed.due, null, parsed.zone)}\n`;
   }
 
   if (parsed.priority && parsed.priority !== 0) {
@@ -1017,11 +1038,11 @@ export function formatTodo(todo, calendar = 'Unknown Calendar') {
   }
 
   if (parsed.dtstart) {
-    output += `- **Start**: ${formatDateTime(parsed.dtstart)}\n`;
+    output += `- **Start**: ${formatDateTime(parsed.dtstart, null, parsed.zone)}\n`;
   }
 
   if (parsed.completed) {
-    output += `- **Completed**: ${formatDateTime(parsed.completed)}\n`;
+    output += `- **Completed**: ${formatDateTime(parsed.completed, null, parsed.zone)}\n`;
   }
 
   if (parsed.rrule) {

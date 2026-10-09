@@ -154,6 +154,15 @@ When partial tools force your AI to improvise, complete tools let it **execute p
 26. **todo_query** - PREFERRED: Search and filter todos efficiently by status/due date
 27. **todo_multi_get** - Batch fetch multiple specific todos by URLs
 
+### Time zones
+
+An event or todo written without a time zone (a "floating" time such as
+`DTSTART:20261010T090000`, or an all-day date) is read in its calendar's time
+zone, as CalDAV specifies (RFC 4791 §9.9): the zone set with `make_calendar` /
+`update_calendar`, which `list_calendars` shows. A calendar without one is read
+in the zone dav-mcp runs in: the `TZ` environment variable (for example
+`TZ=Europe/Berlin` in Docker or an HTTP deployment), else the system's.
+
 ---
 
 ## Real-World Applications
