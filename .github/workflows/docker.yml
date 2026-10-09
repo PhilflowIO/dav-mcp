@@ -3,10 +3,10 @@ name: Docker Image
 on:
   push:
     branches: [main]
-    paths: ['Dockerfile', 'docker-compose.yml', 'src/**', 'package*.json', '.github/workflows/docker.yml']
+    paths: ['Dockerfile', 'docker-compose.yml', 'src/**', 'package*.json', '.github/workflows/docker.yml', '.github/scripts/**']
   pull_request:
     branches: [main, develop]
-    paths: ['Dockerfile', 'docker-compose.yml', 'src/**', 'package*.json', '.github/workflows/docker.yml']
+    paths: ['Dockerfile', 'docker-compose.yml', 'src/**', 'package*.json', '.github/workflows/docker.yml', '.github/scripts/**']
 
 jobs:
   # One leg per published architecture, each on a runner of that architecture.
@@ -59,12 +59,18 @@ jobs:
           [ "$machine" = "${{ matrix.machine }}" ] || { echo "::error::expected ${{ matrix.machine }} runner, got '${machine}'"; exit 1; }
 
       # Only the cross-build below needs emulation; the arm64 leg has none.
+      # QEMU and BuildKit come from ECR Public, not Docker Hub (#140), pinned to
+      # the same multi-arch index digests Docker Hub serves.
       - name: Set up QEMU
         if: matrix.arch == 'amd64'
         uses: docker/setup-qemu-action@v3
+        with:
+          image: public.ecr.aws/vend/tonistiigi/binfmt:latest@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: image=public.ecr.aws/vend/moby/buildkit:buildx-stable-1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
 
       # Builds every platform the way the release does: cross-built from one
       # amd64 host, with the deps stage on $BUILDPLATFORM. The native arm64 leg
@@ -100,16 +106,7 @@ jobs:
       # The server exits 1 when CalDAV initialization fails (src/server-http.js:166),
       # so the smoke test needs a real backend to prove anything.
       - name: Start CalDAV backend
-        run: |
-          docker network create davci
-          docker run -d --name radicale --network davci tomsquest/docker-radicale:latest
-          for _ in $(seq 1 30); do
-            docker logs radicale 2>&1 | grep -q 'Radicale server ready' && exit 0
-            sleep 2
-          done
-          echo "::error::Radicale did not become ready"
-          docker logs radicale
-          exit 1
+        run: .github/scripts/start-radicale.sh
 
       # PORT is overridden so the env-aware HEALTHCHECK stays covered: a probe
       # hardcoded to :3000 would report unhealthy against a healthy server.

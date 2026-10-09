@@ -1,4 +1,6 @@
-# syntax=docker/dockerfile:1
+# No `# syntax=` directive: BuildKit's built-in Dockerfile frontend covers
+# every instruction here, and an external frontend image is one more pull from
+# Docker Hub, whose anonymous rate limit failed CI builds (#140).
 
 # Stage 1: install production dependencies. Alpine provides npm.
 # Base images are pinned by digest: tags are mutable and can be repointed at a

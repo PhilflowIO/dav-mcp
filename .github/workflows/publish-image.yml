@@ -42,11 +42,17 @@ jobs:
 
       # QEMU runs the arm64 variant for the boot smoke test below. The build
       # itself avoids emulation for npm ci (deps stage runs on BUILDPLATFORM).
+      # QEMU and BuildKit come from ECR Public, not Docker Hub (#140), pinned to
+      # the same multi-arch index digests Docker Hub serves.
       - name: Set up QEMU
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+        with:
+          image: public.ecr.aws/vend/tonistiigi/binfmt:latest@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+        with:
+          driver-opts: image=public.ecr.aws/vend/moby/buildkit:buildx-stable-1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
 
       # Built and smoke-tested before anything is pushed, so a release can
       # never publish an image that was not observed booting.
@@ -61,16 +67,7 @@ jobs:
       # The server exits 1 when CalDAV initialization fails
       # (src/server-http.js:166), so the smoke test needs a real backend.
       - name: Start CalDAV backend
-        run: |
-          docker network create davci
-          docker run -d --name radicale --network davci tomsquest/docker-radicale:latest
-          for _ in $(seq 1 30); do
-            docker logs radicale 2>&1 | grep -q 'Radicale server ready' && exit 0
-            sleep 2
-          done
-          echo "::error::Radicale did not become ready"
-          docker logs radicale
-          exit 1
+        run: .github/scripts/start-radicale.sh
 
       - name: Verify image boots and reports healthy
         run: |
@@ -218,17 +215,16 @@ jobs:
           echo "pulled ${ref} (architecture: ${arch})"
           [ "$arch" = "${{ matrix.arch }}" ] || { echo "::error::expected ${{ matrix.arch }} image, got '${arch}'"; exit 1; }
 
+      # Only for the CalDAV backend script; the image itself is pulled above.
+      - name: Checkout CI scripts
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.tag }}
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+
       - name: Start CalDAV backend
-        run: |
-          docker network create davci
-          docker run -d --name radicale --network davci tomsquest/docker-radicale:latest
-          for _ in $(seq 1 30); do
-            docker logs radicale 2>&1 | grep -q 'Radicale server ready' && exit 0
-            sleep 2
-          done
-          echo "::error::Radicale did not become ready"
-          docker logs radicale
-          exit 1
+        run: .github/scripts/start-radicale.sh
 
       - name: Verify published image boots and reports healthy
         run: |
