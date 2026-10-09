@@ -62,7 +62,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   would need the zone (a time without a zone, a move of an event stored
   without one) is refused, so nothing lands an hour off unsaid. A local time
   the clock change skips or shows twice is refused as well where it would
-  otherwise be stored shifted or shortened, with what to give instead.
+  otherwise be stored shifted or shortened, with what to give instead; for
+  an event with its own time zone too, where a time without an offset in
+  the repeated autumn hour was silently taken as the first.
+- **`update_calendar` finds the calendar under another spelling of its URL**
+  (an escaped character, a trailing slash) when it reads the result back. If
+  it still is not among the calendars the server lists, it says that the
+  update was accepted but cannot be confirmed, instead of an internal error.
 - **Moving a series without a time zone keeps it without one** (#128). An
   event stored with a "floating" time (`DTSTART:20270402T113000`) was written
   back in UTC when moved with `update_event`, so it stopped following the

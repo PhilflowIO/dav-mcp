@@ -62,8 +62,8 @@ export function writeFields(object, fields, type, zone = null) {
   let options = { floatingTime: 'local', absoluteTime: 'keep-zone', type };
   let values = fields;
   if (type) {
-    const { frame, ownZone } = startFrame(object, type);
-    values = zonedValues(fields, frame, ownZone, zone ?? serverZone());
+    const { frame, ownZone, zoneOf } = startFrame(object, type);
+    values = zonedValues(fields, frame, ownZone, zone ?? serverZone(), zoneOf);
     // nothing left for the host clock: what has no zone now stays so
     if (frame !== 'tzid') options = { ...options, floatingTime: 'keep' };
   }
@@ -95,18 +95,31 @@ function startFrame(object, type) {
     const root = new ICAL.Component(parseICal(typeof object === 'string' ? object : object.data));
     master = root.name === type ? root : seriesMaster(root, type);
   } catch {
-    return { frame: 'none', ownZone: new Set() };
+    return { frame: 'none', ownZone: new Set(), zoneOf: () => null };
   }
-  const ownZone = new Set(master.getAllProperties()
-    .filter((property) => property.getParameter('tzid'))
-    .map((property) => property.name.toUpperCase()));
+  const zoned = master.getAllProperties().filter((property) => property.getParameter('tzid'));
+  const ownZone = new Set(zoned.map((property) => property.name.toUpperCase()));
   const property = master.getFirstProperty('dtstart') ?? (type === 'vtodo' ? master.getFirstProperty('due') : null);
   let frame;
   if (!property) frame = 'none';
   else if (property.type === 'date' || property.getFirstValue()?.isDate) frame = 'date';
   else if (property.getParameter('tzid')) frame = 'tzid';
   else frame = /Z$/i.test(String(property.toJSON()[3])) ? 'utc' : 'floating';
-  return { frame, ownZone };
+  // the zone a value without one is read in by tsdav-utils: the property's
+  // own TZID, else DTSTART's (its VTIMEZONE in the object, else IANA's)
+  const tzidOf = (name) => zoned.find((p) => p.name.toUpperCase() === name)?.getParameter('tzid')
+    ?? (frame === 'tzid' ? property.getParameter('tzid') : null);
+  const zoneOf = (name) => {
+    const tzid = tzidOf(name);
+    if (!tzid) return null;
+    try {
+      const converter = resolveZone(tzid, master);
+      return converter ? { tzid: converter.tzid, converter } : null;
+    } catch {
+      return null;
+    }
+  };
+  return { frame, ownZone, zoneOf };
 }
 
 /**
@@ -115,13 +128,19 @@ function startFrame(object, type) {
  * write may only use when it could be read (writableZone); a value the
  * zone's DST changes make impossible or ambiguous is refused (zoneRefusal).
  */
-function zonedValues(fields, frame, ownZone, zone) {
+function zonedValues(fields, frame, ownZone, zone, zoneOf = () => null) {
   const convert = { utc: (v) => asUtc(v, zone), floating: (v) => asFloating(v, zone) };
   const result = {};
   for (const [name, value] of Object.entries(fields)) {
     const key = name.toUpperCase();
-    if (typeof value !== 'string' || (FRAMED_DATES.has(key) && ownZone.has(key))) {
-      // a property in a zone of its own: tsdav-utils writes it there
+    if (typeof value === 'string' && FRAMED_DATES.has(key) && (ownZone.has(key) || frame === 'tzid')) {
+      // a property in a TZID: tsdav-utils writes it there, reading a time
+      // without a zone in that TZID — refused here, like everywhere else,
+      // where the zone skips it or shows it twice
+      const tzidZone = zoneOf(key);
+      if (tzidZone) mapList(value, (v) => checkLocalTime(v, tzidZone));
+      result[name] = value;
+    } else if (typeof value !== 'string') {
       result[name] = value;
     } else if (UTC_DATES.has(key)) {
       result[name] = mapList(value, convert.utc);
@@ -168,6 +187,15 @@ function asUtc(value, zone) {
   const ambiguity = usable.converter.ambiguity(wallText(wall));
   if (ambiguity) throw zoneRefusal(ambiguity, wall, usable);
   return `${new Date(zoneInstant(usable, wall)).toISOString().slice(0, 19)}Z`;
+}
+
+/** A date-time without a zone that the zone skips or shows twice is refused; the value as it is */
+function checkLocalTime(value, zone) {
+  const parsed = orNull(() => parseDateValue(value));
+  if (parsed?.kind !== 'floating') return value;
+  const ambiguity = orNull(() => zone.converter.ambiguity(parsed.jcal));
+  if (ambiguity) throw zoneRefusal(ambiguity, wallOf(parsed.jcal), zone);
+  return value;
 }
 
 /** "2026-10-26T10:00:60" as ms of its digits read as UTC (a leap second rolls over) */

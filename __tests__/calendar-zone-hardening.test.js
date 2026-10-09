@@ -225,3 +225,22 @@ describe('a write the zone\'s DST change makes impossible or ambiguous is refuse
     expect(lines(data, 'DTSTART')).toEqual(['DTSTART:20261025T023000']);
   });
 });
+
+describe('an event with a TZID gets the same refusals', () => {
+  const ZONED = vcalendar('DTSTART;TZID=Europe/Berlin:20261019T090000', 'DTEND;TZID=Europe/Berlin:20261019T100000');
+
+  test('a local time the autumn change shows twice, without an offset', () => {
+    expect(() => writeEventFields(ZONED, {}, { startDate: '2026-10-25T02:30:00', endDate: '2026-10-25T03:30:00' }, berlin()))
+      .toThrow(/02:30 on 2026-10-25 occurs twice in Europe\/Berlin.*offset/);
+  });
+
+  test('a local time the spring change skips', () => {
+    expect(() => writeEventFields(ZONED, {}, { startDate: '2027-03-28T02:30:00', endDate: '2027-03-28T03:30:00' }, berlin()))
+      .toThrow(/02:30 on 2027-03-28 does not exist in Europe\/Berlin/);
+  });
+
+  test('with an offset it is clear which one is meant (the first; tsdav-utils refuses the second for a TZID)', () => {
+    const data = writeEventFields(ZONED, {}, { startDate: '2026-10-25T02:30:00+02:00', endDate: '2026-10-25T03:30:00+01:00' }, berlin());
+    expect(lines(data, 'DTSTART')).toEqual(['DTSTART;TZID=Europe/Berlin:20261025T023000']);
+  });
+});
