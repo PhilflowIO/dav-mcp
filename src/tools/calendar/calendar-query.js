@@ -1,7 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, calendarQuerySchema } from '../../validation.js';
 import { formatEventList, withUnsearched } from '../../formatters.js';
-import { buildTimeRangeOptions, limitResults, DEFAULT_RESULT_LIMIT } from '../shared/helpers.js';
+import { buildTimeRangeOptions, limitResults, DEFAULT_RESULT_LIMIT, findCalendarOrThrow } from '../shared/helpers.js';
 import ICAL from 'ical.js';
 import { shownEvent, shownTouchesRange } from '../../ical-components.js';
 import { ZONE_SLACK_MS, budgetPool, serverTimeRange } from '../../occurrences.js';
@@ -60,16 +60,7 @@ export const calendarQuery = {
     // If specific calendar requested, use it
     let calendarsToSearch = calendars;
     if (validated.calendar_url) {
-      const calendar = calendars.find(c => c.url === validated.calendar_url);
-      if (!calendar) {
-        const availableUrls = calendars.map(c => c.url).join('\n- ');
-        throw new Error(
-          `Calendar not found: ${validated.calendar_url}\n\n` +
-          `Available calendar URLs:\n- ${availableUrls}\n\n` +
-          `Tip: Omit calendar_url to search across all calendars automatically.`
-        );
-      }
-      calendarsToSearch = [calendar];
+      calendarsToSearch = [findCalendarOrThrow(calendars, validated.calendar_url, { omit: 'to search all calendars' })];
     }
 
     // Build timeRange options

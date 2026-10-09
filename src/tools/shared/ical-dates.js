@@ -3,7 +3,7 @@ import { parseICal, assertParseBounded } from '../../ical-parse.js';
 import { updateFields, seriesMaster, resolveZone, parseDateValue } from 'tsdav-utils';
 import { serverZone, floatingZoneOf, zoneInstant, zoneWall, writableZone } from '../../calendar-zone.js';
 import { explainWriteRefusal } from '../../ical-components.js';
-import { ValidationError } from '../../error-handler.js';
+import { ValidationError, MCP_ERROR_CODES } from '../../error-handler.js';
 
 /**
  * Every property dav-mcp writes onto a calendar object or vCard goes through
@@ -630,7 +630,11 @@ function editComponent(iCalString, name, edit) {
   try {
     calendar = new ICAL.Component(parseICal(iCalString));
   } catch (error) {
-    throw new Error(`Failed to parse iCal data: ${error.message}`);
+    // It is what updateFields just wrote, not the caller's input: a fault of
+    // dav-mcp or the library.
+    const fault = new Error(`dav-mcp could not read back the iCalendar data it wrote: ${error.message}`, { cause: error });
+    fault.code = MCP_ERROR_CODES.INTERNAL_ERROR;
+    throw fault;
   }
 
   const component = calendar.name === name ? calendar : seriesMaster(calendar, name);

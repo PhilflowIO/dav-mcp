@@ -1,4 +1,5 @@
 import { tsdavManager } from '../../tsdav-client.js';
+import { findAddressbookOrThrow } from '../shared/helpers.js';
 import { validateInput, addressBookMultiGetSchema } from '../../validation.js';
 import { formatContactList, withMissingObjects } from '../../formatters.js';
 import { multiGetObjects } from '../shared/multiget.js';
@@ -34,6 +35,7 @@ export const addressbookMultiGet = {
   handler: async (args) => {
     const validated = validateInput(addressBookMultiGetSchema, args);
     const client = tsdavManager.getCardDavClient();
+    findAddressbookOrThrow(await client.fetchAddressBooks(), validated.addressbook_url);
 
     const { found, missing } = await multiGetObjects(client, {
       kind: 'addressbook',

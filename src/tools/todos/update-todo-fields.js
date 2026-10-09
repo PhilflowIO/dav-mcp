@@ -1,7 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, davFieldMapSchema, davUrl, entityTag, etagQuotedByUs } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
-import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
+import { assertDavSuccess, etagAfterWrite, objectNotFoundError } from '../shared/helpers.js';
 import { z } from 'zod';
 import { writeFields, reconcileTodoDates, writesDates } from '../shared/ical-dates.js';
 import { fetchFloatingZone } from '../../calendar-zone.js';
@@ -148,7 +148,7 @@ export const updateTodoFields = {
     });
 
     if (!currentTodos || currentTodos.length === 0) {
-      throw new Error('Todo not found');
+      throw objectNotFoundError('todo_url', validated.todo_url, 'todo', 'todo_query or list_todos');
     }
 
     const todoObject = currentTodos[0];
@@ -192,6 +192,7 @@ export const updateTodoFields = {
     });
     await assertDavSuccess(updateResponse, `update todo ${validated.todo_url}`, {
       quotedEtag: etagQuotedByUs(args.todo_etag, validated.todo_etag),
+      callerContent: { noun: 'todo', fix: 'Correct the values in fields and send them again.' },
     });
 
     return formatSuccess('Todo updated successfully', {

@@ -50,6 +50,7 @@ const { listCalendars } = await import('../src/tools/calendar/list-calendars.js'
 const { updateCalendar } = await import('../src/tools/calendar/update-calendar.js');
 const { makeCalendar } = await import('../src/tools/calendar/make-calendar.js');
 const { writeEventFields } = await import('../src/tools/shared/ical-dates.js');
+const { formatMCPError, MCP_ERROR_CODES } = await import('../src/error-handler.js');
 
 const vcalendar = (...lines) => ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//test//EN', 'BEGIN:VEVENT', 'UID:s@test',
   'DTSTAMP:20260101T000000Z', 'SUMMARY:x', ...lines, 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
@@ -142,6 +143,26 @@ describe('a failed lookup', () => {
     stored = FLOATING;
     await expect(move()).rejects.toThrow(/time zone of the calendar .* could not be read/);
     expect(written).toEqual([]);
+  });
+
+  // The refusal carries what the lookup ran into, so it is reported by that
+  // (review of #134): a refused login with the settings hint, an unreachable
+  // server as a network error, a server failure by its status; a zone value
+  // the server stores but nobody can read is the server's CalDAV data.
+  test.each([
+    ['a 401', () => [{ ok: false, status: 401, statusText: 'Unauthorized' }], 'AUTH_ERROR'],
+    ['a 503', () => [{ ok: false, status: 503, statusText: 'Service Unavailable' }], 'NETWORK_ERROR'],
+    ['a 500', () => [{ ok: false, status: 500, statusText: 'Internal Server Error' }], 'INTERNAL_ERROR'],
+    ['no answer (ECONNREFUSED)', () => {
+      throw Object.assign(new TypeError('fetch failed'), { cause: Object.assign(new Error('connect'), { code: 'ECONNREFUSED' }) });
+    }, 'NETWORK_ERROR'],
+    ['an unreadable zone value', () => [{ ok: true, status: 207, props: { calendarTimezone: 'BEGIN:VCALENDAR\r\ngarbage' } }], 'CALDAV_ERROR'],
+  ])('the write refused after %s has the matching code', async (_, answer, code) => {
+    propfindAnswer = answer;
+    stored = FLOATING;
+    const error = await move().catch(e => e);
+    expect(error.message).toMatch(/time zone of the calendar .* could not be read/);
+    expect(formatMCPError(error).code).toBe(MCP_ERROR_CODES[code]);
   });
 
   test('a calendar without a zone is not a failure: the write goes ahead in dav-mcp\'s zone', async () => {

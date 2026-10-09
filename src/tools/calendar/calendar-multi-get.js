@@ -1,4 +1,5 @@
 import { tsdavManager } from '../../tsdav-client.js';
+import { findCalendarOrThrow } from '../shared/helpers.js';
 import { validateInput, calendarMultiGetSchema } from '../../validation.js';
 import { formatEventList, withMissingObjects } from '../../formatters.js';
 import { multiGetObjects } from '../shared/multiget.js';
@@ -35,6 +36,7 @@ export const calendarMultiGet = {
   handler: async (args) => {
     const validated = validateInput(calendarMultiGetSchema, args);
     const client = tsdavManager.getCalDavClient();
+    findCalendarOrThrow(await client.fetchCalendars(), validated.calendar_url);
 
     const { found, missing } = await multiGetObjects(client, {
       kind: 'calendar',

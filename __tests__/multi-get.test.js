@@ -37,6 +37,9 @@ const client = new DAVClient({
   fetch: fetchStub,
 });
 client.authHeaders = { authorization: 'Basic dXNlcjpwYXNz' };
+// The collections exist; the tools look calendar_url / addressbook_url up first.
+client.fetchCalendars = async () => [{ url: CALENDAR_URL }, { url: TASKS_URL }];
+client.fetchAddressBooks = async () => [{ url: BOOK_URL }];
 
 jest.unstable_mockModule('../src/tsdav-client.js', () => ({
   tsdavManager: { getCalDavClient: () => client, getCardDavClient: () => client },

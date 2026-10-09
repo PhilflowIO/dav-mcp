@@ -1,5 +1,6 @@
 import { DAVNamespace, DAVNamespaceShort, getDAVAttribute } from 'tsdav';
 import { davFailure, davFailureError } from './helpers.js';
+import { CalDAVError, CardDAVError } from '../../error-handler.js';
 
 /**
  * Batch-fetch DAV objects by URL (RFC 4791 §7.9 calendar-multiget,
@@ -21,6 +22,7 @@ const REPORTS = {
     dataProp: `${DAVNamespaceShort.CALDAV}:calendar-data`,
     // tsdav strips the namespace and camelCases element names when parsing
     dataKey: 'calendarData',
+    ServerError: CalDAVError,
   },
   addressbook: {
     report: 'addressbook-multiget',
@@ -28,6 +30,7 @@ const REPORTS = {
     attributes: [DAVNamespace.DAV, DAVNamespace.CARDDAV],
     dataProp: `${DAVNamespaceShort.CARDDAV}:address-data`,
     dataKey: 'addressData',
+    ServerError: CardDAVError,
   },
 };
 
@@ -107,7 +110,7 @@ async function multiGetReport(client, spec, collectionUrl, urls) {
   if (!isMultistatus(entries)) {
     const failure = await davFailure(entries);
     if (failure) throw davFailureError(failure, `Failed to fetch objects from ${collectionUrl}`);
-    throw new Error(`Failed to fetch objects from ${collectionUrl}: server did not answer with a multistatus`);
+    throw new spec.ServerError(`Failed to fetch objects from ${collectionUrl}: server did not answer with a multistatus`);
   }
   return entries;
 }

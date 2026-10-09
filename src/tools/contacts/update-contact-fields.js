@@ -1,7 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, davFieldMapSchema, davUrl, entityTag, etagQuotedByUs } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
-import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
+import { assertDavSuccess, etagAfterWrite, objectNotFoundError } from '../shared/helpers.js';
 import { z } from 'zod';
 import { writeVCardFields } from '../../vcard.js';
 
@@ -111,7 +111,7 @@ export const updateContactFields = {
     });
 
     if (!currentVCards || currentVCards.length === 0) {
-      throw new Error('Contact not found');
+      throw objectNotFoundError('vcard_url', validated.vcard_url, 'contact', 'addressbook_query or list_contacts');
     }
 
     const vCardObject = currentVCards[0];
@@ -130,6 +130,7 @@ export const updateContactFields = {
     });
     await assertDavSuccess(updateResponse, `update contact ${validated.vcard_url}`, {
       quotedEtag: etagQuotedByUs(args.vcard_etag, validated.vcard_etag),
+      callerContent: { noun: 'contact', fix: 'Correct the values in fields and send them again.' },
     });
 
     return formatSuccess('Contact updated successfully', {

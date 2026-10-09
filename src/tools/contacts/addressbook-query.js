@@ -1,7 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, addressBookQuerySchema } from '../../validation.js';
 import { formatContactList, withUnsearched } from '../../formatters.js';
-import { limitResults, DEFAULT_RESULT_LIMIT } from '../shared/helpers.js';
+import { limitResults, DEFAULT_RESULT_LIMIT, findAddressbookOrThrow } from '../shared/helpers.js';
 import { parseObjects, unsearchedObjects, textValues, contactNames, organizations, containsText, textKey } from '../shared/query-objects.js';
 
 /**
@@ -50,7 +50,7 @@ export const addressbookQuery = {
 
     // Resolve which addressbooks to search (all or specific)
     const addressbooksToSearch = validated.addressbook_url
-      ? addressBooks.filter(ab => ab.url === validated.addressbook_url)
+      ? [findAddressbookOrThrow(addressBooks, validated.addressbook_url, { omit: 'to search all address books' })]
       : addressBooks;
 
     // Collect all vcards from all selected addressbooks

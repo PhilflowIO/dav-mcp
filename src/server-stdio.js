@@ -116,13 +116,15 @@ async function startStdioServer() {
         throw error;
       }
 
-      // Ensure DAV clients are initialized before executing any tool
-      await ensureInit();
-
       const startTime = Date.now();
       toolCallLogger.logToolCallStart(toolName, toolArgs, { transport: 'stdio' });
 
       try {
+        // Log in first if that failed at startup. Inside the try: a refused
+        // login is a tool error with its own code and the place to fix the
+        // settings, not a JSON-RPC internal error (#123).
+        await ensureInit();
+
         logger.debug({ tool: toolName }, 'Executing tool');
         const result = await tool.handler(toolArgs);
         const duration = Date.now() - startTime;

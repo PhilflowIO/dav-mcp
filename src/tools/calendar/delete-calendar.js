@@ -1,7 +1,8 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, deleteCalendarSchema } from '../../validation.js';
 import { formatCalendarDeleteSuccess, formatCalendarAlreadyDeleted } from '../../formatters.js';
-import { assertDeleted, inspectCollection } from '../shared/helpers.js';
+import { assertDeleted, inspectCollection, findCalendarOrThrow } from '../shared/helpers.js';
+import { MCP_ERROR_CODES } from '../../error-handler.js';
 
 /**
  * Delete a calendar and all its events
@@ -47,7 +48,18 @@ export const deleteCalendar = {
     // A 404 after the lookup saw the calendar means it went away in between:
     // it existed and is gone. Without a successful lookup a 404 means there
     // was no calendar to delete.
-    await assertDeleted(response, 'calendar', validated.calendar_url, { existedBefore: Boolean(target) });
+    try {
+      await assertDeleted(response, 'calendar', validated.calendar_url, { existedBefore: Boolean(target) });
+    } catch (error) {
+      // Nothing was there: if the URL is not one of the calendars either, say
+      // which ones there are, as every tool taking calendar_url does. Decided
+      // on the server's 404, not on a lookup that failed for another reason
+      // (a 401 would otherwise read as "no such calendar").
+      if (error.code === MCP_ERROR_CODES.NOT_FOUND_ERROR && !target) {
+        findCalendarOrThrow(await client.fetchCalendars(), validated.calendar_url);
+      }
+      throw error;
+    }
 
     return formatCalendarDeleteSuccess(validated.calendar_url);
   },

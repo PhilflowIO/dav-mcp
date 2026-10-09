@@ -1,7 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, davFieldMapSchema, dateOrDateTime, refineDateRange, davUrl, entityTag, etagQuotedByUs } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
-import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
+import { assertDavSuccess, etagAfterWrite, objectNotFoundError } from '../shared/helpers.js';
 import { z } from 'zod';
 import { writeEventFields, writesDates } from '../shared/ical-dates.js';
 import { fetchFloatingZone } from '../../calendar-zone.js';
@@ -171,7 +171,7 @@ export const updateEventFields = {
     });
 
     if (!currentEvents || currentEvents.length === 0) {
-      throw new Error('Event not found');
+      throw objectNotFoundError('event_url', validated.event_url, 'event', 'calendar_query or list_events');
     }
 
     const calendarObject = currentEvents[0];
@@ -220,6 +220,7 @@ export const updateEventFields = {
     });
     await assertDavSuccess(updateResponse, `update event ${validated.event_url}`, {
       quotedEtag: etagQuotedByUs(args.event_etag, validated.event_etag),
+      callerContent: { noun: 'event', fix: 'Correct the values in fields and send them again.' },
     });
 
     return formatSuccess('Event updated successfully', {

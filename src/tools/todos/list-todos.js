@@ -1,4 +1,5 @@
 import { tsdavManager } from '../../tsdav-client.js';
+import { findCalendarOrThrow } from '../shared/helpers.js';
 import { validateInput, listTodosSchema } from '../../validation.js';
 import { formatTodoList } from '../../formatters.js';
 import { fetchFloatingZone, withFloatingZone, withZoneNote } from '../../calendar-zone.js';
@@ -30,7 +31,7 @@ export const listTodos = {
     const validated = validateInput(listTodosSchema, args);
     const client = tsdavManager.getCalDavClient();
 
-    const calendar = { url: validated.calendar_url };
+    const calendar = findCalendarOrThrow(await client.fetchCalendars(), validated.calendar_url);
     // floating times and dates are read in the calendar's zone
     const zone = await fetchFloatingZone(client, calendar.url);
     const todos = withFloatingZone(await client.fetchTodos({ calendar }), zone);

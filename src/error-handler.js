@@ -1,3 +1,6 @@
+import { isDAVAuthenticationError, isDAVResponseError } from 'tsdav';
+import { settingsHint, configuredAuthMethod } from './auth-config.js';
+
 /**
  * MCP Standard Error Codes
  * Following JSON-RPC 2.0 error code specification
@@ -19,26 +22,29 @@ export const MCP_ERROR_CODES = {
   TIMEOUT_ERROR: -32005,
   NOT_FOUND_ERROR: -32006,
   CONFLICT_ERROR: -32007,
+  // dav-mcp's own settings are wrong: an unknown AUTH_METHOD, missing
+  // credentials, or a server URL that does not lead to a DAV server.
+  CONFIGURATION_ERROR: -32008,
 };
 
 /**
  * Error type to code mapping
  */
 const ERROR_TYPE_MAP = {
-  'TypeError': MCP_ERROR_CODES.INVALID_PARAMS,
   'ValidationError': MCP_ERROR_CODES.VALIDATION_ERROR,
   'AuthenticationError': MCP_ERROR_CODES.AUTH_ERROR,
   'NetworkError': MCP_ERROR_CODES.NETWORK_ERROR,
   'TimeoutError': MCP_ERROR_CODES.TIMEOUT_ERROR,
   'NotFoundError': MCP_ERROR_CODES.NOT_FOUND_ERROR,
   'ConflictError': MCP_ERROR_CODES.CONFLICT_ERROR,
+  'ConfigurationError': MCP_ERROR_CODES.CONFIGURATION_ERROR,
 };
 
 /**
  * Map the HTTP status a DAV server answered with to an MCP error code.
  * Statuses without a more specific meaning are internal errors, as before.
  */
-function codeForHttpStatus(status) {
+export function codeForHttpStatus(status) {
   switch (status) {
     case 401:
     case 403:
@@ -75,65 +81,83 @@ function codeForHttpStatus(status) {
   }
 }
 
+// What a fetch that never got an answer carries in its cause (Node.js and
+// undici): no route, no name, refused, reset, timed out.
+const NETWORK_CAUSES = new Set([
+  'ECONNREFUSED', 'ECONNRESET', 'ECONNABORTED', 'ENOTFOUND', 'EAI_AGAIN', 'ETIMEDOUT',
+  'EHOSTUNREACH', 'ENETUNREACH', 'EPIPE', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_BODY_TIMEOUT', 'UND_ERR_SOCKET',
+]);
+
+// The network code sits on the error or somewhere down its cause chain
+// (undici: TypeError('fetch failed') with the socket error as cause; dav-mcp
+// wraps such a failure in turn).
+function networkCause(error) {
+  for (let current = error, depth = 0; current && depth < 4; current = current.cause, depth += 1) {
+    if (typeof current.code === 'string' && NETWORK_CAUSES.has(current.code)) return current.code;
+  }
+  return null;
+}
+
 /**
- * Get error code based on error type or message
+ * The MCP code of an error, and a hint where the user fixes it.
+ *
+ * Only what an error is, never what its message says: the message usually
+ * carries a URL, and a calendar on caldav.icloud.com or one called
+ * "author-notes" read as a CalDAV or auth error (#115). In order:
+ * - an explicit numeric code (dav-mcp's typed errors set one);
+ * - dav-mcp's error classes by name;
+ * - errors tsdav throws for an error status (@philflow/tsdav 2.5.0): a
+ *   refused login (DAVAuthenticationError, also mid-session, e.g. an OAuth
+ *   refresh token that expired) and any other status (DAVResponseError);
+ * - a DAV request dav-mcp checked itself (httpStatus);
+ * - a fetch that never got an answer (its cause's network code);
+ * - anything else is a fault of dav-mcp or a library: internal. A plain
+ *   JavaScript TypeError is one of those, never the caller's input, since
+ *   tool parameters are validated before a handler runs.
+ *
+ * @returns {{code: number, hint?: string}}
  */
-function getErrorCode(error) {
-  // Check if error has explicit code
-  if (error.code && typeof error.code === 'number') {
-    return error.code;
+function classify(error) {
+  if (typeof error.code === 'number') {
+    return { code: error.code };
   }
-
-  // Map by error type
   if (error.name && ERROR_TYPE_MAP[error.name]) {
-    return ERROR_TYPE_MAP[error.name];
+    return { code: ERROR_TYPE_MAP[error.name] };
   }
-
-  // A rejected DAV request carries the server's status. Its message also
-  // carries the URL, so the substring guesses below would read a calendar
-  // called "author-notes" as an auth error, or one with "404" in its name as
-  // not found.
+  if (isDAVAuthenticationError(error)) {
+    return { code: MCP_ERROR_CODES.AUTH_ERROR, hint: settingsHint(configuredAuthMethod()) };
+  }
+  if (isDAVResponseError(error) && Number.isInteger(error.status)) {
+    return { code: codeForHttpStatus(error.status) };
+  }
   if (Number.isInteger(error.httpStatus)) {
-    return codeForHttpStatus(error.httpStatus);
+    // A 401 once logged in: the password was changed or revoked since (#123).
+    return {
+      code: codeForHttpStatus(error.httpStatus),
+      ...(error.httpStatus === 401 && { hint: settingsHint(configuredAuthMethod()) }),
+    };
   }
-
-  // Check error message for CalDAV/CardDAV specific errors
-  const message = error.message?.toLowerCase() || '';
-  if (message.includes('caldav')) {
-    return MCP_ERROR_CODES.CALDAV_ERROR;
+  const cause = networkCause(error);
+  if (cause) {
+    return {
+      code: MCP_ERROR_CODES.NETWORK_ERROR,
+      hint: `The DAV server could not be reached (${cause}). ${settingsHint(configuredAuthMethod())}`,
+    };
   }
-  if (message.includes('carddav')) {
-    return MCP_ERROR_CODES.CARDDAV_ERROR;
-  }
-  if (message.includes('auth') || message.includes('unauthorized') || message.includes('forbidden')) {
-    return MCP_ERROR_CODES.AUTH_ERROR;
-  }
-  if (message.includes('not found') || message.includes('404')) {
-    return MCP_ERROR_CODES.NOT_FOUND_ERROR;
-  }
-  if (message.includes('timeout')) {
-    return MCP_ERROR_CODES.TIMEOUT_ERROR;
-  }
-  if (message.includes('network') || message.includes('connection')) {
-    return MCP_ERROR_CODES.NETWORK_ERROR;
-  }
-  if (message.includes('validation') || message.includes('invalid')) {
-    return MCP_ERROR_CODES.VALIDATION_ERROR;
-  }
-
-  // Default to internal error
-  return MCP_ERROR_CODES.INTERNAL_ERROR;
+  return { code: MCP_ERROR_CODES.INTERNAL_ERROR };
 }
 
 /**
  * Format error into MCP-compliant structure
  */
 export function formatMCPError(error, includeStack = false) {
-  const code = getErrorCode(error);
+  const { code, hint } = classify(error);
+  const message = error.message || 'An error occurred';
 
   const errorResponse = {
     code,
-    message: error.message || 'An error occurred',
+    message: hint ? `${message.replace(/\.?$/, '.')} ${hint}` : message,
     data: {
       type: error.name || 'Error',
       ...(error.details && { details: error.details }),

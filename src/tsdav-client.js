@@ -1,6 +1,7 @@
-import { DAVClient } from 'tsdav';
+import { DAVClient, isDAVAuthenticationError, isDAVResponseError } from 'tsdav';
 import { logger } from './logger.js';
-import { CalDAVError, CardDAVError } from './error-handler.js';
+import { CalDAVError, CardDAVError, AuthenticationError, MCP_ERROR_CODES, codeForHttpStatus } from './error-handler.js';
+import { ConfigurationError, settingsHint } from './auth-config.js';
 import { RequestOrigins, activateRequestOrigins } from './request-origins.js';
 
 const DEFAULT_OAUTH_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -13,9 +14,10 @@ const DEFAULT_OAUTH_TOKEN_URL = 'https://oauth2.googleapis.com/token';
  * their own that reaches the token endpoint and nothing else.
  */
 class OriginCheckedDAVClient extends DAVClient {
-  constructor(params, origins) {
-    super({ ...params, fetch: origins.fetch() });
+  constructor(params, origins, answers) {
+    super({ ...params, fetch: answers.watch(origins.fetch()) });
     this.requestOrigins = origins;
+    this.answers = answers;
   }
 
   #checked(params, options) {
@@ -26,7 +28,8 @@ class OriginCheckedDAVClient extends DAVClient {
   // tsdav fetches OAuth tokens with the fetch it is handed here; whatever a
   // caller passes, token requests only go to the token endpoint.
   async authenticate(force, fetchOptions) {
-    return super.authenticate(force, fetchOptions, this.requestOrigins.tokenFetch());
+    return super.authenticate(force, fetchOptions,
+      this.answers.watch(this.requestOrigins.tokenFetch()));
   }
 
   async invoke(fn, params) {
@@ -57,6 +60,86 @@ class OriginCheckedDAVClient extends DAVClient {
   async fetchAddressBooks(params) {
     return super.fetchAddressBooks(this.#checked(params, { listingOf: this.account?.homeUrl }));
   }
+}
+
+/**
+ * Whether a login got any answer at all, to tell a server that cannot be
+ * reached from one that answered but not as a DAV server. Whether the
+ * credentials were refused is not read here: tsdav tries several URLs and the
+ * last answer need not be the refusal (Baïkal answers 401 on /dav.php/, then
+ * 405 on the server root); the error tsdav throws says so itself.
+ */
+class LoginAnswers {
+  constructor() {
+    this.answered = false;
+  }
+
+  /**
+   * @param {Function} fetchFn - the fetch to watch
+   * @returns {Function} a fetch that notes that an answer came
+   */
+  watch(fetchFn) {
+    return async (input, init) => {
+      const response = await fetchFn(input, init);
+      this.answered = true;
+      return response;
+    };
+  }
+}
+
+/**
+ * The code of a login answered with an error status other than 401. During
+ * login dav-mcp only asks the configured URL for its DAV account, so a 405
+ * (no PROPFIND there), a 404 or another 4xx means the server URL does not
+ * lead to a DAV server: dav-mcp's configuration, not a malformed request
+ * (405 is INVALID_REQUEST for a tool call). 401 (refused), 403, 408, 429 and
+ * 5xx keep their meaning.
+ */
+function loginStatusCode(status) {
+  if (status >= 400 && status < 500 && ![401, 403, 408, 429].includes(status)) {
+    return MCP_ERROR_CODES.CONFIGURATION_ERROR;
+  }
+  return codeForHttpStatus(status);
+}
+
+/**
+ * The error a failed login is reported as. Every one of them is fixed where
+ * dav-mcp's settings are kept, so each names that place (#123); the code says
+ * which kind of failure it was, instead of leaving it to the message.
+ *
+ * @param {Error} cause - what tsdav threw
+ * @param {object} config - the configuration the login used, tokenUrl resolved
+ * @param {LoginAnswers} answers - whether the server answered at all
+ * @returns {Error}
+ */
+function loginError(cause, config, answers) {
+  const hint = settingsHint(config.authMethod);
+  const refused = isDAVAuthenticationError(cause);
+  // An error status tsdav reports (@philflow/tsdav 2.5.0): its message alone
+  // ("cannot find principalUrl", "no access token") does not say which.
+  const status = isDAVResponseError(cause) && Number.isInteger(cause.status) ? cause.status : undefined;
+  // A refused DAV login already says "returned 401"; tsdav's other messages
+  // ("cannot find principalUrl", "no access token") name no status.
+  const answeredBy = status === undefined ? ''
+    : cause.url === config.tokenUrl ? ` (the token endpoint answered ${status})`
+      : refused ? '' : ` (the server answered ${status})`;
+  const code = Number.isInteger(cause.code) ? cause.code
+    : status !== undefined ? loginStatusCode(status)
+      : answers.answered ? MCP_ERROR_CODES.CONFIGURATION_ERROR
+        : MCP_ERROR_CODES.NETWORK_ERROR;
+  const notDav = !refused && code === MCP_ERROR_CODES.CONFIGURATION_ERROR
+    ? `The server URL does not lead to a CalDAV/CardDAV server. ` : '';
+  const message = `Login to ${config.serverUrl} failed: ${String(cause.message).replace(/\.$/, '')}${answeredBy}. ${notDav}${hint}`;
+
+  if (refused) {
+    return new AuthenticationError(message, { serverUrl: config.serverUrl, status, url: cause.url });
+  }
+  const error = new Error(message, { cause });
+  // A typed error (a redirect off the server, say) keeps its code; a status
+  // says what kind of failure it was (403 forbidden, 429 rate limited, ...).
+  error.code = code;
+  error.details = { serverUrl: config.serverUrl, ...(status !== undefined && { status, url: cause.url }) };
+  return error;
 }
 
 /**
@@ -98,29 +181,29 @@ class TsdavClientManager {
   async initialize(config) {
     this.config = config;
     this.authMethod = config.authMethod || 'Basic';
+    const answers = new LoginAnswers();
+    const useOAuth = this.authMethod === 'OAuth' || this.authMethod === 'Oauth';
+    const tokenUrl = useOAuth ? (config.tokenUrl || DEFAULT_OAUTH_TOKEN_URL) : undefined;
 
     try {
-      // Determine authentication method
-      const useOAuth = this.authMethod === 'OAuth' || this.authMethod === 'Oauth';
 
       if (!useOAuth && this.authMethod !== 'Basic' && this.authMethod !== 'Digest') {
-        throw new Error(`Unsupported authMethod '${this.authMethod}'. Use Basic, Digest or OAuth.`);
+        throw new ConfigurationError(`Unsupported authMethod '${this.authMethod}'. Use Basic, Digest or OAuth.`);
       }
 
       // A fresh policy per login: the clients built here may reach the
       // configured server, what it redirects the login to and the account it
       // describes; their token requests only the OAuth token endpoint
       // (see request-origins.js).
-      const tokenUrl = useOAuth ? (config.tokenUrl || DEFAULT_OAUTH_TOKEN_URL) : undefined;
       const origins = new RequestOrigins({ serverUrl: config.serverUrl, tokenUrl });
 
       let clients;
       if (useOAuth) {
         logger.info({ serverUrl: config.serverUrl }, 'Initializing tsdav clients with OAuth2');
-        clients = await this._initializeOAuth({ ...config, tokenUrl }, origins);
+        clients = await this._initializeOAuth({ ...config, tokenUrl }, origins, answers);
       } else {
         logger.info({ serverUrl: config.serverUrl }, `Initializing tsdav clients, ${this.authMethod} Auth configured`);
-        clients = await this._initializePasswordAuth(config, this.authMethod, origins);
+        clients = await this._initializePasswordAuth(config, this.authMethod, origins, answers);
       }
 
       // The account the server described (root, principal, calendar and
@@ -145,7 +228,8 @@ class TsdavClientManager {
         configuredAuthMethod: this.authMethod,
         ...(this.authMethod === 'Basic' && { note: 'Digest is used instead if the server only offers Digest' }),
       }, 'tsdav clients initialized and logged in');
-    } catch (error) {
+    } catch (cause) {
+      const error = cause.name === 'ConfigurationError' ? cause : loginError(cause, { ...config, tokenUrl }, answers);
       logger.error({
         error: error.message,
         serverUrl: config.serverUrl,
@@ -161,12 +245,13 @@ class TsdavClientManager {
    * @param {Object} config - Client configuration
    * @param {'Basic'|'Digest'} authMethod - tsdav auth method
    * @param {RequestOrigins} origins - where the clients may send requests
+   * @param {LoginAnswers} answers - records what the server answers
    * @returns {Promise<{calDavClient: DAVClient, cardDavClient: DAVClient}>} logged-in clients
    */
-  async _initializePasswordAuth(config, authMethod, origins) {
+  async _initializePasswordAuth(config, authMethod, origins, answers) {
     // Validate required fields
     if (!config.username || !config.password) {
-      throw new Error(`${authMethod} Auth requires username and password`);
+      throw new ConfigurationError(`${authMethod} Auth requires username and password`);
     }
 
     // CalDAV Client
@@ -178,7 +263,7 @@ class TsdavClientManager {
       },
       authMethod,
       defaultAccountType: 'caldav',
-    }, origins);
+    }, origins, answers);
 
     // CardDAV Client
     const cardDavClient = new OriginCheckedDAVClient({
@@ -189,7 +274,7 @@ class TsdavClientManager {
       },
       authMethod,
       defaultAccountType: 'carddav',
-    }, origins);
+    }, origins, answers);
 
     // Login to both clients
     await calDavClient.login();
@@ -206,15 +291,16 @@ class TsdavClientManager {
    * @private
    * @param {Object} config - Client configuration, tokenUrl resolved
    * @param {RequestOrigins} origins - where the clients may send requests
+   * @param {LoginAnswers} answers - records what the server answers
    * @returns {Promise<{calDavClient: DAVClient, cardDavClient: DAVClient}>} logged-in clients
    */
-  async _initializeOAuth(config, origins) {
+  async _initializeOAuth(config, origins, answers) {
     // Validate required OAuth fields
     if (!config.username) {
-      throw new Error('OAuth requires username (user email)');
+      throw new ConfigurationError('OAuth requires GOOGLE_USER (the account\'s email address)');
     }
     if (!config.clientId || !config.clientSecret || !config.refreshToken) {
-      throw new Error('OAuth requires clientId, clientSecret, and refreshToken');
+      throw new ConfigurationError('OAuth requires clientId, clientSecret, and refreshToken');
     }
 
     const tokenUrl = config.tokenUrl;
@@ -239,7 +325,7 @@ class TsdavClientManager {
       credentials: oauthCredentials,
       authMethod: 'Oauth', // Note: tsdav expects 'Oauth' with capital O
       defaultAccountType: 'caldav',
-    }, origins);
+    }, origins, answers);
 
     // CardDAV Client with OAuth
     // Note: Google Calendar doesn't support CardDAV, but we initialize it anyway
@@ -249,7 +335,7 @@ class TsdavClientManager {
       credentials: oauthCredentials,
       authMethod: 'Oauth',
       defaultAccountType: 'carddav',
-    }, origins);
+    }, origins, answers);
 
     // Login to CalDAV client
     await calDavClient.login();
