@@ -1,10 +1,10 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, todoQuerySchema } from '../../validation.js';
-import { formatTodoList } from '../../formatters.js';
+import { formatTodoList, withUnsearched } from '../../formatters.js';
 import { limitResults, DEFAULT_RESULT_LIMIT } from '../shared/helpers.js';
 import { dueSpan } from '../shared/ical-dates.js';
 import { todoStatus } from '../../ical-components.js';
-import { parseObjects, textValues, containsText, dateKey, orNull } from '../shared/query-objects.js';
+import { parseObjects, unsearchedObjects, textValues, containsText, dateKey, orNull } from '../shared/query-objects.js';
 import { floatingZoneFor, withFloatingZone } from '../../calendar-zone.js';
 
 /**
@@ -81,7 +81,8 @@ export const todoQuery = {
 
     // Client-side filtering (tsdav doesn't support server-side VTODO filtering
     // yet), on parsed values; see query-objects.js
-    let parsed = parseObjects(todos, 'vtodo');
+    const all = parseObjects(todos, 'vtodo');
+    let parsed = all;
 
     if (validated.summary_filter) {
       parsed = parsed.filter(({ main }) =>
@@ -116,6 +117,7 @@ export const todoQuery = {
       (p) => dateKey(p, 'due')
     );
 
-    return formatTodoList(items.map(({ object }) => object), calendarName, total);
+    const result = formatTodoList(items.map(({ object }) => object), calendarName, total);
+    return withUnsearched(result, unsearchedObjects(all, parsed), 'todos', 'list_todos');
   },
 };

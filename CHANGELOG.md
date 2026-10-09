@@ -144,6 +144,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   occurrence, not by the stored text.
 
 ### Fixed
+- **One contact or event with a huge parameter list no longer stalls the
+  server** (#109). ical.js reads parameters in time that grows with their
+  number times the line length: a 1 MB vCard line with 500 000 parameters
+  took 11 s to read, blocking every other request meanwhile, in listings,
+  filters and edits alike. dav-mcp now refuses a property with more than
+  1 000 parameters before parsing, vCards and calendar objects alike (real
+  ones carry fewer than ten). `update_contact`, `update_event` and
+  `update_todo` refuse to edit it with a validation error naming the
+  property; both take milliseconds now.
+- **Listings say which objects they could not read, and why.** An event,
+  contact or todo that does not parse (over the bound above, or not valid
+  iCalendar/vCard) used to show up as an empty "Untitled" entry, or not at
+  all once a query filter ran. Lists now count them up front and mark each
+  with the reason and the tools to replace or delete it; the query tools
+  name the ones no filter could search; `freebusy_query` reports its answer
+  as incomplete, naming the object, instead of losing its busy time
+  silently. The reason never quotes the stored text.
 - **An etag passed without its quotes no longer fails the write with 412**
   (#124). The update and delete tools sent the etag parameter unchanged as
   `If-Match`, so `abc123` instead of the `"abc123"` the server returned never

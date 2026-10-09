@@ -1,6 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, createEventSchema, sanitizeICalString, isDateOnly } from '../../validation.js';
 import ICAL from 'ical.js';
+import { parseICal } from '../../ical-parse.js';
 import { seriesMaster } from 'tsdav-utils';
 import { writeFields, assertEndAfterStart } from '../shared/ical-dates.js';
 import { floatingZoneFor } from '../../calendar-zone.js';
@@ -93,7 +94,7 @@ export const createEvent = {
       DTEND: validated.end_date,
     }, 'vevent', floatingZoneFor(calendar));
     // the order of times without a zone is only known once they are written
-    assertEndAfterStart(seriesMaster(new ICAL.Component(ICAL.parse(iCalString)), 'vevent'));
+    assertEndAfterStart(seriesMaster(new ICAL.Component(parseICal(iCalString)), 'vevent'));
 
     const response = await client.createCalendarObject({
       calendar,

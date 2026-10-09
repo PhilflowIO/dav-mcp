@@ -10,6 +10,7 @@
  */
 
 import ICAL from 'ical.js';
+import { parseICal, unreadableReason } from './ical-parse.js';
 import { readVCard, nameComponents, organizationText } from './vcard.js';
 import { readSeries, shownEvent, todoStatus } from './ical-components.js';
 import { shareTimezones, toInstant } from './tools/shared/ical-dates.js';
@@ -30,7 +31,7 @@ function parseICalEvent(icalData, timeRange = null, matches = null, resolved = n
     // the occurrence calendar_query's text filters read too (see shownEvent);
     // resolved there already for a listed event
     const shown = resolved ?? shownEvent(
-      setFloatingZone(shareTimezones(new ICAL.Component(ICAL.parse(icalData))), zone), timeRange, matches, budget);
+      setFloatingZone(shareTimezones(new ICAL.Component(parseICal(icalData))), zone), timeRange, matches, budget);
     if (!shown) {
       return {};
     }
@@ -73,7 +74,7 @@ function parseICalEvent(icalData, timeRange = null, matches = null, resolved = n
   } catch (error) {
     // the parser's message quotes the offending line: personal data, so only its type
     console.error(`Skipped a event that could not be parsed (${error.name})`);
-    return {};
+    return { unreadable: unreadableReason(error, 'iCalendar') };
   }
 }
 
@@ -152,7 +153,7 @@ function parseVCard(vcardData) {
   } catch (error) {
     // the parser's message quotes the offending line: personal data, so only its type
     console.error(`Skipped a contact that could not be parsed (${error.name})`);
-    return {};
+    return { unreadable: unreadableReason(error, 'vCard') };
   }
 }
 
@@ -448,9 +449,12 @@ function seriesLines(series) {
 /**
  * Format a single calendar event to Markdown
  */
-export function formatEvent(event, calendar = 'Unknown Calendar', timeRange = null, matches = null, shown = null, budget = undefined) {
+function eventEntry(event, calendar = 'Unknown Calendar', timeRange = null, matches = null, shown = null, budget = undefined) {
   const calendarName = collectionName(calendar, 'Unknown Calendar');
   const parsed = parseICalEvent(event.data, timeRange, matches, shown, budget, objectFloatingZone(event));
+  if (parsed.unreadable) {
+    return unreadableEntry('event', parsed.unreadable, event, ['Calendar', calendarName], 'update_event_raw', 'delete_event');
+  }
 
   const startDate = formatDateTime(parsed.dtstart, parsed.dtstartAt, parsed.zone);
   const endDate = formatDateTime(parsed.dtend, parsed.dtendAt, parsed.zone);
@@ -530,7 +534,12 @@ export function formatEvent(event, calendar = 'Unknown Calendar', timeRange = nu
   output += `- **Calendar**: ${calendarName}\n`;
   output += `- **URL**: ${event.url}\n`;
 
-  return output;
+  return { text: output, unreadable: null };
+}
+
+/** eventEntry as Markdown alone; takes the same arguments */
+export function formatEvent(...args) {
+  return eventEntry(...args).text;
 }
 
 /**
@@ -554,14 +563,18 @@ export function formatEventList(events, calendar = 'Unknown Calendar', timeRange
   }
 
   let output = foundLine('events', events.length, total);
+  let entries = '';
+  let unreadable = 0;
 
   events.forEach((event, index) => {
-    output += `### ${index + 1}. `;
     // one expansion budget for the whole list (one tool call), shared fairly
     const share = budget.take();
-    output += formatEvent(event, calendarName, timeRange, matches, shown?.get(event), share).replace(/^## /, '') + '\n';
+    const entry = eventEntry(event, calendarName, timeRange, matches, shown?.get(event), share);
+    if (entry.unreadable) unreadable++;
+    entries += `### ${index + 1}. ` + entry.text.replace(/^## /, '') + '\n';
     budget.give(share);
   });
+  output += unreadableLine(unreadable, 'events') + entries;
 
   output += `---\n<details>\n<summary>Raw Data (JSON)</summary>\n\n\`\`\`json\n`;
   output += JSON.stringify(toRawData(events), null, 2);
@@ -578,9 +591,12 @@ export function formatEventList(events, calendar = 'Unknown Calendar', timeRange
 /**
  * Format a single contact to Markdown
  */
-export function formatContact(contact, addressBook = 'Unknown Address Book') {
+function contactEntry(contact, addressBook = 'Unknown Address Book') {
   const addressBookName = collectionName(addressBook, 'Unknown Address Book');
   const parsed = parseVCard(contact.data);
+  if (parsed.unreadable) {
+    return unreadableEntry('contact', parsed.unreadable, contact, ['Address Book', addressBookName], 'update_contact_raw', 'delete_contact');
+  }
 
   let output = `## ${parsed.fullName || 'Unnamed Contact'}\n\n`;
 
@@ -653,7 +669,12 @@ export function formatContact(contact, addressBook = 'Unknown Address Book') {
   output += `- **Address Book**: ${addressBookName}\n`;
   output += `- **URL**: ${contact.url}\n`;
 
-  return output;
+  return { text: output, unreadable: null };
+}
+
+/** contactEntry as Markdown alone; takes the same arguments */
+export function formatContact(...args) {
+  return contactEntry(...args).text;
 }
 
 /**
@@ -679,11 +700,15 @@ export function formatContactList(contacts, addressBook = 'Unknown Address Book'
   }
 
   let output = foundLine('contacts', contacts.length, total, `the first ${contacts.length} by name`);
+  let entries = '';
+  let unreadable = 0;
 
   contacts.forEach((contact, index) => {
-    output += `### ${index + 1}. `;
-    output += formatContact(contact, addressBookName).replace(/^## /, '') + '\n';
+    const entry = contactEntry(contact, addressBookName);
+    if (entry.unreadable) unreadable++;
+    entries += `### ${index + 1}. ` + entry.text.replace(/^## /, '') + '\n';
   });
+  output += unreadableLine(unreadable, 'contacts') + entries;
 
   output += `---\n<details>\n<summary>Raw Data (JSON)</summary>\n\n\`\`\`json\n`;
   output += JSON.stringify(toRawData(contacts), null, 2);
@@ -956,7 +981,7 @@ export function formatCalendarAlreadyDeleted(calendarUrl) {
  */
 function parseVTodo(icalData, zone = null) {
   try {
-    const jcalData = ICAL.parse(icalData);
+    const jcalData = parseICal(icalData);
     const comp = setFloatingZone(new ICAL.Component(jcalData), zone);
     // the master, the todo update_todo edits, not whichever VTODO comes first
     const vtodo = readSeries(comp, 'vtodo')?.master;
@@ -982,7 +1007,7 @@ function parseVTodo(icalData, zone = null) {
   } catch (error) {
     // the parser's message quotes the offending line: personal data, so only its type
     console.error(`Skipped a todo that could not be parsed (${error.name})`);
-    return {};
+    return { unreadable: unreadableReason(error, 'iCalendar') };
   }
 }
 
@@ -1012,9 +1037,12 @@ function formatPriority(priority) {
 /**
  * Format a single todo to Markdown
  */
-export function formatTodo(todo, calendar = 'Unknown Calendar') {
+function todoEntry(todo, calendar = 'Unknown Calendar') {
   const calendarName = collectionName(calendar, 'Unknown Calendar');
   const parsed = parseVTodo(todo.data, objectFloatingZone(todo));
+  if (parsed.unreadable) {
+    return unreadableEntry('todo', parsed.unreadable, todo, ['Calendar', calendarName], 'update_todo_raw', 'delete_todo');
+  }
   const statusEmoji = getStatusEmoji(parsed.status);
 
   let output = `## ${statusEmoji} ${parsed.summary || 'Untitled Task'}\n\n`;
@@ -1054,7 +1082,12 @@ export function formatTodo(todo, calendar = 'Unknown Calendar') {
   output += `- **URL**: ${todo.url}\n`;
   output += `- **ETag**: ${todo.etag} *(required for updates)*\n`;
 
-  return output;
+  return { text: output, unreadable: null };
+}
+
+/** todoEntry as Markdown alone; takes the same arguments */
+export function formatTodo(...args) {
+  return todoEntry(...args).text;
 }
 
 /**
@@ -1072,11 +1105,15 @@ export function formatTodoList(todos, calendar = 'Unknown Calendar', total = nul
   }
 
   let output = foundLine('todos', todos.length, total);
+  let entries = '';
+  let unreadable = 0;
 
   todos.forEach((todo, index) => {
-    output += `### ${index + 1}. `;
-    output += formatTodo(todo, calendarName).replace(/^## /, '') + '\n';
+    const entry = todoEntry(todo, calendarName);
+    if (entry.unreadable) unreadable++;
+    entries += `### ${index + 1}. ` + entry.text.replace(/^## /, '') + '\n';
   });
+  output += unreadableLine(unreadable, 'todos') + entries;
 
   output += `---\n<details>\n<summary>Raw Data (JSON)</summary>\n\n\`\`\`json\n`;
   output += JSON.stringify(toRawData(todos), null, 2);
@@ -1088,6 +1125,67 @@ export function formatTodoList(todos, calendar = 'Unknown Calendar', total = nul
       text: output
     }]
   };
+}
+
+/**
+ * An object that could not be parsed, in a listing: not dropped, and not
+ * shown as an empty "Untitled" entry either. Its URL and etag are there to
+ * replace or delete it; its stored text is in the Raw Data block.
+ *
+ * @param {string} noun - event, contact, todo
+ * @param {string} reason - unreadableReason
+ * @param {{url: string, etag?: string}} object
+ * @param {[string, string]} collection - label and name
+ * @param {string} replaceTool
+ * @param {string} deleteTool
+ * @returns {{text: string, unreadable: string}}
+ */
+function unreadableEntry(noun, reason, object, [label, name], replaceTool, deleteTool) {
+  let text = `## Unreadable ${noun}\n\n`;
+  text += `- **Note**: could not be read — ${reason}. Its details are not shown; ${replaceTool} can replace it, ${deleteTool} remove it\n`;
+  text += `- **${label}**: ${name}\n`;
+  text += `- **URL**: ${object.url}\n`;
+  if (object.etag) text += `- **ETag**: ${object.etag}\n`;
+  return { text, unreadable: reason };
+}
+
+/** the line a listing opens with when some of its objects could not be read */
+function unreadableLine(count, noun) {
+  if (count === 0) return '';
+  const [these, are] = count === 1 ? [`1 of these ${noun}`, 'is'] : [`${count} of these ${noun}`, 'are'];
+  return `**${these} could not be read** and ${are} listed without details; the note on each says why.\n\n`;
+}
+
+/**
+ * How many skipped objects a notice names one by one: enough to act on, and a
+ * calendar full of them does not flood the answer.
+ */
+const LISTED_UNREADABLE = 10;
+
+/** the line for the skipped objects past LISTED_UNREADABLE, or '' */
+function moreLine(count) {
+  return count > LISTED_UNREADABLE ? `- and ${count - LISTED_UNREADABLE} more\n` : '';
+}
+
+/**
+ * Add the objects a query could not search to its result: they could not be
+ * read, so they match no filter — which must not read as "not there".
+ *
+ * @param {{content: Array<{type:string, text:string}>}} result - formatted list
+ * @param {Array<{object: {url: string}, reason: string}>} unsearched - unsearchedObjects
+ * @param {string} noun - events, contacts, todos
+ * @param {string} listTool - the tool that lists them unfiltered
+ */
+export function withUnsearched(result, unsearched, noun, listTool) {
+  if (!unsearched || unsearched.length === 0) return result;
+
+  let output = `\n\n---\nNot searched: **${unsearched.length}** ${noun} could not be read, so no filter can match them ` +
+    `(${listTool} lists them with the reason):\n\n`;
+  for (const { object, reason } of unsearched.slice(0, LISTED_UNREADABLE)) output += `- ${object.url} — ${reason}\n`;
+  output += moreLine(unsearched.length);
+
+  const [first, ...rest] = result.content;
+  return { ...result, content: [{ ...first, text: first.text + output }, ...rest] };
 }
 
 /**
@@ -1177,10 +1275,11 @@ export function formatFreeBusy({ busy, free, range, zone = null, zoneNote = null
   // a series too dense to expand fully may hold busy time not counted below,
   // so neither the free slots nor an empty busy list can be taken as certain
   if (incomplete.length > 0) {
-    output += `**Warning**: incomplete — ${incomplete.length === 1 ? 'a recurring event' : `${incomplete.length} recurring events`} could not be expanded fully (too many occurrences, or a series that cannot be read), so busy time from ${incomplete.length === 1 ? 'it' : 'them'} may be missing and the free time below is not certain:\n`;
-    incomplete.forEach(({ object, summary, reason }) => {
+    output += `**Warning**: incomplete — ${incomplete.length === 1 ? 'an event' : `${incomplete.length} events`} could not be read or expanded fully (an object that cannot be read, a series that cannot be read, or too many occurrences), so busy time from ${incomplete.length === 1 ? 'it' : 'them'} may be missing and the free time below is not certain:\n`;
+    incomplete.slice(0, LISTED_UNREADABLE).forEach(({ object, summary, reason }) => {
       output += `- ${summary || 'Untitled Event'} (${object.url})${reason ? `: cannot be read — ${reason}` : ''}\n`;
     });
+    output += moreLine(incomplete.length);
     output += '\n';
   }
 
@@ -1196,7 +1295,7 @@ export function formatFreeBusy({ busy, free, range, zone = null, zoneNote = null
 
   if (busy.length === 0) {
     output += incomplete.length > 0
-      ? `### Busy (0)\n\nNo busy time found, but the events named above could not be fully expanded.\n`
+      ? `### Busy (0)\n\nNo busy time found, but the events named above could not be read or fully expanded.\n`
       : `### Busy (0)\n\nNothing blocks this window.\n`;
   } else {
     output += `### Busy (${busy.length})\n\n`;

@@ -1,4 +1,5 @@
 import ICAL from 'ical.js';
+import { parseICal, unreadableReason } from '../../ical-parse.js';
 import { shareTimezones } from './ical-dates.js';
 import { setFloatingZone, objectFloatingZone } from '../../calendar-zone.js';
 import { readSeries, blocksTime } from '../../ical-components.js';
@@ -116,8 +117,9 @@ function mergeIntervals(intervals) {
  * }} blocking: each object that makes up busy time, in input order, with the
  *   occurrences of it that do (`shown`, as formatEvent takes it) — not the
  *   objects the server returned for the range that block none of it.
- *   incomplete: series too dense to expand fully (the iteration cap): busy
- *   time from them may be missing, so the free time is not certain.
+ *   incomplete: series too dense to expand fully (the iteration cap), and
+ *   objects that could not be read at all: busy time from them may be
+ *   missing, so the free time is not certain.
  */
 export function calculateFreeBusy(calendarObjects, range) {
   const window = { start: range.start.getTime(), end: range.end.getTime() };
@@ -131,9 +133,11 @@ export function calculateFreeBusy(calendarObjects, range) {
   for (const object of calendarObjects) {
     let root;
     try {
-      root = setFloatingZone(shareTimezones(new ICAL.Component(ICAL.parse(object.data))), objectFloatingZone(object));
-    } catch {
-      // A single unparseable object must not take the whole answer down
+      root = setFloatingZone(shareTimezones(new ICAL.Component(parseICal(object.data))), objectFloatingZone(object));
+    } catch (error) {
+      // A single unparseable object must not take the whole answer down,
+      // nor its busy time vanish unsaid: the answer is incomplete
+      incomplete.push({ object, summary: '', reason: unreadableReason(error, 'iCalendar') });
       continue;
     }
     const share = budget.take();

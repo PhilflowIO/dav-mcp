@@ -1,4 +1,5 @@
 import ICAL from 'ical.js';
+import { parseICal, assertParseBounded } from '../../ical-parse.js';
 import { updateFields, seriesMaster, resolveZone, parseDateValue } from 'tsdav-utils';
 import { serverZone, floatingZoneOf, zoneInstant, zoneWall } from '../../calendar-zone.js';
 import { explainWriteRefusal } from '../../ical-components.js';
@@ -52,8 +53,12 @@ import { ValidationError } from '../../error-handler.js';
  * @param {Object} [zone] - the calendar's zone (floatingZoneFor /
  *   fetchFloatingZone); the server's when not given
  * @returns {string} the rewritten object
+ * @throws {ValidationError} TOO_MANY_PARAMETERS for an object dav-mcp does
+ *   not parse (assertParseBounded), before the library sees it
  */
 export function writeFields(object, fields, type, zone = null) {
+  // updateFields parses the object with ical.js too; see ical-parse.js
+  assertParseBounded(object);
   let options = { floatingTime: 'local', absoluteTime: 'keep-zone', type };
   let values = fields;
   if (type) {
@@ -528,7 +533,7 @@ function frameOf(property) {
 function editComponent(iCalString, name, edit) {
   let calendar;
   try {
-    calendar = new ICAL.Component(ICAL.parse(iCalString));
+    calendar = new ICAL.Component(parseICal(iCalString));
   } catch (error) {
     throw new Error(`Failed to parse iCal data: ${error.message}`);
   }
