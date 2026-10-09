@@ -1,0 +1,86 @@
+name: Mirror CI images
+
+# Copies every container image CI pulls (.github/ci-images.txt) to
+# ghcr.io/philflowio/ci-mirror/<name>, all platforms, digest unchanged. The
+# image jobs pull only from there, logged in with their GITHUB_TOKEN: GitHub
+# runners share their IPs, and every public registry rate-limits anonymous
+# pulls per IP (Docker Hub in #140, ECR Public in #142).
+#
+# The packages are private. A package created by a workflow with the
+# GITHUB_TOKEN grants this repository access to it, so its workflows can pull
+# it; nobody else can, and none of it counts as a public artifact of this
+# project.
+#
+# docker.yml and publish-image.yml call this before they build, so a digest
+# bumped in a pull request is copied before the same run needs it. An image
+# already on ghcr.io is only checked, not copied again. On a pull request
+# from a fork the token cannot write packages: a digest that is not mirrored
+# yet fails here with a message, and a maintainer runs this workflow from a
+# branch of this repository that carries the new digest.
+# The monthly run proves the mirror still serves every pinned digest.
+on:
+  workflow_call:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 5 1 * *'
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    name: Mirror CI images
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      # The Dockerfile and the CalDAV script fall back to public references
+      # for builds outside CI; those must name the digests copied here.
+      - name: Public defaults match the manifest
+        run: .github/scripts/ci-images.sh check
+
+      - name: Log in to GitHub Container Registry
+        env:
+          ACTOR: ${{ github.actor }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          skopeo --version
+          printf '%s' "$TOKEN" | skopeo login ghcr.io --username "$ACTOR" --password-stdin
+
+      # --all copies every platform plus the index, --preserve-digests refuses
+      # any copy that would change a digest. The source is pulled by digest,
+      # so a moved tag upstream cannot change what lands here. The mirror is
+      # then read back by digest and hashed, independent of what skopeo said.
+      - name: Copy missing images and verify digests
+        run: |
+          status=0
+          .github/scripts/ci-images.sh list > "$RUNNER_TEMP/ci-images"
+          while read -r name source target digest; do
+            mirror="${target%:*}@${digest}"
+            if skopeo inspect --raw "docker://${mirror}" < /dev/null > /dev/null 2>&1; then
+              echo "${name}: ${mirror} already mirrored"
+            else
+              echo "${name}: copying ${source} to ${target}"
+              if ! skopeo copy --all --preserve-digests --retry-times 5 "docker://${source}" "docker://${target}" < /dev/null; then
+                echo "::error::${name}: could not copy ${source} to ${target}. On a pull request from a fork the token cannot write packages: a maintainer copies the image by running this workflow from a branch of this repository that carries the new digest."
+                status=1
+                continue
+              fi
+            fi
+            served="sha256:$(skopeo inspect --raw "docker://${mirror}" < /dev/null | sha256sum | cut -d' ' -f1)"
+            if [ "$served" != "$digest" ]; then
+              echo "::error::${name}: ${mirror} serves a manifest with digest ${served}"
+              status=1
+              continue
+            fi
+            echo "${name}: ${mirror} verified"
+          done < "$RUNNER_TEMP/ci-images"
+          exit "$status"

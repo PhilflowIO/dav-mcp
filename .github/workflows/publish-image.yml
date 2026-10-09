@@ -13,16 +13,34 @@ on:
         description: 'Move the latest tag to this image (false for a prerelease)'
         required: true
         type: boolean
-  # Builds the dispatched ref, tag or branch, and pushes it as sha-<commit>
-  # only. Version tags and latest move only when release.yml calls this
-  # workflow (see "Derive tags").
+  # Builds the dispatched ref, tag or branch, or the tag given here, and
+  # pushes it as sha-<commit> only. Version tags and latest move only when
+  # release.yml calls this workflow (see "Derive tags").
+  # A tag older than this workflow is rebuilt by dispatching on main with the
+  # tag as input: the workflow, the CI scripts and the image mirror then come
+  # from main, and only the image is built from the tag. Dispatched on the old
+  # tag itself, the old workflow and scripts would run (#142).
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build, e.g. v4.3.1 (empty: the ref this runs on)'
+        required: false
+        type: string
 
 env:
   IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
+  # Every image this workflow pulls, apart from the published one, comes from
+  # our own registry (#142); this copies any digest not mirrored yet.
+  mirror:
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/mirror-ci-images.yml
+
   publish:
+    needs: mirror
     runs-on: ubuntu-latest
 
     permissions:
@@ -40,19 +58,65 @@ jobs:
           ref: ${{ inputs.tag }}
           persist-credentials: false
 
+      # The CI scripts and the image list come from this workflow's own
+      # commit, not from the tag: they are tooling, and a tag made before a
+      # change to them would otherwise run the old ones (#142). From
+      # release.yml both are the same commit anyway.
+      - name: Checkout CI scripts
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+          path: .ci
+          persist-credentials: false
+          sparse-checkout: |
+            .github/scripts
+            .github/ci-images.txt
+          sparse-checkout-cone-mode: false
+
+      - name: Resolve mirrored CI images
+        id: images
+        run: .ci/.github/scripts/ci-images.sh refs | tee -a "$GITHUB_OUTPUT"
+
+      # The base images, unlike the tooling, are what the tag pins: built from
+      # the mirror only when the tag lists them in its own ci-images.txt. A
+      # tag from before the mirror builds from the public references in its
+      # Dockerfile.
+      - name: Base images of the tag
+        id: base
+        run: |
+          {
+            echo 'build-args<<EOF'
+            if [ -f .github/ci-images.txt ]; then
+              .ci/.github/scripts/ci-images.sh refs .github/ci-images.txt > "$RUNNER_TEMP/base"
+              sed -n 's/^node=/NODE_IMAGE=/p; s/^distroless_nodejs22=/RUNTIME_IMAGE=/p' "$RUNNER_TEMP/base"
+            fi
+            echo 'EOF'
+            echo "sha=$(git rev-parse HEAD)"
+            echo "short-sha=$(git rev-parse --short=7 HEAD)"
+          } | tee -a "$GITHUB_OUTPUT"
+          [ -f .github/ci-images.txt ] || echo "::notice::$(git describe --tags --always) has no .github/ci-images.txt; its base images come from the public registries in its Dockerfile"
+
+      # Before QEMU and Buildx: both start containers from mirrored images,
+      # and BuildKit pulls the base images with these credentials too. The
+      # same login pushes the image at the end.
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       # QEMU runs the arm64 variant for the boot smoke test below. The build
       # itself avoids emulation for npm ci (deps stage runs on BUILDPLATFORM).
-      # QEMU and BuildKit come from ECR Public, not Docker Hub (#140), pinned to
-      # the same multi-arch index digests Docker Hub serves.
       - name: Set up QEMU
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
         with:
-          image: public.ecr.aws/vend/tonistiigi/binfmt:latest@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
+          image: ${{ steps.images.outputs.binfmt }}
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
         with:
-          driver-opts: image=public.ecr.aws/vend/moby/buildkit:buildx-stable-1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
+          driver-opts: image=${{ steps.images.outputs.buildkit }}
 
       # Built and smoke-tested before anything is pushed, so a release can
       # never publish an image that was not observed booting.
@@ -62,12 +126,15 @@ jobs:
           context: .
           load: true
           tags: dav-mcp:verify
+          build-args: ${{ steps.base.outputs.build-args }}
           cache-from: type=gha
 
       # The server exits 1 when CalDAV initialization fails
       # (src/server-http.js:166), so the smoke test needs a real backend.
       - name: Start CalDAV backend
-        run: .github/scripts/start-radicale.sh
+        env:
+          PYTHON_IMAGE: ${{ steps.images.outputs.python }}
+        run: .ci/.github/scripts/start-radicale.sh
 
       - name: Verify image boots and reports healthy
         run: |
@@ -99,6 +166,7 @@ jobs:
           platforms: linux/arm64
           load: true
           tags: dav-mcp:verify-arm64
+          build-args: ${{ steps.base.outputs.build-args }}
           cache-from: type=gha
 
       # Same backend as the amd64 check; the arm64 container runs under QEMU,
@@ -127,13 +195,6 @@ jobs:
           docker logs dav-mcp-arm64
           exit 1
 
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Derive tags
         id: meta
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
@@ -147,11 +208,17 @@ jobs:
           # off for a prerelease.
           flavor: |
             latest=false
+          # In a called workflow github.event_name is the caller's (push), so
+          # only a manual dispatch sees workflow_dispatch here. The sha tag
+          # and the revision label name the commit that was built, which on a
+          # dispatch with a tag input is not the commit this workflow runs on.
           tags: |
-            type=semver,pattern={{version}},value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
-            type=raw,value=latest,enable=${{ inputs.latest == true }}
-            type=sha,enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=semver,pattern={{version}},value=${{ inputs.tag }},enable=${{ github.event_name != 'workflow_dispatch' }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.tag }},enable=${{ github.event_name != 'workflow_dispatch' }}
+            type=raw,value=latest,enable=${{ github.event_name != 'workflow_dispatch' && inputs.latest == true }}
+            type=raw,value=sha-${{ steps.base.outputs.short-sha }},enable=${{ github.event_name == 'workflow_dispatch' }}
+          labels: |
+            org.opencontainers.image.revision=${{ steps.base.outputs.sha }}
 
       # docker format keeps HEALTHCHECK, which the OCI format drops.
       - name: Build and push
@@ -163,6 +230,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: ${{ steps.base.outputs.build-args }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: false
@@ -188,10 +256,14 @@ jobs:
             arch: arm64
             machine: aarch64
 
-    # The package is public and pulled anonymously, the way a user pulls it.
-    # If it ever turns private this job fails on the pull instead of passing
-    # on credentials a user does not have.
-    permissions: {}
+    # The package is public and pulled anonymously, the way a user pulls it:
+    # the pull below runs before the registry login, so if the package ever
+    # turns private this job fails on the pull instead of passing on
+    # credentials a user does not have. packages: read is for the CalDAV
+    # backend's mirrored Python image, pulled after the login.
+    permissions:
+      contents: read
+      packages: read
 
     steps:
       - name: Runner is native ${{ matrix.arch }}
@@ -216,14 +288,31 @@ jobs:
           [ "$arch" = "${{ matrix.arch }}" ] || { echo "::error::expected ${{ matrix.arch }} image, got '${arch}'"; exit 1; }
 
       # Only for the CalDAV backend script; the image itself is pulled above.
+      # From this workflow's own commit, as in the publish job.
       - name: Checkout CI scripts
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ github.sha }}
           persist-credentials: false
-          sparse-checkout: .github/scripts
+          sparse-checkout: |
+            .github/scripts
+            .github/ci-images.txt
+          sparse-checkout-cone-mode: false
+
+      - name: Resolve mirrored CI images
+        id: images
+        run: .github/scripts/ci-images.sh refs | tee -a "$GITHUB_OUTPUT"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Start CalDAV backend
+        env:
+          PYTHON_IMAGE: ${{ steps.images.outputs.python }}
         run: .github/scripts/start-radicale.sh
 
       - name: Verify published image boots and reports healthy

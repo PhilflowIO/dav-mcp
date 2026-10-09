@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- CI pulls its container images (Node, distroless, Python, BuildKit, QEMU)
+  only from a private mirror on ghcr.io, logged in, instead of anonymously
+  from rate-limited public registries; the Dockerfile still builds from the
+  public images with the same digests (#142).
+
 ## [5.0.0] - 2026-10-09
 
 ### Breaking changes

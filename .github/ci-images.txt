@@ -1,0 +1,18 @@
+# Every container image CI pulls, pinned to its multi-arch index digest.
+#
+# CI never pulls these from the source registry: GitHub runners share their
+# IPs, and every public registry rate-limits anonymous pulls per IP (Docker
+# Hub, then ECR Public, #140 and #142). mirror-ci-images.yml copies each image
+# with all its platforms and the digest unchanged to
+# ghcr.io/philflowio/ci-mirror/<name>:<tag> (private packages), and the CI
+# jobs pull from there, logged in with their GITHUB_TOKEN.
+#
+# Columns: <name> <source>:<tag>@<digest> <file that carries the public default, or ->
+# The third column is checked: a Dockerfile or script that falls back to a
+# public reference must name exactly this one, so a build outside CI pulls
+# the same bytes. To bump an image, see "CI image mirror" in CONTRIBUTING.md.
+node                public.ecr.aws/docker/library/node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 Dockerfile
+distroless-nodejs22 gcr.io/distroless/nodejs22-debian12:nonroot@sha256:13593b7570658e8477de39e2f4a1dd25db2f836d68a0ba771251572d23bb4f8e Dockerfile
+python              public.ecr.aws/docker/library/python:3.13-alpine@sha256:2d9aefe2fef018a7eb2c13064c89c71929800fd2e5dccdbf52ea5da5bb8d929a .github/scripts/start-radicale.sh
+buildkit            docker.io/moby/buildkit:buildx-stable-1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea -
+binfmt              docker.io/tonistiigi/binfmt:latest@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0 -

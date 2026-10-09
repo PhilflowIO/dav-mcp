@@ -179,7 +179,43 @@ accepted for an npm publish too.
 A failed run is re-run with "Re-run failed jobs", which keeps the tarball that
 was already packed. A version that is on npm is never replaced. The bundle,
 registry and image workflows can also be started by hand for an existing
-release tag (Actions, "Run workflow").
+release tag (Actions, "Run workflow"). For the image, start "Publish Container
+Image" on `main` and enter the tag: it then builds the tag with the current
+workflow and CI scripts. Started on the tag itself, it runs the workflow as it
+was at that tag, and tags older than the CI image mirror fail there. A manual
+run only pushes `sha-<commit>`; version tags and `latest` move only in a
+release.
+
+## CI image mirror
+
+CI pulls no container image anonymously from a public registry. GitHub
+runners share their IPs, and Docker Hub and ECR Public both rate-limit
+anonymous pulls per IP, which failed builds and a release (#140, #142). Every
+image CI pulls is listed with its digest in `.github/ci-images.txt` and
+copied, with all platforms and the same digest, to
+`ghcr.io/philflowio/ci-mirror/<name>`. These packages are private; the
+workflows of this repository pull them with their `GITHUB_TOKEN`. The
+Dockerfile keeps the public references with the same digests as defaults, so
+it builds the same image anywhere else.
+
+`.github/workflows/mirror-ci-images.yml` does the copying. `docker.yml` and
+`publish-image.yml` call it before they build, so a new digest is copied in
+the same run that first needs it; it also runs monthly and can be started by
+hand. It fails if a copy would change a digest, or if the Dockerfile or
+`start-radicale.sh` fall back to a different public reference than the list.
+
+To move an image to a new digest:
+
+1. Look up the multi-arch index digest of the tag, e.g.
+   `docker buildx imagetools inspect public.ecr.aws/docker/library/node:22-alpine`
+   (the `Digest:` line at the top, not a per-platform one).
+2. Change it in `.github/ci-images.txt` and, for `node`,
+   `distroless-nodejs22` and `python`, in the default in `Dockerfile` or
+   `.github/scripts/start-radicale.sh`.
+3. Open the pull request from a branch of this repository. Its "Docker
+   Image" run copies the new digest before the builds pull it. A pull request
+   from a fork has a read-only token and cannot copy: a maintainer pushes the
+   change to a branch here, or runs "Mirror CI images" from one.
 
 ## Security issues
 

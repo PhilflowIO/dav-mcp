@@ -20,3 +20,4 @@ full-test.js
 *.swo
 .DS_Store
 Thumbs.db
+.ci
