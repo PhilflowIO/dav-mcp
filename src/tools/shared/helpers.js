@@ -1,4 +1,6 @@
 import { MCP_ERROR_CODES } from '../../error-handler.js';
+import { settingsHint } from '../../auth-config.js';
+import { tsdavManager } from '../../tsdav-client.js';
 /**
  * Shared helper functions for tool implementations
  */
@@ -289,7 +291,9 @@ export function davFailureError(failure, prefix, suffix = '') {
     ? `server returned an unreadable response (status ${failure.status})`
     : `server responded ${failure.status} ${failure.statusText}`.trim() +
       (failure.message ? `: ${failure.message}` : '');
-  const error = new Error(`${prefix}: ${reason}${suffix}`);
+  // A 401 once logged in: the password was changed or revoked since (#123).
+  const hint = failure.status === 401 ? ` ${settingsHint(tsdavManager.authMethod)}` : '';
+  const error = new Error(`${prefix}: ${reason}${suffix}${hint}`);
   // The error handler derives the MCP error code from this, not from the
   // message, which contains the URL.
   error.httpStatus = failure.status;

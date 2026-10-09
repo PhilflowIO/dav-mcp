@@ -35,6 +35,7 @@ jest.unstable_mockModule('../src/tsdav-client.js', () => ({
 }));
 
 const { assertDavSuccess, davFailure } = await import('../src/tools/shared/helpers.js');
+const { formatMCPError, MCP_ERROR_CODES } = await import('../src/error-handler.js');
 const { createEvent } = await import('../src/tools/calendar/create-event.js');
 const { updateEventRaw } = await import('../src/tools/calendar/update-event-raw.js');
 const { createContact } = await import('../src/tools/contacts/create-contact.js');
@@ -216,5 +217,23 @@ describe('every write tool reports a refused write', () => {
     caldav.createTodo.mockResolvedValue(fetchResponse(201, 'Created'));
     const result = await createTodo.handler({ calendar_url: CALENDAR_URL, summary: 'x' });
     expect(result.content[0].text).toContain('Todo created successfully');
+  });
+});
+
+// A 401 after a working login means the password changed or was revoked;
+// the user fixes that where dav-mcp's settings are kept (#123).
+describe('a write refused with 401', () => {
+  test('is an authentication error that says where the password is set', async () => {
+    caldav.updateCalendarObject.mockResolvedValue(fetchResponse(401, 'Unauthorized'));
+    const error = await updateEventRaw.handler({
+      event_url: `${CALENDAR_URL}a.ics`,
+      event_etag: '"1"',
+      updated_ical_data: 'BEGIN:VCALENDAR\r\nEND:VCALENDAR',
+    }).catch(e => e);
+
+    expect(formatMCPError(error).code).toBe(MCP_ERROR_CODES.AUTH_ERROR);
+    expect(error.message).toContain('401 Unauthorized');
+    expect(error.message).toContain('Configure options');
+    expect(error.message).toContain('CALDAV_PASSWORD');
   });
 });

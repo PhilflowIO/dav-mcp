@@ -12,6 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `engines`, the MCP Bundle's runtime range and the CI matrix now start at 22,
   and the Node.js 18 workarounds (WebCrypto shim, Digest startup error) are
   removed (#85).
+- **A failed login is a tool error with its own code** (#123). Over stdio,
+  a login that failed at startup is retried on the first tool call; its
+  failure used to escape the call as a JSON-RPC internal error (-32603). It
+  is now the tool's error result: an authentication error (-32003) when the
+  server or the OAuth token endpoint refused the credentials, a network
+  error (-32004) when the server could not be reached, a CalDAV error
+  (-32000) when it answered but not as a DAV server. OAuth without
+  `GOOGLE_USER` now stops the server at startup, like every other missing
+  setting, instead of failing each tool call.
 - **Write tools refuse parameters they do not take.** A create, update or
   delete call with an unknown parameter is a validation error naming it,
   instead of succeeding without it (#126).
@@ -114,6 +123,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   compares strongly, so it could only end in a 412. A stale etag is still
   refused with 412, quoted or not; when dav-mcp added the quotes, the error
   says so, since a server that does not quote its ETags fails the same way.
+- **A failed login says where to fix the settings** (#123). The hint used to
+  point only at a `.env` file, which users of the Claude Code plugin and
+  the Claude Desktop extension do not have (and it sat in a function nothing
+  called, so the message carried no hint at all). A refused or failed login,
+  and a write refused with 401 later on, now name the server and the three
+  places the settings live: the plugin's options (`/plugin` → Installed →
+  dav-mcp → Configure options), the extension's settings in Claude Desktop,
+  and the `CALDAV_*` environment variables (MCP client config, `docker -e`
+  or `.env`) for npx, Docker and checkouts. dav-mcp cannot tell which of
+  them started it, so it names all three; with OAuth, which only the
+  environment variables set up, it names the `GOOGLE_*` variables.
 - **Cancelling one occurrence no longer brings back the ones cancelled
   before** (#126). `update_event` wrote `fields.EXDATE` as the complete list of
   exclusions, so a model that wrote one date to cancel one more occurrence

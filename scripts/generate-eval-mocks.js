@@ -228,8 +228,9 @@ async function run(toolName, args, scenario = {}) {
 /**
  * Start the real stdio server against a local listener that answers every
  * request with 401, call one tool through the MCP SDK client, and return the
- * text a client gets. dav-mcp logs in before any tool runs, so this failure
- * arrives as a JSON-RPC error, not as a tool result.
+ * text a client gets. The login is retried on the tool call and its failure
+ * comes back as the tool's error result; a JSON-RPC error is still caught
+ * below, so a regression shows up in the mock rather than crashing the run.
  */
 async function captureLoginFailure(toolName, args) {
   const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');

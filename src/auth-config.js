@@ -25,6 +25,34 @@ export class ConfigurationError extends Error {
   }
 }
 
+/**
+ * Where the user changes the settings a failed login depends on.
+ *
+ * dav-mcp only sees environment variables, and the three ways it is started
+ * fill them from three different places: the Claude Code plugin from its
+ * plugin options, the Claude Desktop extension (MCP bundle) from its
+ * extension settings, npx, Docker or a checkout from the MCP client's config,
+ * `docker -e` or the checkout's .env file. Nothing tells the server which one
+ * started it, so the hint names all of them rather than guess (#123). OAuth
+ * is only set up through environment variables; the plugin and the extension
+ * offer no OAuth settings.
+ *
+ * @param {'Basic'|'Digest'|'OAuth'} [authMethod] - the configured method
+ * @returns {string} one sentence, to append to an error message
+ */
+export function settingsHint(authMethod) {
+  if (authMethod === 'OAuth') {
+    return 'Check GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN, GOOGLE_USER and ' +
+      'GOOGLE_SERVER_URL in the environment dav-mcp is started with ' +
+      '(the MCP client\'s config, docker -e, or .env in a checkout).';
+  }
+  return 'Check the server URL, username and password where dav-mcp was set up: ' +
+    'Claude Code plugin: /plugin → Installed → dav-mcp → Configure options; ' +
+    'Claude Desktop extension: Settings → Extensions → dav-mcp; ' +
+    'npx, Docker or a checkout: CALDAV_SERVER_URL, CALDAV_USERNAME and CALDAV_PASSWORD ' +
+    '(the MCP client\'s config, docker -e, or .env).';
+}
+
 const AUTH_METHODS = {
   basic: 'Basic',
   digest: 'Digest',

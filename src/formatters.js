@@ -1086,48 +1086,6 @@ export function withMissingObjects(result, missing) {
 }
 
 /**
- * Format error message in a user-friendly way
- */
-export function formatError(error, context = '') {
-  let output = `❌ **Error${context ? ` in ${context}` : ''}**\n\n`;
-
-  // Provide actionable error messages
-  const errorMsg = error.message || String(error);
-
-  if (errorMsg.includes('not found')) {
-    output += `The specified resource was not found.\n\n`;
-    output += `**Possible solutions:**\n`;
-    output += `- Check the URL\n`;
-    output += `- Ensure the resource exists\n`;
-    output += `- Refresh the resource list\n`;
-  } else if (errorMsg.includes('auth') || errorMsg.includes('401')) {
-    output += `Authentication failed.\n\n`;
-    output += `**Possible solutions:**\n`;
-    output += `- Check username and password\n`;
-    output += `- Ensure the server is reachable\n`;
-    output += `- Verify server settings in .env file\n`;
-  } else if (errorMsg.includes('etag') || errorMsg.includes('412')) {
-    output += `The resource was modified in the meantime.\n\n`;
-    output += `**Possible solutions:**\n`;
-    output += `- Reload the current version of the resource\n`;
-    output += `- Use the current ETag\n`;
-  } else {
-    output += `${errorMsg}\n`;
-  }
-
-  output += `\n---\n<details>\n<summary>Technical Details</summary>\n\n\`\`\`\n`;
-  output += error.stack || errorMsg;
-  output += '\n```\n</details>';
-
-  return {
-    content: [{
-      type: 'text',
-      text: output
-    }]
-  };
-}
-
-/**
  * Format a free/busy answer to LLM-friendly Markdown
  *
  * Free slots come first: the question behind this tool is almost always "when
