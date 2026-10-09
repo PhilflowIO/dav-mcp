@@ -3,6 +3,7 @@ import { validateInput, createTodoSchema, sanitizeICalString } from '../../valid
 import { formatSuccess } from '../../formatters.js';
 import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
 import { writeFields } from '../shared/ical-dates.js';
+import { fetchFloatingZone } from '../../calendar-zone.js';
 
 /**
  * Create a new todo/task in a calendar
@@ -34,7 +35,7 @@ export const createTodo = {
       },
       due_date: {
         type: 'string',
-        description: 'Optional due date in ISO 8601: with a zone (2025-12-31T23:59:59+02:00), without one (read in the timezone of the computer running dav-mcp), or a date (2025-12-31) for a todo due that day',
+        description: 'Optional due date in ISO 8601: with a zone (2025-12-31T23:59:59+02:00), without one (read in the calendar\'s time zone), or a date (2025-12-31) for a todo due that day',
       },
       priority: {
         type: 'number',
@@ -92,7 +93,8 @@ export const createTodo = {
     if (validated.due_date) {
       dates.DUE = validated.due_date;
     }
-    const iCalString = writeFields(vtodo, dates, 'vtodo');
+    const iCalString = writeFields(vtodo, dates, 'vtodo',
+      validated.due_date ? await fetchFloatingZone(client, validated.calendar_url) : null);
 
     const result = await client.createTodo({
       calendar: { url: validated.calendar_url },

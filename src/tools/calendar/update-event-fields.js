@@ -3,7 +3,8 @@ import { validateInput, davFieldMapSchema, dateOrDateTime, refineDateRange, davU
 import { formatSuccess } from '../../formatters.js';
 import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
 import { z } from 'zod';
-import { writeEventFields } from '../shared/ical-dates.js';
+import { writeEventFields, writesDates } from '../shared/ical-dates.js';
+import { fetchFloatingZone } from '../../calendar-zone.js';
 import { assertFieldUpdatable, describeSeriesChange } from '../../ical-components.js';
 import {
   occurrenceEditSchema, refineOccurrenceEdits, editOccurrences, notChanged, nothingWritten,
@@ -128,7 +129,7 @@ export const updateEventFields = {
       },
       start_date: {
         type: 'string',
-        description: 'New start. For a recurring event this is the start of the SERIES (its first occurrence, DTSTART), not of the occurrence a listing showed: every occurrence moves by the difference. To shift every occurrence by an hour, give the series start plus one hour; to cancel one occurrence use cancel_occurrences, to move one use calendar_multi_get and update_event_raw. A datetime ("2026-05-25T10:00:00Z", or with an offset) makes the event timed; a bare date ("2026-05-25") makes it all-day. A datetime with a zone is that instant, written in the event\'s own timezone if it has one (so a series in Europe/Berlin stays there and keeps its local time across DST changes). A datetime without a zone keeps the event\'s own timezone if it has one, else it is read in the timezone of the computer running dav-mcp. Must be given together with end_date.'
+        description: 'New start. For a recurring event this is the start of the SERIES (its first occurrence, DTSTART), not of the occurrence a listing showed: every occurrence moves by the difference. To shift every occurrence by an hour, give the series start plus one hour; to cancel one occurrence use cancel_occurrences, to move one use calendar_multi_get and update_event_raw. A datetime ("2026-05-25T10:00:00Z", or with an offset) makes the event timed; a bare date ("2026-05-25") makes it all-day. A datetime with a zone is that instant, written in the event\'s own timezone if it has one (so a series in Europe/Berlin stays there and keeps its local time across DST changes). A datetime without a zone keeps the event\'s own timezone if it has one, else it is read in the calendar\'s time zone. An event stored without a zone (a floating time) stays without one: a datetime with a zone becomes its local time in the calendar\'s time zone. Must be given together with end_date.'
       },
       end_date: {
         type: 'string',
@@ -198,7 +199,7 @@ export const updateEventFields = {
       try {
         updatedData = writeEventFields(occurrences.data, fields, moving
           ? { startDate: validated.start_date, endDate: validated.end_date }
-          : undefined);
+          : undefined, moving || writesDates(fields) ? await fetchFloatingZone(client, calendarUrl) : null);
       } catch (error) {
         throw nothingWritten(error, occurrences.change);
       }

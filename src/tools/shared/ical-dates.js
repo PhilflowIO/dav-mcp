@@ -1,6 +1,6 @@
 import ICAL from 'ical.js';
-import { updateFields, seriesMaster, resolveZone } from 'tsdav-utils';
-import { serverZone, floatingZoneOf, zoneInstant } from '../../calendar-zone.js';
+import { updateFields, seriesMaster, resolveZone, parseDateValue } from 'tsdav-utils';
+import { serverZone, floatingZoneOf, zoneInstant, zoneWall } from '../../calendar-zone.js';
 import { explainWriteRefusal } from '../../ical-components.js';
 import { ValidationError } from '../../error-handler.js';
 
@@ -9,24 +9,36 @@ import { ValidationError } from '../../error-handler.js';
  * writeFields — the create tools as much as the update tools.
  *
  * Encoding is tsdav-utils' job: a bare date becomes VALUE=DATE, a date-time
- * drops a VALUE=DATE left over from the old value. Two choices are left to the
- * caller:
- *  - A date-time without a zone, where the object has no zone to read it in,
- *    is read in the server's timezone and written as UTC ('local'), which is
- *    what create_event has always done, so the same input lands on the same
- *    instant whichever tool it goes through.
- *  - A date-time with Z or an offset is written as its wall-clock time in the
- *    zone the value already lives in — its own TZID, or DTSTART's
- *    ('keep-zone'). A model that moves a weekly 09:00 Europe/Berlin series
- *    with "2026-10-06T08:00:00Z" means 10:00 in Berlin every week; written as
- *    UTC, the series would sit an hour earlier after the DST change. Where no
- *    zone applies (a new object, a UTC series) the instant is written as UTC.
+ * drops a VALUE=DATE left over from the old value. What a date-time means is
+ * decided here, by the form the object's start (its master's DTSTART, a
+ * todo's DUE without one) already has, with `zone` the calendar's (see
+ * src/calendar-zone.js; RFC 4791 9.9):
+ *
+ *  - A start with a TZID: a date-time with Z or an offset is written as its
+ *    wall-clock time in that zone ('keep-zone'), one without a zone is read
+ *    there. A model that moves a weekly 09:00 Europe/Berlin series with
+ *    "2026-10-06T08:00:00Z" means 10:00 in Berlin every week; written as UTC,
+ *    the series would sit an hour earlier after the DST change.
+ *  - A floating start (no TZID, no Z): the object stays floating (#128). A
+ *    date-time without a zone is written as it is; one with Z or an offset
+ *    becomes its wall-clock time in the calendar's zone — the zone the
+ *    listings show the object in — and is written without a zone too. Written
+ *    as UTC, the series would no longer be floating, and its floating
+ *    overrides and exclusions would sit off by the offset.
+ *  - Otherwise (a UTC or all-day start, a new object): a date-time without a
+ *    zone is read in the calendar's zone and written as UTC, as create_event
+ *    has always done — on the calendar's clock now, not the host's (#117).
+ *
+ * The same holds for an RRULE UNTIL. COMPLETED, DTSTAMP, CREATED and
+ * LAST-MODIFIED are UTC by definition (RFC 5545 3.8.2.1, 3.8.7): one given
+ * without a zone is read in the calendar's zone.
  *
  * A calendar object may hold more than one component type — a VEVENT next to
  * a VTODO. Left to choose, tsdav-utils takes the VEVENT first, so the todo
  * tools name 'vtodo' and the event tools 'vevent'; an object without that
  * component is refused by the library ("No VTODO found in VCALENDAR (it holds:
- * VEVENT)"). A vCard has no component type, so the contact tools pass none.
+ * VEVENT)"). A vCard has no component type, so the contact tools pass none,
+ * and its dates are written as before.
  *
  * What the library refuses — a value it cannot read, a series move the rule
  * cannot follow, a RECURRENCE-ID on the master, no component of the type — is
@@ -37,13 +49,128 @@ import { ValidationError } from '../../error-handler.js';
  * @param {string|{data: string}} object - calendar object or vCard
  * @param {Record<string, string>} fields - bare property name -> value
  * @param {'vevent'|'vtodo'} [type] - the component to write into
+ * @param {Object} [zone] - the calendar's zone (floatingZoneFor /
+ *   fetchFloatingZone); the server's when not given
  * @returns {string} the rewritten object
  */
-export function writeFields(object, fields, type) {
+export function writeFields(object, fields, type, zone = null) {
+  let options = { floatingTime: 'local', absoluteTime: 'keep-zone', type };
+  let values = fields;
+  if (type) {
+    const { frame, ownZone } = startFrame(object, type);
+    values = zonedValues(fields, frame, ownZone, zone ?? serverZone());
+    // nothing left for the host clock: what has no zone now stays so
+    if (frame !== 'tzid') options = { ...options, floatingTime: 'keep' };
+  }
   try {
-    return updateFields(object, fields, { floatingTime: 'local', absoluteTime: 'keep-zone', type });
+    return updateFields(object, values, options);
   } catch (error) {
     throw explainWriteRefusal(error, type, object);
+  }
+}
+
+// written in the object's frame, or read as UTC where it has none
+const FRAMED_DATES = new Set(['DTSTART', 'DTEND', 'DUE', 'RDATE', 'EXDATE', 'RECURRENCE-ID']);
+// UTC whatever the object's frame (RFC 5545 3.8.2.1, 3.8.7)
+const UTC_DATES = new Set(['COMPLETED', 'DTSTAMP', 'CREATED', 'LAST-MODIFIED']);
+
+/**
+ * The form of the object's start, which the values written take: 'tzid',
+ * 'floating', 'utc', 'date', or 'none' (no start, or an object that does
+ * not parse — updateFields reports that); and the date properties of the
+ * master that carry a TZID of their own, in which tsdav-utils writes them.
+ *
+ * @returns {{frame: string, ownZone: Set<string>}}
+ */
+function startFrame(object, type) {
+  let master;
+  try {
+    const root = new ICAL.Component(ICAL.parse(typeof object === 'string' ? object : object.data));
+    master = root.name === type ? root : seriesMaster(root, type);
+  } catch {
+    return { frame: 'none', ownZone: new Set() };
+  }
+  const ownZone = new Set(master.getAllProperties()
+    .filter((property) => property.getParameter('tzid'))
+    .map((property) => property.name.toUpperCase()));
+  const property = master.getFirstProperty('dtstart') ?? (type === 'vtodo' ? master.getFirstProperty('due') : null);
+  let frame;
+  if (!property) frame = 'none';
+  else if (property.type === 'date' || property.getFirstValue()?.isDate) frame = 'date';
+  else if (property.getParameter('tzid')) frame = 'tzid';
+  else frame = /Z$/i.test(String(property.toJSON()[3])) ? 'utc' : 'floating';
+  return { frame, ownZone };
+}
+
+/** The fields with their date-times in the form the frame takes (see writeFields) */
+function zonedValues(fields, frame, ownZone, zone) {
+  const result = {};
+  for (const [name, value] of Object.entries(fields)) {
+    const key = name.toUpperCase();
+    if (typeof value !== 'string' || (FRAMED_DATES.has(key) && ownZone.has(key))) {
+      // a property in a zone of its own: tsdav-utils writes it there
+      result[name] = value;
+    } else if (UTC_DATES.has(key)) {
+      result[name] = mapList(value, (v) => asUtc(v, zone));
+    } else if (FRAMED_DATES.has(key) && frame === 'floating') {
+      result[name] = mapList(value, (v) => asFloating(v, zone));
+    } else if (FRAMED_DATES.has(key) && frame !== 'tzid') {
+      result[name] = mapList(value, (v) => asUtc(v, zone));
+    } else if (key === 'RRULE' && frame !== 'tzid') {
+      result[name] = value.replace(/(UNTIL=)([0-9]{8}T[0-9]{6}Z?)/i, (_, part, until) =>
+        part + compact(frame === 'floating' ? asFloating(expand(until), zone) : asUtc(expand(until), zone)));
+    } else {
+      result[name] = value;
+    }
+  }
+  return result;
+}
+
+/**
+ * Does a write carry a date-time whose meaning depends on the calendar's
+ * zone? Only then is the zone worth a request.
+ *
+ * @param {Record<string, string>} fields
+ * @returns {boolean}
+ */
+export function writesDates(fields) {
+  return Object.keys(fields).some((name) => {
+    const key = name.toUpperCase();
+    return FRAMED_DATES.has(key) || UTC_DATES.has(key) || key === 'RRULE';
+  });
+}
+
+const mapList = (value, map) => value.split(',').map((v) => map(v.trim())).join(',');
+
+/** A date-time without a zone, read in `zone`, as UTC; anything else as it is */
+function asUtc(value, zone) {
+  const parsed = orNull(() => parseDateValue(value));
+  if (parsed?.kind !== 'floating') return value;
+  return `${new Date(zoneInstant(zone, wallOf(parsed.jcal))).toISOString().slice(0, 19)}Z`;
+}
+
+/** "2026-10-26T10:00:60" as ms of its digits read as UTC (a leap second rolls over) */
+function wallOf(jcal) {
+  const [y, mo, d, h = 0, mi = 0, sec = 0] = jcal.match(/\d+/g).map(Number);
+  return Date.UTC(y, mo - 1, d, h, mi, sec);
+}
+
+/** A date-time with Z or an offset as its wall-clock time in `zone`; anything else as it is */
+function asFloating(value, zone) {
+  const parsed = orNull(() => parseDateValue(value));
+  if (parsed?.kind !== 'utc' || !/T/.test(parsed.jcal)) return value;
+  return new Date(zoneWall(zone, Date.parse(parsed.jcal))).toISOString().slice(0, 19);
+}
+
+/** "20261020T090000Z" <-> "2026-10-20T09:00:00Z" for RRULE's UNTIL */
+const expand = (until) => until.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})/, '$1-$2-$3T$4:$5:$6');
+const compact = (value) => value.replace(/[-:]/g, '');
+
+function orNull(compute) {
+  try {
+    return compute();
+  } catch {
+    return null;
   }
 }
 
@@ -75,16 +202,17 @@ export function writeFields(object, fields, type) {
  * @param {Object} [dates] - omitted when the event is not being moved
  * @param {string} dates.startDate - YYYY-MM-DD or ISO 8601 date-time
  * @param {string} dates.endDate - same form as startDate; exclusive when a date
+ * @param {Object} [zone] - the calendar's zone, as for writeFields
  * @returns {string} the rewritten calendar object
  */
-export function writeEventFields(object, fields, dates) {
-  if (!dates) return writeFields(object, fields, 'vevent');
+export function writeEventFields(object, fields, dates, zone = null) {
+  if (!dates) return writeFields(object, fields, 'vevent', zone);
 
   const written = writeFields(object, {
     ...fields,
     DTSTART: dates.startDate,
     DTEND: dates.endDate,
-  }, 'vevent');
+  }, 'vevent', zone);
   return editComponent(written, 'vevent', (vevent) => {
     vevent.removeAllProperties('duration');
     assertEndAfterStart(vevent);

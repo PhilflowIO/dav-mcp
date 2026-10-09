@@ -33,6 +33,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is refused (#107).
 
 ### Changed
+- **Moving a series without a time zone keeps it without one** (#128). An
+  event stored with a "floating" time (`DTSTART:20270402T113000`) was written
+  back in UTC when moved with `update_event`, so it stopped following the
+  calendar's local time and its changed occurrences sat off by the server's
+  UTC offset. It now stays floating: a new start without a zone is kept as
+  given, and one with `Z` or an offset becomes its local time in the
+  calendar's time zone (`2027-04-03T09:30:00Z` in a Berlin calendar is 11:30).
+  The same goes for `update_todo` on a todo without a zone.
+- **Times without a zone given to the create and update tools are read in the
+  calendar's time zone** (#117), no longer in the zone of the machine dav-mcp
+  runs on: `create_event` with `2026-10-26T09:00:00` in a Berlin calendar
+  starts at 09:00 Berlin time on any server.
 - **Calendars get a real time zone** (#78). `make_calendar` now applies
   `timezone` (it used to create the calendar without one and say so), and
   `update_calendar` sends it as the VTIMEZONE CalDAV asks for instead of the
