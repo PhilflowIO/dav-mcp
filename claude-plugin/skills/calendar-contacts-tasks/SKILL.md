@@ -54,8 +54,10 @@ claude.ai chat and Cowork load only this guide.
 
 - Read the item first and pass its `url` and `etag` to the update or delete,
   the etag exactly as returned, quotes included. Use
-  `update_event`/`update_contact`/`update_todo`; the `*_raw` tools only for a
-  complete object the user supplies.
+  `update_event`/`update_contact`/`update_todo`. The `*_raw` tools take the
+  whole object: for one the user supplies, and for what the field tools
+  cannot do, such as moving or retitling one occurrence of a series or
+  editing extra dates (see Recurring events).
 - If the listing gives no etag but a note that the item cannot be updated or
   deleted (`etag_note`), the server hands out only a weak or invalid ETag.
   Tell the user their server has to be fixed for this; do not retry or read
@@ -95,6 +97,16 @@ back whole with `update_event_raw`. Never use `update_event_raw` to drop one
 day. Change the series only when the user asks for the series ("from now on",
 "every week"). Recurring to-dos work the same way with `update_todo` and
 `todo_query`.
+
+To move or retitle one occurrence ("move Thursday's standup to 11"), find it
+with `calendar_query` over that day, fetch the event with
+`calendar_multi_get`, and send the whole object back with `update_event_raw`
+and its etag. Keep the series as it is and add a VEVENT with the same `UID`,
+a `RECURRENCE-ID` naming the occurrence by its Occurrence ID in the series'
+own form (e.g. `RECURRENCE-ID;TZID=Europe/Berlin:20261015T091500`), and the
+new `DTSTART`/`DTEND` or `SUMMARY`; if that occurrence was changed before,
+edit its VEVENT instead. If it is unclear which occurrence the user means,
+ask first.
 
 Never move a series (an event with `RRULE`) to another time without asking
 first: moving it moves every occurrence, past ones included. Cancelled and
