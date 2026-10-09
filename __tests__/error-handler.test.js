@@ -201,3 +201,78 @@ describe('Error Handler Module', () => {
     });
   });
 });
+
+// Errors tsdav throws carry their status in a typed error (@philflow/tsdav
+// 2.5.0), not in a numeric code; they are classified by tsdav's guards and
+// that status, never by the message (review of #134).
+const tsdav = await import('tsdav');
+
+describe('errors tsdav throws', () => {
+  const SETTINGS = 'Configure options';
+
+  test('a refused login mid-session (OAuth refresh: invalid_grant 400) is an auth error with the settings hint', () => {
+    const error = new tsdav.DAVAuthenticationError(
+      'OAuth authentication failed: token endpoint returned no access token',
+      { status: 400, url: 'https://oauth2.googleapis.com/token' },
+    );
+    const formatted = formatMCPError(error);
+    expect(formatted.code).toBe(MCP_ERROR_CODES.AUTH_ERROR);
+    expect(formatted.message).toContain('OAuth authentication failed');
+  });
+
+  test.each([
+    ['Calendar discovery failed: 401 Unauthorized', 401, 'AUTH_ERROR'],
+    ['Collection query failed: 401 Unauthorized. Raw response: ...', 401, 'AUTH_ERROR'],
+  ])('%s → %s with the settings hint', (message, status, code) => {
+    const error = new tsdav.DAVAuthenticationError(message, { status, url: 'https://dav.example.com/calendars/u/' });
+    const formatted = formatMCPError(error);
+    expect(formatted.code).toBe(MCP_ERROR_CODES[code]);
+    expect(formatted.message).toContain(message);
+    expect(formatted.message).toContain(SETTINGS);
+  });
+
+  test.each([
+    [403, 'AUTH_ERROR'],
+    [404, 'NOT_FOUND_ERROR'],
+    [409, 'CONFLICT_ERROR'],
+    [429, 'NETWORK_ERROR'],
+    [500, 'INTERNAL_ERROR'],
+  ])('a DAVResponseError with status %i is %s, without the password hint', (status, code) => {
+    const error = new tsdav.DAVResponseError(`fetchCalendars: ${status} x`, { status, url: 'https://dav.example.com/' });
+    const formatted = formatMCPError(error);
+    expect(formatted.code).toBe(MCP_ERROR_CODES[code]);
+    expect(formatted.message).not.toContain(SETTINGS);
+  });
+
+  test('a copy from another bundle is recognised by its code', () => {
+    const copy = Object.assign(new Error('Collection query failed: 401'), {
+      code: 'TSDAV_AUTHENTICATION_FAILED', status: 401, url: 'u',
+    });
+    expect(formatMCPError(copy).code).toBe(MCP_ERROR_CODES.AUTH_ERROR);
+  });
+
+  test('a write refused with 401 by dav-mcp\'s own check gets the hint once', () => {
+    const error = Object.assign(new Error('Failed to update event x: server responded 401 Unauthorized'), { httpStatus: 401 });
+    const message = formatMCPError(error).message;
+    expect(message.split(SETTINGS)).toHaveLength(2);
+  });
+});
+
+describe('a server that cannot be reached', () => {
+  const failed = (code) => Object.assign(new TypeError('fetch failed'), {
+    cause: Object.assign(new Error(`connect ${code}`), { code }),
+  });
+
+  test.each(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH', 'UND_ERR_CONNECT_TIMEOUT'])(
+    'fetch failed (%s) is a network error naming the server URL setting', (code) => {
+      const formatted = formatMCPError(failed(code));
+      expect(formatted.code).toBe(MCP_ERROR_CODES.NETWORK_ERROR);
+      expect(formatted.message).toContain(code);
+      expect(formatted.message).toContain('server URL');
+    });
+
+  test('a TypeError without a network cause stays internal', () => {
+    expect(formatMCPError(new TypeError("Cannot read properties of undefined (reading 'x')")).code)
+      .toBe(MCP_ERROR_CODES.INTERNAL_ERROR);
+  });
+});

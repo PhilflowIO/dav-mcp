@@ -114,6 +114,30 @@ describe('a login the server refuses', () => {
 });
 
 describe('a login that fails for another reason', () => {
+  test('a 403 at login keeps its status: forbidden, not "not a DAV server"', async () => {
+    respond = async (url) => (new URL(url).pathname.startsWith('/.well-known/')
+      ? new Response('', { status: 404, statusText: 'Not Found' })
+      : new Response('', { status: 403, statusText: 'Forbidden' }));
+
+    const error = await loginError(passwordEnv);
+
+    expect(formatMCPError(error).code).toBe(MCP_ERROR_CODES.AUTH_ERROR);
+    expect(error.message).toContain('the server answered 403');
+    expect(error.message).toContain('CALDAV_USERNAME');
+  });
+
+  test('OAuth: a token endpoint answering 429 is a rate limit, not a refused login', async () => {
+    respond = async (url) => (url.startsWith(TOKEN_URL)
+      ? new Response('', { status: 429, statusText: 'Too Many Requests' })
+      : new Response('', { status: 500 }));
+
+    const error = await loginError(oauthEnv);
+
+    expect(error.name).not.toBe('AuthenticationError');
+    expect(formatMCPError(error).code).toBe(MCP_ERROR_CODES.NETWORK_ERROR);
+    expect(error.message).toContain('the token endpoint answered 429');
+  });
+
   test('an unreachable server is a network error and still says where the URL is set', async () => {
     respond = async () => { throw new TypeError('fetch failed'); };
 

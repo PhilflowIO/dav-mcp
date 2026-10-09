@@ -1,3 +1,6 @@
+import { isDAVAuthenticationError, isDAVResponseError } from 'tsdav';
+import { settingsHint, configuredAuthMethod } from './auth-config.js';
+
 /**
  * MCP Standard Error Codes
  * Following JSON-RPC 2.0 error code specification
@@ -37,7 +40,7 @@ const ERROR_TYPE_MAP = {
  * Map the HTTP status a DAV server answered with to an MCP error code.
  * Statuses without a more specific meaning are internal errors, as before.
  */
-function codeForHttpStatus(status) {
+export function codeForHttpStatus(status) {
   switch (status) {
     case 401:
     case 403:
@@ -74,47 +77,78 @@ function codeForHttpStatus(status) {
   }
 }
 
+// What a fetch that never got an answer carries in its cause (Node.js and
+// undici): no route, no name, refused, reset, timed out.
+const NETWORK_CAUSES = new Set([
+  'ECONNREFUSED', 'ECONNRESET', 'ECONNABORTED', 'ENOTFOUND', 'EAI_AGAIN', 'ETIMEDOUT',
+  'EHOSTUNREACH', 'ENETUNREACH', 'EPIPE', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_BODY_TIMEOUT', 'UND_ERR_SOCKET',
+]);
+
+function networkCause(error) {
+  const code = error.cause?.code ?? error.code;
+  return typeof code === 'string' && NETWORK_CAUSES.has(code) ? code : null;
+}
+
 /**
- * Get error code based on error type or message
+ * The MCP code of an error, and a hint where the user fixes it.
+ *
+ * Only what an error is, never what its message says: the message usually
+ * carries a URL, and a calendar on caldav.icloud.com or one called
+ * "author-notes" read as a CalDAV or auth error (#115). In order:
+ * - an explicit numeric code (dav-mcp's typed errors set one);
+ * - dav-mcp's error classes by name;
+ * - errors tsdav throws for an error status (@philflow/tsdav 2.5.0): a
+ *   refused login (DAVAuthenticationError, also mid-session, e.g. an OAuth
+ *   refresh token that expired) and any other status (DAVResponseError);
+ * - a DAV request dav-mcp checked itself (httpStatus);
+ * - a fetch that never got an answer (its cause's network code);
+ * - anything else is a fault of dav-mcp or a library: internal. A plain
+ *   JavaScript TypeError is one of those, never the caller's input, since
+ *   tool parameters are validated before a handler runs.
+ *
+ * @returns {{code: number, hint?: string}}
  */
-function getErrorCode(error) {
-  // Check if error has explicit code
-  if (error.code && typeof error.code === 'number') {
-    return error.code;
+function classify(error) {
+  if (typeof error.code === 'number') {
+    return { code: error.code };
   }
-
-  // Map by error type
   if (error.name && ERROR_TYPE_MAP[error.name]) {
-    return ERROR_TYPE_MAP[error.name];
+    return { code: ERROR_TYPE_MAP[error.name] };
   }
-
-  // A rejected DAV request carries the server's status. Its message also
-  // carries the URL, so the substring guesses below would read a calendar
-  // called "author-notes" as an auth error, or one with "404" in its name as
-  // not found.
+  if (isDAVAuthenticationError(error)) {
+    return { code: MCP_ERROR_CODES.AUTH_ERROR, hint: settingsHint(configuredAuthMethod()) };
+  }
+  if (isDAVResponseError(error) && Number.isInteger(error.status)) {
+    return { code: codeForHttpStatus(error.status) };
+  }
   if (Number.isInteger(error.httpStatus)) {
-    return codeForHttpStatus(error.httpStatus);
+    // A 401 once logged in: the password was changed or revoked since (#123).
+    return {
+      code: codeForHttpStatus(error.httpStatus),
+      ...(error.httpStatus === 401 && { hint: settingsHint(configuredAuthMethod()) }),
+    };
   }
-
-  // Nothing is read from the message: it usually carries a URL, and a
-  // calendar on caldav.icloud.com or one called "author-notes" read as a
-  // CalDAV or auth error (#115). An error without a code, type or status is
-  // a fault of dav-mcp or a library. A JavaScript TypeError is one of those
-  // too (fetch rejects with one): tool parameters are validated before a
-  // handler runs, so it is never the caller's input.
-  // Default to internal error
-  return MCP_ERROR_CODES.INTERNAL_ERROR;
+  const cause = networkCause(error);
+  if (cause) {
+    return {
+      code: MCP_ERROR_CODES.NETWORK_ERROR,
+      hint: `The DAV server could not be reached (${cause}). ${settingsHint(configuredAuthMethod())}`,
+    };
+  }
+  return { code: MCP_ERROR_CODES.INTERNAL_ERROR };
 }
 
 /**
  * Format error into MCP-compliant structure
  */
 export function formatMCPError(error, includeStack = false) {
-  const code = getErrorCode(error);
+  const { code, hint } = classify(error);
+  const message = error.message || 'An error occurred';
 
   const errorResponse = {
     code,
-    message: error.message || 'An error occurred',
+    message: hint ? `${message.replace(/\.?$/, '.')} ${hint}` : message,
     data: {
       type: error.name || 'Error',
       ...(error.details && { details: error.details }),

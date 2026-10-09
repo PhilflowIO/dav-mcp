@@ -231,9 +231,10 @@ describe('a write refused with 401', () => {
       updated_ical_data: 'BEGIN:VCALENDAR\r\nEND:VCALENDAR',
     }).catch(e => e);
 
-    expect(formatMCPError(error).code).toBe(MCP_ERROR_CODES.AUTH_ERROR);
-    expect(error.message).toContain('401 Unauthorized');
-    expect(error.message).toContain('Configure options');
-    expect(error.message).toContain('CALDAV_PASSWORD');
+    const { code, message } = formatMCPError(error);
+    expect(code).toBe(MCP_ERROR_CODES.AUTH_ERROR);
+    expect(message).toContain('401 Unauthorized');
+    expect(message).toContain('Configure options');
+    expect(message).toContain('CALDAV_PASSWORD');
   });
 });

@@ -1,6 +1,6 @@
-import { DAVClient, isDAVAuthenticationError } from 'tsdav';
+import { DAVClient, isDAVAuthenticationError, isDAVResponseError } from 'tsdav';
 import { logger } from './logger.js';
-import { CalDAVError, CardDAVError, AuthenticationError, MCP_ERROR_CODES } from './error-handler.js';
+import { CalDAVError, CardDAVError, AuthenticationError, MCP_ERROR_CODES, codeForHttpStatus } from './error-handler.js';
 import { ConfigurationError, settingsHint } from './auth-config.js';
 import { RequestOrigins, activateRequestOrigins } from './request-origins.js';
 
@@ -95,21 +95,27 @@ class LoginAnswers {
 function loginError(cause, config, answers) {
   const hint = settingsHint(config.authMethod);
   const refused = isDAVAuthenticationError(cause);
-  // tsdav's message for a refused grant only says no access token came
-  const tokenAnswer = refused && cause.url === config.tokenUrl
-    ? ` (the token endpoint answered ${cause.status})`
-    : '';
-  const message = `Login to ${config.serverUrl} failed: ${String(cause.message).replace(/\.$/, '')}${tokenAnswer}. ${hint}`;
+  // An error status tsdav reports (@philflow/tsdav 2.5.0): its message alone
+  // ("cannot find principalUrl", "no access token") does not say which.
+  const status = isDAVResponseError(cause) && Number.isInteger(cause.status) ? cause.status : undefined;
+  // A refused DAV login already says "returned 401"; tsdav's other messages
+  // ("cannot find principalUrl", "no access token") name no status.
+  const answeredBy = status === undefined ? ''
+    : cause.url === config.tokenUrl ? ` (the token endpoint answered ${status})`
+      : refused ? '' : ` (the server answered ${status})`;
+  const message = `Login to ${config.serverUrl} failed: ${String(cause.message).replace(/\.$/, '')}${answeredBy}. ${hint}`;
 
   if (refused) {
-    return new AuthenticationError(message, { serverUrl: config.serverUrl, status: cause.status, url: cause.url });
+    return new AuthenticationError(message, { serverUrl: config.serverUrl, status, url: cause.url });
   }
   const error = new Error(message, { cause });
-  // A typed error (a redirect off the server, say) keeps its code.
+  // A typed error (a redirect off the server, say) keeps its code; a status
+  // says what kind of failure it was (403 forbidden, 429 rate limited, ...).
   error.code = Number.isInteger(cause.code) ? cause.code
-    : answers.answered ? MCP_ERROR_CODES.CALDAV_ERROR
-      : MCP_ERROR_CODES.NETWORK_ERROR;
-  error.details = { serverUrl: config.serverUrl };
+    : status !== undefined ? codeForHttpStatus(status)
+      : answers.answered ? MCP_ERROR_CODES.CALDAV_ERROR
+        : MCP_ERROR_CODES.NETWORK_ERROR;
+  error.details = { serverUrl: config.serverUrl, ...(status !== undefined && { status, url: cause.url }) };
   return error;
 }
 

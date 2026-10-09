@@ -53,6 +53,22 @@ export function settingsHint(authMethod) {
     '(the MCP client\'s config, docker -e, or .env).';
 }
 
+/**
+ * The authentication method the server was started with, for a hint given
+ * after startup; undefined if AUTH_METHOD is not readable (the server would
+ * not have started then).
+ *
+ * @param {Object} [env] - Environment variables
+ * @returns {'Basic'|'Digest'|'OAuth'|undefined}
+ */
+export function configuredAuthMethod(env = process.env) {
+  try {
+    return parseAuthMethod(env.AUTH_METHOD);
+  } catch {
+    return undefined;
+  }
+}
+
 const AUTH_METHODS = {
   basic: 'Basic',
   digest: 'Digest',

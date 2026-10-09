@@ -33,8 +33,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   creates) that the server refuses as invalid (400, 415, 422) is a validation
   error (-32002); the same status on a request dav-mcp builds itself stays an
   internal error. An error without a type or status is now always an
-  internal error (-32603), including a JavaScript `TypeError` such as
-  `fetch failed`, which used to be reported as invalid params (-32602).
+  internal error (-32603). Errors tsdav throws for an error status
+  (`DAVResponseError`, `DAVAuthenticationError`, @philflow/tsdav 2.5.0) are
+  classified by that status: a refused login during a call (an OAuth refresh
+  token that expired, a 401 on a calendar query) is an authentication error
+  (-32003) with the settings hint, a 404 not found, a 429 a network error. A
+  server that cannot be reached (`fetch failed` with ECONNREFUSED,
+  ENOTFOUND, a timeout, ...) is a network error (-32004) that says to check
+  the server URL; it used to be invalid params (-32602).
 - **Write tools refuse parameters they do not take.** A create, update or
   delete call with an unknown parameter is a validation error naming it,
   instead of succeeding without it (#126).
@@ -163,7 +169,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the credentials were refused comes from the error tsdav throws
   (`DAVAuthenticationError`, @philflow/tsdav 2.5.0), so a server that answers
   401 on its DAV path and 405 on its root (Baïkal) is reported as a refused
-  login, not as a CalDAV error.
+  login, not as a CalDAV error. A login answered with another error status
+  says which: a 403 is forbidden (-32003), an OAuth token endpoint answering
+  429 a rate limit (-32004), instead of "cannot find principalUrl".
 - **Cancelling one occurrence no longer brings back the ones cancelled
   before** (#126). `update_event` wrote `fields.EXDATE` as the complete list of
   exclusions, so a model that wrote one date to cancel one more occurrence
