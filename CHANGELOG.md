@@ -119,6 +119,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   name the ones no filter could search; `freebusy_query` reports its answer
   as incomplete, naming the object, instead of losing its busy time
   silently. The reason never quotes the stored text.
+- **An etag passed without its quotes no longer fails the write with 412**
+  (#124). The update and delete tools sent the etag parameter unchanged as
+  `If-Match`, so `abc123` instead of the `"abc123"` the server returned never
+  matched its entity-tag, and Baïkal and Nextcloud refused the write as if the
+  object had changed. Every etag parameter is now normalised in one place: a
+  bare tag gets its quotes, a quoted one is kept, surrounding whitespace is
+  dropped, and a value that cannot be an entity-tag (inner whitespace, a stray
+  quote, more than 1024 characters) is a validation error before any request. A weak etag (`W/"…"`)
+  is refused the same way, saying to fetch the object first: If-Match
+  compares strongly, so it could only end in a 412. A stale etag is still
+  refused with 412, quoted or not; when dav-mcp added the quotes, the error
+  says so, since a server that does not quote its ETags fails the same way.
 - **Cancelling one occurrence no longer brings back the ones cancelled
   before** (#126). `update_event` wrote `fields.EXDATE` as the complete list of
   exclusions, so a model that wrote one date to cancel one more occurrence

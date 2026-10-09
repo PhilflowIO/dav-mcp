@@ -1,5 +1,5 @@
 import { tsdavManager } from '../../tsdav-client.js';
-import { validateInput, updateContactSchema } from '../../validation.js';
+import { validateInput, updateContactSchema, etagQuotedByUs } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
 import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
 
@@ -45,7 +45,9 @@ export const updateContactRaw = {
         etag: validated.vcard_etag,
       },
     });
-    await assertDavSuccess(response, `update contact ${validated.vcard_url}`);
+    await assertDavSuccess(response, `update contact ${validated.vcard_url}`, {
+      quotedEtag: etagQuotedByUs(args.vcard_etag, validated.vcard_etag),
+    });
 
     return formatSuccess('Contact updated successfully', {
       ...etagAfterWrite(response),
