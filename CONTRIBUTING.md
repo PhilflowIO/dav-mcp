@@ -193,8 +193,13 @@ runners share their IPs, and Docker Hub and ECR Public both rate-limit
 anonymous pulls per IP, which failed builds and a release (#140, #142). Every
 image CI pulls is listed with its digest in `.github/ci-images.txt` and
 copied, with all platforms and the same digest, to
-`ghcr.io/philflowio/ci-mirror/<name>`. These packages are private; the
-workflows of this repository pull them with their `GITHUB_TOKEN`. The
+`ghcr.io/philflowio/ci-mirror/<name>`. The workflows of this repository
+pull them with their `GITHUB_TOKEN`. The packages are kept private, as CI
+tooling rather than artifacts of this project; but a package the workflow
+creates starts public, like the repository, and only the package settings can
+change that. So when a new image name is mirrored for the first time, open
+its package settings (the run's warning links them), "Change visibility",
+Private. The repository keeps access. The
 Dockerfile keeps the public references with the same digests as defaults, so
 it builds the same image anywhere else.
 

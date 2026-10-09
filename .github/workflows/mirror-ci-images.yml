@@ -6,10 +6,14 @@ name: Mirror CI images
 # runners share their IPs, and every public registry rate-limits anonymous
 # pulls per IP (Docker Hub in #140, ECR Public in #142).
 #
-# The packages are private. A package created by a workflow with the
-# GITHUB_TOKEN grants this repository access to it, so its workflows can pull
-# it; nobody else can, and none of it counts as a public artifact of this
-# project.
+# The packages are meant to be private: they are CI tooling, not artifacts
+# of this project. A package this workflow creates starts with the
+# repository's visibility, which is public (seen on the first run, and so
+# documented for packages created with the GITHUB_TOKEN). Its visibility can
+# only be changed in the package settings, there is no API for it, so a new
+# image name is set to private there once (CONTRIBUTING.md, "CI image
+# mirror"); the last step here warns while one is public. The repository
+# that published a package keeps access to it, so CI pulls it either way.
 #
 # docker.yml and publish-image.yml call this before they build, so a digest
 # bumped in a pull request is copied before the same run needs it. An image
@@ -106,3 +110,22 @@ jobs:
             echo "${name}: ${mirror} verified"
           done < "$RUNNER_TEMP/ci-images"
           exit "$status"
+
+      # Anonymous, the way anyone outside this repository would ask: a public
+      # package answers with the manifest. A warning, not a failure, because
+      # only a maintainer can change it, in the package settings.
+      - name: Mirror packages are private
+        run: |
+          .github/scripts/ci-images.sh list | while read -r name _source target digest; do
+            repo=${target#ghcr.io/}
+            repo=${repo%:*}
+            token=$(curl -fsS "https://ghcr.io/token?service=ghcr.io&scope=repository:${repo}:pull" | jq -r .token)
+            code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${token}" \
+              -H 'Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json' \
+              "https://ghcr.io/v2/${repo}/manifests/${digest}")
+            if [ "$code" = 200 ]; then
+              echo "::warning::${name}: ghcr.io/${repo} is public. Set it to private: https://github.com/users/PhilflowIO/packages/container/$(echo "${repo#philflowio/}" | sed 's|/|%2F|g')/settings"
+            else
+              echo "${name}: ghcr.io/${repo} refuses anonymous pulls (HTTP ${code})"
+            fi
+          done
