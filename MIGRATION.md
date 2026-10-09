@@ -115,6 +115,24 @@ other value, including a typo, silently ran Basic. Now:
   and `GOOGLE_REFRESH_TOKEN`. Set `AUTH_METHOD=Basic` or remove the variable.
 - Any other value stops the server at startup with the list of valid values.
 
+## Upgrading to 5.0: Node.js 22 or newer
+
+Up to 4.x dav-mcp ran on Node.js 18 or newer. Node.js 18 and 20 are
+end-of-life, and dav-mcp's own dependencies already required Node.js 20. Now:
+
+- `npm install dav-mcp` and `npx dav-mcp` need Node.js 22 or newer. Check with
+  `node --version`; on an older version npm warns about the engine range, and
+  dav-mcp is neither tested nor supported there.
+- The workarounds for Node.js 18 are gone, including the startup error for
+  Digest-only servers on a runtime without WebCrypto.
+- The MCP Bundle (`.mcpb`) declares Node.js 22 or newer as well; Claude
+  Desktop checks that range when it installs the bundle.
+- The Docker image already runs on Node.js 22; nothing changes there.
+
+If you run dav-mcp with `npx` or a global install, update Node.js to 22 or
+newer (for example from [nodejs.org](https://nodejs.org)) before updating
+dav-mcp.
+
 ## Need Help?
 
 - Open an issue: https://github.com/PhilflowIO/dav-mcp/issues

@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Breaking changes
+- **Node.js 22 or newer is required.** Node.js 18 and 20 are end-of-life;
+  `engines`, the MCP Bundle's runtime range and the CI matrix now start at 22,
+  and the Node.js 18 workarounds (WebCrypto shim, Digest startup error) are
+  removed (#85).
 - **Write tools refuse parameters they do not take.** A create, update or
   delete call with an unknown parameter is a validation error naming it,
   instead of succeeding without it (#126).

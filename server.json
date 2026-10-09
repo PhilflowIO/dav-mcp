@@ -39,7 +39,7 @@
         },
         {
           "name": "AUTH_METHOD",
-          "description": "Authentication method, case-insensitive: 'Basic' (default; switches to Digest by itself when the server only offers Digest), 'Digest' (Digest-only servers without ever sending the password; Node.js 20+) or 'OAuth' for Google",
+          "description": "Authentication method, case-insensitive: 'Basic' (default; switches to Digest by itself when the server only offers Digest), 'Digest' (Digest-only servers without ever sending the password) or 'OAuth' for Google",
           "isRequired": false,
           "format": "string",
           "isSecret": false
