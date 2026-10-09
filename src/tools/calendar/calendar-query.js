@@ -3,9 +3,10 @@ import { validateInput, calendarQuerySchema } from '../../validation.js';
 import { formatEventList, withUnsearched } from '../../formatters.js';
 import { buildTimeRangeOptions, limitResults, DEFAULT_RESULT_LIMIT } from '../shared/helpers.js';
 import ICAL from 'ical.js';
-import { shownEvent } from '../../ical-components.js';
-import { ZONE_SLACK_MS, budgetPool } from '../../occurrences.js';
+import { shownEvent, shownTouchesRange } from '../../ical-components.js';
+import { ZONE_SLACK_MS, budgetPool, serverTimeRange } from '../../occurrences.js';
 import { instantOf, hasAbsoluteInstant } from '../shared/ical-dates.js';
+import { floatingZoneFor, withFloatingZone, withZoneNote } from '../../calendar-zone.js';
 import { parseObjects, unsearchedObjects, textValues, containsText, dateKey, orNull } from '../shared/query-objects.js';
 
 /**
@@ -76,9 +77,15 @@ export const calendarQuery = {
 
     // Search across all selected calendars
     let allEvents = [];
+    // each calendar's zone, for a note when one could not be read
+    const zones = [];
     for (const calendar of calendarsToSearch) {
-      const options = { calendar, ...timeRangeOptions };
-      const events = await client.fetchCalendarObjects(options);
+      // wider than asked: the server reads floating times its own way
+      const options = { calendar, ...timeRangeOptions, timeRange: serverTimeRange(timeRangeOptions.timeRange) };
+      // floating times and dates are read in each calendar's own zone
+      const zone = floatingZoneFor(calendar);
+      zones.push(zone);
+      const events = withFloatingZone(await client.fetchCalendarObjects(options), zone);
       allEvents = allEvents.concat(events);
     }
 
@@ -93,6 +100,11 @@ export const calendarQuery = {
 
     if (matches) {
       parsed = parsed.filter((p) => isFound(p, matches, timeRange, budget));
+    }
+    // what touches the range as read in each calendar's zone, not the
+    // server's reading (see serverTimeRange)
+    if (timeRange) {
+      parsed = parsed.filter((p) => !p.root || shownTouchesRange(shownOf(p, matches, timeRange, budget), timeRange));
     }
 
     // Determine calendar name for display
@@ -119,7 +131,7 @@ export const calendarQuery = {
     }
 
     const result = formatEventList(items.map(({ object }) => object), calendarName, timeRange, total, matches, shown, budget);
-    return withUnsearched(result, unsearchedObjects(all, parsed), 'events', 'list_events');
+    return withZoneNote(withUnsearched(result, unsearchedObjects(all, parsed), 'events', 'list_events'), zones);
   },
 };
 
@@ -203,9 +215,9 @@ function startLowerBound(parsed, rangeStart) {
 
 /**
  * The bound for a series: no occurrence touching the range starts before the
- * range does, less its duration — as an instant. A floating DTSTART (or a
- * TZID without its VTIMEZONE) is keyed by instantOf in the host's zone, so
- * the bound gives it a zone offset of slack. Slack only means a few more
+ * range does, less its duration — as an instant. A floating or date
+ * DTSTART (or a TZID that names no known zone) is keyed by instantOf in the
+ * calendar's zone; the bound gives it a zone offset of slack all the same. Slack only means a few more
  * candidates are resolved at the boundary.
  */
 function seriesBound(master, rangeStart, longest) {

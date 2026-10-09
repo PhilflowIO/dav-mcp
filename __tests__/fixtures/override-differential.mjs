@@ -192,11 +192,15 @@ const byStart = (a, b) => spanOf(a).start - spanOf(b).start || fieldsWall(a.recu
 /**
  * The frame of a DTSTART property, written apart from src/occurrences.js:
  * wall clock <-> instant. A TZID by tsdav-utils (the library's zone reading
- * is its own tests' business), floating on the host clock.
+ * is its own tests' business), floating times and dates on the host clock:
+ * the objects here come from no calendar, so dav-mcp reads them in the zone
+ * it runs in (src/calendar-zone.js).
  */
+const hostWall = (ms) => { const d = new Date(ms); return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds()); };
+const hostInstant = (w) => { const d = new Date(w); return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds()).getTime(); };
 function frameOf(property) {
   const value = property.getFirstValue();
-  if (value.isDate) return { toWall: (ms) => Math.floor(ms / 864e5) * 864e5, toInstant: (w) => w };
+  if (value.isDate) return { toWall: (ms) => Math.floor(hostWall(ms) / 864e5) * 864e5, toInstant: hostInstant };
   if (property.getParameter('tzid')) {
     const zone = resolvePropertyZone(property);
     return {
@@ -205,15 +209,11 @@ function frameOf(property) {
     };
   }
   if (/Z$/.test(String(property.toJSON()[3]))) return { toWall: (ms) => ms, toInstant: (w) => w };
-  return {
-    toWall: (ms) => { const d = new Date(ms); return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds()); },
-    toInstant: (w) => { const d = new Date(w); return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds()).getTime(); },
-  };
+  return { toWall: hostWall, toInstant: hostInstant };
 }
 
-/** A library OccurrenceTime as an instant: its own, a date's UTC day, a floating time on the host */
-const instantOfTime = (t, floating) => (t.instant ? Date.parse(t.instant)
-  : t.value.length === 10 ? wallOfText(t.value) : floating.toInstant(wallOfText(t.value)));
+/** A library OccurrenceTime as an instant: its own, else (a date, a floating time) on the host clock */
+const instantOfTime = (t, floating) => (t.instant ? Date.parse(t.instant) : floating.toInstant(wallOfText(t.value)));
 
 /** The object with the master and the given overrides only */
 function objectWith(root, master, overrides) {
@@ -239,7 +239,7 @@ export function reference(text, horizon) {
     try { return fieldsWall(c.getFirstPropertyValue('recurrence-id')); } catch { return 0; }
   }));
   const until = wallText(Math.max(horizon, latest + 3 * 864e5));
-  const floating = { toInstant: (w) => { const d = new Date(w); return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds()).getTime(); } };
+  const floating = { toInstant: hostInstant };
 
   // where the library places each override, asked of it alone
   const usable = [];

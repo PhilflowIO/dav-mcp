@@ -8,6 +8,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Breaking changes
+- **`make_calendar` refuses a time zone that is no IANA name** (#78). It used
+  to accept any `timezone` and not apply it; a name such as `CEST`, `Berlin`
+  or `+02:00` is now invalid input, and nothing is created.
+- **`freebusy_query` prints local times, no longer UTC** (#125). Free and
+  busy slots and the window were printed in UTC (`01:30 PM UTC`) while
+  `list_events` and `calendar_query` print local times (`03:30 PM GMT+2`), so
+  an answer to "when am I free?" could pass UTC times off as local ones. They
+  are now printed in the calendar's time zone, the same wall times the
+  listings show, and a new `Time zone` line names it. Several calendars that
+  set the same zone are shown in it; calendars in different zones are shown
+  in the zone dav-mcp runs in, and the line says which calendar has which.
+- **Times without a zone are read in the calendar's time zone** (#117). An
+  event written without a zone (`DTSTART:20261010T090000`) or as an all-day
+  date was placed on the clock of the machine dav-mcp runs on, so an HTTP or
+  Docker deployment in UTC put a 09:00 Berlin meeting at 09:00 UTC: wrong in
+  `freebusy_query`, in time-range searches and in listings. Such times are now
+  read in the calendar's own time zone, as CalDAV specifies, and only for a
+  calendar without one in the zone dav-mcp runs in (`TZ`). All-day events
+  now cover the calendar's day rather than the UTC day. This applies to every
+  tool that reads events or todos. Since servers apply their own reading to
+  a time-range search (Nextcloud and Baïkal read such times as UTC),
+  `list_events`, `calendar_query` and `freebusy_query` ask the server for a
+  wider range and decide themselves what falls inside: a recurring event
+  with no occurrence in the range is no longer listed with a note saying
+  so, it is left out.
 - **Node.js 22 or newer is required.** Node.js 18 and 20 are end-of-life;
   `engines`, the MCP Bundle's runtime range and the CI matrix now start at 22,
   and the Node.js 18 workarounds (WebCrypto shim, Digest startup error) are
@@ -24,6 +49,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is refused (#107).
 
 ### Changed
+- **One more request for a calendar's time zone** (#117). Tools that know a
+  calendar only by its URL ask the server for its time zone once per call:
+  `calendar_multi_get`, `list_todos`, `todo_multi_get` (once per task list),
+  `create_todo` with a due date, and `update_event` / `update_todo` when they
+  write a date. Time-range searches (`list_events`, `calendar_query`,
+  `freebusy_query`) ask the server for 26 hours more on each side and filter
+  the extra events out themselves, which costs some transfer on busy
+  calendars.
+- **A calendar time zone that cannot be read is reported** (#117). A read
+  goes ahead in the zone dav-mcp runs in and says so in a note; a write that
+  would need the zone (a time without a zone, a move of an event stored
+  without one) is refused, so nothing lands an hour off unsaid. A local time
+  the clock change skips or shows twice is refused as well where it would
+  otherwise be stored shifted or shortened, with what to give instead; for
+  an event with its own time zone too, where a time without an offset in
+  the repeated autumn hour was silently taken as the first.
+- **`update_calendar` finds the calendar under another spelling of its URL**
+  (an escaped character, a trailing slash) when it reads the result back. If
+  it still is not among the calendars the server lists, it says that the
+  update was accepted but cannot be confirmed, instead of an internal error.
+- **Moving a series without a time zone keeps it without one** (#128). An
+  event stored with a "floating" time (`DTSTART:20270402T113000`) was written
+  back in UTC when moved with `update_event`, so it stopped following the
+  calendar's local time and its changed occurrences sat off by the server's
+  UTC offset. It now stays floating: a new start without a zone is kept as
+  given, and one with `Z` or an offset becomes its local time in the
+  calendar's time zone (`2027-04-03T09:30:00Z` in a Berlin calendar is 11:30).
+  The same goes for `update_todo` on a todo without a zone.
+- **Times without a zone given to the create and update tools are read in the
+  calendar's time zone** (#117), no longer in the zone of the machine dav-mcp
+  runs on: `create_event` with `2026-10-26T09:00:00` in a Berlin calendar
+  starts at 09:00 Berlin time on any server.
+- **Calendars get a real time zone** (#78). `make_calendar` now applies
+  `timezone` (it used to create the calendar without one and say so), and
+  `update_calendar` sends it as the VTIMEZONE CalDAV asks for instead of the
+  bare name (`Europe/Berlin`), which stricter servers reject or ignore. Both
+  take any IANA zone name, `UTC` included, and refuse anything else (`Berlin`,
+  `CEST`, `+02:00`) as invalid input before sending anything.
+  `update_calendar` reports the zone the server holds afterwards, and
+  `list_calendars` shows each calendar's zone.
 - **tsdav-utils 0.7.0** (`@philflow/tsdav-utils`), for its bounded,
   zone-correct occurrence expansion and its occurrence edits. Its write
   semantics change too: moving a series' DTSTART now moves its overrides with

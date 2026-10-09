@@ -1,6 +1,7 @@
 import ICAL from 'ical.js';
 import { parseICal, unreadableReason } from '../../ical-parse.js';
 import { instantOf, shareTimezones } from './ical-dates.js';
+import { setFloatingZone, objectFloatingZone } from '../../calendar-zone.js';
 import { readSeries } from '../../ical-components.js';
 import { readVCard, structuredText, nameComponents, organizationText } from '../../vcard.js';
 
@@ -35,7 +36,8 @@ import { readVCard, structuredText, nameComponents, organizationText } from '../
 export function parseObjects(objects, kind) {
   return objects.map((object) => {
     const { root, unreadable } = parseRoot(object.data, kind);
-    return { object, root, main: mainComponent(root, kind), unreadable };
+    // floating values read in the zone of the calendar it came from
+    return { object, root: setFloatingZone(root, objectFloatingZone(object)), main: mainComponent(root, kind), unreadable };
   });
 }
 

@@ -144,9 +144,30 @@ export function shownEvent(calendar, timeRange = null, matches = null, budget = 
   };
 }
 
+/**
+ * Does what shownEvent shows touch the range, as dav-mcp reads it? A series
+ * does when an occurrence in the range was found, or when the expansion could
+ * not finish (kept, and flagged in the listing); a single event or detached
+ * instance by its own time. Without a range, anything does.
+ *
+ * The listing tools ask the server for a wider range than queried (see
+ * serverTimeRange) and keep what this accepts.
+ *
+ * @param {ReturnType<typeof shownEvent>} shown
+ * @param {{start: string, end: string}|null} timeRange
+ * @returns {boolean}
+ */
+export function shownTouchesRange(shown, timeRange) {
+  const range = msRange(timeRange);
+  if (!shown || !range) return true;
+  if (shown.occurrence) return true;
+  if (shown.event.isRecurring()) return !shown.outsideRange;
+  return touches(shown.item, range);
+}
+
 function touches(event, range) {
   if (!event.startDate) return false;
-  const { start, end } = spanOf({ startDate: event.startDate, endDate: event.endDate });
+  const { start, end } = spanOf({ startDate: event.startDate, endDate: event.endDate, item: event });
   return touchesRange(start, end, range);
 }
 

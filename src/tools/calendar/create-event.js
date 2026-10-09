@@ -4,6 +4,7 @@ import ICAL from 'ical.js';
 import { parseICal } from '../../ical-parse.js';
 import { seriesMaster } from 'tsdav-utils';
 import { writeFields, assertEndAfterStart } from '../shared/ical-dates.js';
+import { floatingZoneFor } from '../../calendar-zone.js';
 import { formatSuccess } from '../../formatters.js';
 import { generateUID, findCalendarOrThrow, assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
 
@@ -33,7 +34,7 @@ export const createEvent = {
       },
       start_date: {
         type: 'string',
-        description: 'Start in ISO 8601 format. A datetime ("2026-05-25T10:00:00Z") makes a timed event; a bare date ("2026-05-25") makes an all-day event.',
+        description: 'Start in ISO 8601 format. A datetime ("2026-05-25T10:00:00Z") makes a timed event; a bare date ("2026-05-25") makes an all-day event. A datetime without a zone ("2026-05-25T10:00:00") is read in the calendar\'s time zone.',
       },
       end_date: {
         type: 'string',
@@ -91,7 +92,7 @@ export const createEvent = {
       DTSTAMP: new Date().toISOString(),
       DTSTART: validated.start_date,
       DTEND: validated.end_date,
-    }, 'vevent');
+    }, 'vevent', floatingZoneFor(calendar));
     // the order of times without a zone is only known once they are written
     assertEndAfterStart(seriesMaster(new ICAL.Component(parseICal(iCalString)), 'vevent'));
 

@@ -3,6 +3,8 @@ import { validateInput, freeBusyQuerySchema } from '../../validation.js';
 import { formatFreeBusy } from '../../formatters.js';
 import { buildTimeRangeOptions } from '../shared/helpers.js';
 import { calculateFreeBusy } from '../shared/freebusy.js';
+import { serverTimeRange } from '../../occurrences.js';
+import { floatingZoneFor, withFloatingZone, displayZoneFor, withZoneNote } from '../../calendar-zone.js';
 
 /**
  * Answer "when am I free?" from the events themselves.
@@ -22,7 +24,7 @@ export const freeBusyQuery = {
     idempotentHint: true,
     openWorldHint: true,
   },
-  description: 'Find free and busy time in a date range — use for "when am I free?", "am I available Tuesday afternoon?" or finding a slot for a new meeting. Searches all calendars unless one is given. Events marked TRANSPARENT (does not block time) and cancelled events are ignored; recurring events are expanded, each occurrence at its own time and status, so a single cancelled occurrence is free and a moved one is busy where it moved to. A recurring event too dense to expand fully is named in a warning.',
+  description: 'Find free and busy time in a date range — use for "when am I free?", "am I available Tuesday afternoon?" or finding a slot for a new meeting. Searches all calendars unless one is given. Events marked TRANSPARENT (does not block time) and cancelled events are ignored; recurring events are expanded, each occurrence at its own time and status, so a single cancelled occurrence is free and a moved one is busy where it moved to. A recurring event too dense to expand fully is named in a warning. Times are shown in the calendar\'s time zone (several calendars in different zones: the zone dav-mcp runs in), named in the answer; list_events shows an event that has a zone of its own in that zone instead.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -70,8 +72,20 @@ export const freeBusyQuery = {
     );
 
     let events = [];
+    // each calendar's zone, for a note when one could not be read
+    const zones = [];
     for (const calendar of calendarsToSearch) {
-      const found = await client.fetchCalendarObjects({ calendar, ...timeRangeOptions });
+      // floating times and dates are read in each calendar's own zone
+      const zone = floatingZoneFor(calendar);
+      zones.push(zone);
+      const found = withFloatingZone(
+        await client.fetchCalendarObjects({
+          calendar,
+          ...timeRangeOptions,
+          // wider than asked: the server reads floating times its own way;
+          // calculateFreeBusy keeps what touches the window
+          timeRange: serverTimeRange(timeRangeOptions.timeRange),
+        }), zone);
       events = events.concat(found);
     }
 
@@ -82,13 +96,18 @@ export const freeBusyQuery = {
 
     const { busy, free, blocking, incomplete } = calculateFreeBusy(events, range);
 
-    return formatFreeBusy({
+    // shown in the zone the listings read these calendars in (#125)
+    const { zone, why } = displayZoneFor(calendarsToSearch);
+
+    return withZoneNote(formatFreeBusy({
       busy,
       free,
       range,
+      zone,
+      zoneNote: why,
       calendarCount: calendarsToSearch.length,
       events: validated.include_event_details ? blocking : null,
       incomplete,
-    });
+    }), zones);
   },
 };

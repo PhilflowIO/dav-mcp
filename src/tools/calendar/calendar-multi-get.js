@@ -2,6 +2,7 @@ import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, calendarMultiGetSchema } from '../../validation.js';
 import { formatEventList, withMissingObjects } from '../../formatters.js';
 import { multiGetObjects } from '../shared/multiget.js';
+import { fetchFloatingZone, withFloatingZone, withZoneNote } from '../../calendar-zone.js';
 
 /**
  * Batch fetch multiple specific calendar events by their URLs
@@ -40,7 +41,10 @@ export const calendarMultiGet = {
       collectionUrl: validated.calendar_url,
       objectUrls: validated.event_urls,
     });
+    // floating times and dates are read in the calendar's zone
+    const zone = await fetchFloatingZone(client, validated.calendar_url);
+    withFloatingZone(found, zone);
 
-    return withMissingObjects(formatEventList(found, { url: validated.calendar_url }), missing);
+    return withZoneNote(withMissingObjects(formatEventList(found, { url: validated.calendar_url }), missing), [zone]);
   },
 };

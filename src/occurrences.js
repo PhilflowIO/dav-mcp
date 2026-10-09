@@ -1,6 +1,7 @@
 import ICAL from 'ical.js';
 import { expandOccurrences, createRecurrenceBudget, resolvePropertyZone, resolveZone } from 'tsdav-utils';
 import { toInstant, timezoneFor } from './tools/shared/ical-dates.js';
+import { floatingZoneOf, setFloatingZone, zoneInstant, zoneWall } from './calendar-zone.js';
 
 /**
  * Which occurrences of a recurring event touch a time range — the one answer
@@ -32,7 +33,8 @@ import { toInstant, timezoneFor } from './tools/shared/ical-dates.js';
  * "Touches the range" is RFC 4791 9.9's time-range test, half-open: the
  * occurrence starts before the range ends and ends after it starts; one
  * without duration touches it when it starts in [start, end). A floating time
- * is read on the host clock, a date as its UTC day.
+ * and a date are read in the calendar's zone (src/calendar-zone.js), a date
+ * as that whole day there.
  */
 
 /**
@@ -116,10 +118,31 @@ export function budgetPool(count) {
 /**
  * Milliseconds a wall-clock time can sit away from the same digits read as
  * UTC: zone offsets run from UTC-12 to UTC+14. For bounds that compare a
- * floating time read in the host's zone with an instant (calendar_query's
+ * floating time read in the calendar's zone with an instant (calendar_query's
  * sort key), and for windows estimated before the library reads them.
  */
 export const ZONE_SLACK_MS = 26 * 3600 * 1000;
+
+/**
+ * The range to ask the server for, wider than the one queried by
+ * ZONE_SLACK_MS on each side. A server reads floating times and dates in a
+ * zone of its own choosing for a time-range REPORT — Nextcloud and Baïkal
+ * (SabreDAV) in UTC, not in the calendar's calendar-timezone as RFC 4791 9.9
+ * says — so an exact range would lose a floating 09:00 Berlin meeting
+ * queried at 07:30-08:30 UTC. The tools decide on their own reading what
+ * touches the range (src/calendar-zone.js); the server only has to send
+ * every candidate.
+ *
+ * @param {{start: string, end: string}|undefined} timeRange - ISO 8601
+ * @returns {{start: string, end: string}|undefined}
+ */
+export function serverTimeRange(timeRange) {
+  if (!timeRange?.start || !timeRange?.end) return timeRange;
+  const start = new Date(timeRange.start).getTime();
+  const end = new Date(timeRange.end).getTime();
+  if (Number.isNaN(start) || Number.isNaN(end)) return timeRange;
+  return { start: new Date(start - ZONE_SLACK_MS).toISOString(), end: new Date(end + ZONE_SLACK_MS).toISOString() };
+}
 
 // A duration or a THISANDFUTURE move added on the wall clock can differ from
 // its length in instants by a DST change: this much margin covers it.
@@ -138,14 +161,18 @@ export function touchesRange(start, end, range) {
 
 /**
  * The instants an occurrence spans, in ms: those the expansion computed
- * (`startAt`/`endAt`) where it did, else as toInstant reads its times.
+ * (`startAt`/`endAt`) where it did, else as toInstant reads its times — a
+ * floating time or a date in `zone`, by default that of the component the
+ * occurrence comes from (`item`).
  *
- * @param {{startDate: ICAL.Time, endDate?: ICAL.Time, startAt?: number, endAt?: number}} occurrence
+ * @param {{startDate: ICAL.Time, endDate?: ICAL.Time, startAt?: number, endAt?: number, item?: ICAL.Event}} occurrence
+ * @param {Object} [zone] - see src/calendar-zone.js
  * @returns {{start: number, end: number}}
  */
-export function spanOf({ startDate, endDate, startAt, endAt }) {
-  const start = startAt ?? toInstant(startDate);
-  const end = endAt ?? (endDate ? toInstant(endDate) : start);
+export function spanOf({ startDate, endDate, startAt, endAt, item }, zone = null) {
+  const zoneOf = () => zone ?? (zone = floatingZoneOf(item?.component));
+  const start = startAt ?? toInstant(startDate, zoneOf());
+  const end = endAt ?? (endDate ? toInstant(endDate, zoneOf()) : start);
   return { start, end: Math.max(start, end) };
 }
 
@@ -156,7 +183,8 @@ export function spanOf({ startDate, endDate, startAt, endAt }) {
  * The frame of a date or date-time property: how its wall clock (ms of its
  * digits read as UTC) and instants convert. A TZID is converted by
  * tsdav-utils (the object's VTIMEZONE, else IANA data; RFC 5545 3.3.5 at DST
- * changes); floating times by the host clock. null for a TZID neither knows.
+ * changes); floating times and dates in the calendar's zone (floatingZoneOf),
+ * by the same rules. null for a TZID neither knows.
  */
 const frames = new WeakMap();
 function frameOfProperty(property) {
@@ -166,7 +194,10 @@ function frameOfProperty(property) {
 
 function readFrame(property) {
   const value = property.getFirstValue();
-  if (value.isDate || property.type === 'date') return { kind: 'date', toWall: utcDay, toInstant: (w) => w };
+  if (value.isDate || property.type === 'date') {
+    const zone = floatingZoneOf(property);
+    return { kind: 'date', toWall: (ms) => utcDay(zoneWall(zone, ms)), toInstant: (wall) => zoneInstant(zone, wall) };
+  }
   const tzid = property.getParameter('tzid');
   if (tzid) {
     const zone = orNull(() => zoneOf(property, tzid));
@@ -179,17 +210,11 @@ function readFrame(property) {
     };
   }
   if (/Z$/i.test(String(property.toJSON()[3]))) return { kind: 'utc', toWall: (ms) => ms, toInstant: (w) => w };
+  const zone = floatingZoneOf(property);
   return {
     kind: 'floating',
-    toWall: (ms) => {
-      const d = new Date(ms);
-      return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds());
-    },
-    toInstant: (wall) => {
-      const d = new Date(wall);
-      return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(),
-        d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds()).getTime();
-    },
+    toWall: (ms) => zoneWall(zone, ms),
+    toInstant: (wall) => zoneInstant(zone, wall),
   };
 }
 
@@ -306,7 +331,8 @@ export function relateSeries(master, overrides) {
   const root = master.parent ?? null;
   const dtstart = master.getFirstProperty('dtstart');
   const frame = dtstart ? frameOfProperty(dtstart) : null;
-  const series = { event, root, master, frame, overrides: [], byWall: new Map(), futures: [], plan: null };
+  const zone = floatingZoneOf(master);
+  const series = { event, root, master, frame, zone, overrides: [], byWall: new Map(), futures: [], plan: null };
   if (!frame) return series;
 
   for (const component of overrides) {
@@ -396,7 +422,7 @@ function occurrencesWithin(series, range, filter, first, budget) {
   }
   const unchecked = new Set();
   const outside = series.overrides.filter((o) => !inWindow.includes(o)
-    && (series.futures.includes(o) ? o.wall < from : mayTouch(o, range)))
+    && (series.futures.includes(o) ? o.wall < from : mayTouch(o, range, series.zone)))
     .sort((a, b) => a.wall - b.wall);
   for (const cluster of clusters(series, outside)) {
     const first = cluster[0].wall;
@@ -453,10 +479,10 @@ function clusters({ plan }, overrides) {
 }
 
 /** Could an override's own time touch the range? (its own instants, with slack) */
-function mayTouch({ event }, range) {
-  const start = orNull(() => toInstant(event.startDate));
+function mayTouch({ event }, range, zone) {
+  const start = orNull(() => toInstant(event.startDate, zone));
   if (start === null) return false;
-  const end = orNull(() => toInstant(event.endDate ?? event.startDate)) ?? start;
+  const end = orNull(() => toInstant(event.endDate ?? event.startDate, zone)) ?? start;
   return start < range.end + ZONE_SLACK_MS && Math.max(start, end) > range.start - ZONE_SLACK_MS;
 }
 
@@ -469,7 +495,7 @@ function reach(series) {
   const moves = [0];
   const durations = [durationOf(series.event)];
   for (const { event, wall } of series.futures) {
-    const start = orNull(() => toInstant(event.startDate));
+    const start = orNull(() => toInstant(event.startDate, series.zone));
     if (start !== null) moves.push(start - series.frame.toInstant(wall));
     durations.push(durationOf(event));
   }
@@ -525,7 +551,8 @@ function expand(series, from, to, overrides, budget) {
   // toJSON is ical.js' live jCal: clone it, or the copy's DTSTART would move
   // the series itself
   const clone = (component) => new ICAL.Component(structuredClone(component.toJSON()));
-  const copy = new ICAL.Component(['vcalendar', [], []]);
+  // read in the zone the series is read in
+  const copy = setFloatingZone(new ICAL.Component(['vcalendar', [], []]), series.zone);
   for (const vtimezone of series.root?.getAllSubcomponents('vtimezone') ?? []) {
     copy.addSubcomponent(clone(vtimezone));
   }
@@ -625,7 +652,7 @@ function asOccurrence(series, raw, item) {
   // no end given (no DTEND, DURATION, nor one of the master): RFC 5545 3.6.1
   // — a date lasts that day, a date-time no time at all
   const end = raw.end ? timeFrom(series, raw.end)
-    : start.time.isDate ? timeFrom(series, { value: wallText(start.at + 864e5).slice(0, 10), tzid: null, instant: null })
+    : start.time.isDate ? timeFrom(series, { value: wallText(wallOfText(raw.start.value) + 864e5).slice(0, 10), tzid: null, instant: null })
       : start;
   return {
     recurrenceId: timeOf(raw.wall, series.frame, series.root, series.frame.toInstant(raw.wall)),
@@ -638,24 +665,14 @@ function asOccurrence(series, raw, item) {
 /** A library OccurrenceTime as an ICAL.Time and its instant */
 function timeFrom(series, { value, tzid, instant }) {
   const wall = wallOfText(value);
-  if (value.length === 10) return { time: timeOf(wall, { kind: 'date' }), at: wall };
+  if (value.length === 10) return { time: timeOf(wall, { kind: 'date' }), at: zoneInstant(series.zone, wall) };
   if (/Z$/.test(value)) return { time: timeOf(wall, { kind: 'utc' }), at: wall };
   if (tzid) {
     const at = instant ? Date.parse(instant) : wall;
     return { time: timeOf(wall, { kind: 'tzid', tzid }, series.root, at), at };
   }
-  const floating = frameOfProperty(series.master.getFirstProperty('dtstart'));
-  const at = floating?.kind === 'floating' ? floating.toInstant(wall) : toInstant(new ICAL.Time(fieldsOf(wall)));
-  return { time: timeOf(wall, { kind: 'floating' }), at };
+  return { time: timeOf(wall, { kind: 'floating' }), at: zoneInstant(series.zone, wall) };
 }
-
-const fieldsOf = (wall) => {
-  const d = new Date(wall);
-  return {
-    year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate(),
-    hour: d.getUTCHours(), minute: d.getUTCMinutes(), second: d.getUTCSeconds(),
-  };
-};
 
 /**
  * An occurrence moved by the latest valid THISANDFUTURE override at or before

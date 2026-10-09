@@ -34,6 +34,9 @@ jest.unstable_mockModule('tsdav-utils', () => ({
   expandOccurrences: jest.fn(),
   resolvePropertyZone: jest.fn(),
   resolveZone: jest.fn(),
+  // imported by the calendar time zones (src/calendar-zone.js); no test
+  // here sets one
+  generateVtimezone: jest.fn(),
   // imported by the occurrence edits (src/tools/shared/occurrence-edits.js);
   // no test here cancels or restores an occurrence
   cancelOccurrences: jest.fn(),

@@ -1,6 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, listTodosSchema } from '../../validation.js';
 import { formatTodoList } from '../../formatters.js';
+import { fetchFloatingZone, withFloatingZone, withZoneNote } from '../../calendar-zone.js';
 
 /**
  * List ALL todos/tasks from a calendar
@@ -30,8 +31,10 @@ export const listTodos = {
     const client = tsdavManager.getCalDavClient();
 
     const calendar = { url: validated.calendar_url };
-    const todos = await client.fetchTodos({ calendar });
+    // floating times and dates are read in the calendar's zone
+    const zone = await fetchFloatingZone(client, calendar.url);
+    const todos = withFloatingZone(await client.fetchTodos({ calendar }), zone);
 
-    return formatTodoList(todos, validated.calendar_url);
+    return withZoneNote(formatTodoList(todos, validated.calendar_url), [zone]);
   },
 };
