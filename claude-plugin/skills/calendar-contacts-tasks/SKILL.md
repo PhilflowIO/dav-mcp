@@ -58,22 +58,36 @@ claude.ai chat and Cowork load only this guide.
 
 ## Recurring events
 
-`calendar_query` returns a series once, dated at its first occurrence in the
-range. Changing or deleting it changes every occurrence: `delete_event`
-deletes the whole series, `STATUS: CANCELLED` cancels all of it. dav-mcp
-cannot change a single occurrence safely: do not add an `EXDATE` or rewrite
-the series with `update_event_raw` to drop one day (an `EXDATE` field
-replaces the exclusions already there). When the user means one day
-("cancel Monday's standup"), say it is a recurring series and that one
-occurrence is changed in their calendar app; change the series only when they
-ask for the series ("from now on", "every week").
+`calendar_query` lists a series once. With a time range it shows the earliest
+occurrence that touches the range, so one running into it from the day before
+counts: a 22:00-02:00 shift queried over 12 November is listed with its 11
+November occurrence. Its **Occurrence ID** line names that occurrence by its
+original start: `(this occurrence)`, `(this occurrence, changed — now at …)`
+for one moved before (pass the ID, not the new time), or `(series start, the
+first occurrence)` when the query had no range. **Cancelled occurrences**,
+**Changed occurrences** and **Exclusions that match no occurrence** (they
+cancel nothing) list the series' exceptions.
+
+Fields and dates in `update_event` change every occurrence: `delete_event`
+deletes the whole series, `STATUS: CANCELLED` cancels all of it. When the
+user means one day ("cancel Monday's standup"), cancel only that occurrence:
+`calendar_query` over that day, check the **When** line is the day the user
+meant, then `update_event` with `cancel_occurrences: ["<Occurrence ID>"]`,
+exactly as listed. Days already cancelled stay cancelled. To bring one back,
+`restore_occurrences` with its name from **Cancelled occurrences**.
+`update_event` refuses `EXDATE` and `RDATE` in `fields`; extra dates (RDATE)
+are edited only by fetching the event with `calendar_multi_get` and sending it
+back whole with `update_event_raw`. Never use `update_event_raw` to drop one
+day. Change the series only when the user asks for the series ("from now on",
+"every week"). Recurring to-dos work the same way with `update_todo` and
+`todo_query`.
 
 Never move a series (an event with `RRULE`) to another time without asking
-first. Moving it moves every occurrence, past ones included, and each day
-the user took out (an `EXDATE` line in its data) may stay at the old time
-(dav-mcp before 4.4.0 does not move it), so that day comes back. Tell the
-user both, name each excluded day, then ask, or point them to their calendar
-app.
+first: moving it moves every occurrence, past ones included. Cancelled and
+changed occurrences move along with it. If the move is refused, the error
+says what to give instead, usually `restore_occurrences` and
+`cancel_occurrences` in the same call; follow it rather than dropping the
+exceptions.
 
 ## When something fails
 
@@ -85,5 +99,7 @@ the call:
   Installed → dav-mcp → Configure options; iCloud, and Nextcloud with
   two-factor login, need an app password.
 - `404` / not found: the URL changed; search again.
+- `unknown parameter`: the tool does not take it and nothing was written.
+  Check the tool's input schema; never tell the user it was applied.
 - Server not reachable or no calendars: the server URL must be the DAV
   address (e.g. ending in `/remote.php/dav/` for Nextcloud).
