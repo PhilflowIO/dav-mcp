@@ -68,7 +68,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (-32003) with the settings hint, a 404 not found, a 429 a network error. A
   server that cannot be reached (`fetch failed` with ECONNREFUSED,
   ENOTFOUND, a timeout, ...) is a network error (-32004) that says to check
-  the server URL; it used to be invalid params (-32602).
+  the server URL; it used to be invalid params (-32602). A write refused
+  because the calendar's time zone could not be looked up is reported by
+  what the lookup ran into (a 401 as a refused login, no answer as a
+  network error); a zone value the server stores but nobody can read stays
+  a CalDAV error.
 - **Write tools refuse parameters they do not take.** A create, update or
   delete call with an unknown parameter is a validation error naming it,
   instead of succeeding without it (#126).
@@ -81,6 +85,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is refused (#107).
 
 ### Changed
+- **@philflow/tsdav 2.5.0**, for its typed errors (`DAVResponseError`,
+  `DAVAuthenticationError`) that carry the status and URL of a failed
+  request; dav-mcp classifies errors by them (#115, #123).
 - **One more request for a calendar's time zone** (#117). Tools that know a
   calendar only by its URL ask the server for its time zone once per call:
   `calendar_multi_get`, `list_todos`, `todo_multi_get` (once per task list),

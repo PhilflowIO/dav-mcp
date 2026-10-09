@@ -89,9 +89,14 @@ const NETWORK_CAUSES = new Set([
   'UND_ERR_BODY_TIMEOUT', 'UND_ERR_SOCKET',
 ]);
 
+// The network code sits on the error or somewhere down its cause chain
+// (undici: TypeError('fetch failed') with the socket error as cause; dav-mcp
+// wraps such a failure in turn).
 function networkCause(error) {
-  const code = error.cause?.code ?? error.code;
-  return typeof code === 'string' && NETWORK_CAUSES.has(code) ? code : null;
+  for (let current = error, depth = 0; current && depth < 4; current = current.cause, depth += 1) {
+    if (typeof current.code === 'string' && NETWORK_CAUSES.has(current.code)) return current.code;
+  }
+  return null;
 }
 
 /**

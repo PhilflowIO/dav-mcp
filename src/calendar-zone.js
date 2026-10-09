@@ -300,8 +300,13 @@ export function floatingZoneFor(calendar) {
 }
 
 /** The server's zone, standing in for a calendar's that could not be read */
-function failedZone(calendarUrl, failure) {
-  return { ...serverZone(), failure, calendarUrl: calendarUrl ?? null };
+function failedZone(calendarUrl, failure, { status, cause } = {}) {
+  return {
+    ...serverZone(), failure, calendarUrl: calendarUrl ?? null,
+    // what the lookup ran into, so a refused write is reported by it
+    ...(status !== undefined && { failureStatus: status }),
+    ...(cause !== undefined && { failureCause: cause }),
+  };
 }
 
 /**
@@ -322,14 +327,15 @@ export async function fetchFloatingZone(client, calendarUrl) {
       depth: '0',
     });
   } catch (error) {
-    return failedZone(calendarUrl, `the request for it failed: ${error?.message || error}`);
+    return failedZone(calendarUrl, `the request for it failed: ${error?.message || error}`, { cause: error });
   }
   const list = Array.isArray(responses) ? responses : [];
   const answer = list.find((r) => r?.ok !== false) ?? null;
   if (!answer) {
     const failed = list.find((r) => typeof r?.status === 'number');
     if (!failed || failed.status === 404) return serverZone();
-    return failedZone(calendarUrl, `the server answered ${failed.status}${failed.statusText ? ` ${failed.statusText}` : ''}`);
+    return failedZone(calendarUrl, `the server answered ${failed.status}${failed.statusText ? ` ${failed.statusText}` : ''}`,
+      { status: failed.status });
   }
   return floatingZoneFor({ url: calendarUrl, timezone: answer.props?.calendarTimezone });
 }
@@ -346,13 +352,23 @@ export async function fetchFloatingZone(client, calendarUrl) {
  */
 export function writableZone(zone) {
   if (!zone?.failure) return zone;
-  throw new CalDAVError(
+  const message =
     `The time zone of the calendar ${zone.calendarUrl ?? ''} could not be read (${zone.failure}), ` +
     'so nothing was written: a time without a zone, or one for an event stored without a zone, ' +
     `would have been placed on dav-mcp's clock (${zone.tzid}) instead. Retry; if it persists, set the ` +
-    'calendar\'s time zone with update_calendar.',
-    { calendarUrl: zone.calendarUrl, reason: zone.failure },
-  );
+    'calendar\'s time zone with update_calendar.';
+  const details = { calendarUrl: zone.calendarUrl, reason: zone.failure };
+  // The lookup itself failed: reported by what it ran into (a 401 as a
+  // refused login, no answer as a network error), not as the calendar's data.
+  if (zone.failureStatus !== undefined || zone.failureCause !== undefined) {
+    const error = new Error(message, zone.failureCause !== undefined ? { cause: zone.failureCause } : undefined);
+    const status = zone.failureStatus ?? zone.failureCause?.status;
+    if (Number.isInteger(status)) error.httpStatus = status;
+    error.details = details;
+    throw error;
+  }
+  // The server returned a zone nobody can read: its calendar data.
+  throw new CalDAVError(message, details);
 }
 
 /**
