@@ -4,7 +4,7 @@
       "command": "npx",
       "args": [
         "-y",
-        "dav-mcp@4.3.1"
+        "dav-mcp@5.0.0"
       ],
       "env": {
         "CALDAV_SERVER_URL": "${user_config.server_url}",

@@ -371,7 +371,25 @@ const cases = {
     update_event: [{ event_url: EVENTS.standup.url, event_etag: '"etag-standup-3"', start_date: '2026-01-05T10:00:00', end_date: '2026-01-05T10:15:00' }, { events: [EVENTS.standup] }],
   },
   'delete-recurring-en': {
-    calendar_query: [{ summary_filter: 'standup' }, { events: [EVENTS.standup] }],
+    // the coming Monday from the fixed clock, Thursday 8 October 2026: the
+    // listing shows that day's occurrence, so its Occurrence ID is the one to pass
+    calendar_query: [{ summary_filter: 'standup', time_range_start: '2026-10-11T22:00:00Z', time_range_end: '2026-10-12T22:00:00Z' }, { events: [EVENTS.standup] }],
+    // the coming Monday from the fixed clock (Thursday 8 October 2026)
+    update_event: [{ event_url: EVENTS.standup.url, event_etag: '"etag-standup-3"', cancel_occurrences: ['2026-10-12T09:15:00'] }, { events: [EVENTS.standup] }],
+  },
+  'move-occurrence-en': {
+    calendar_query: [{ summary_filter: 'standup', time_range_start: '2026-10-14T22:00:00Z', time_range_end: '2026-10-15T22:00:00Z' }, { events: [EVENTS.standup] }],
+    calendar_multi_get: [{ calendar_url: `${CAL}/work/`, event_urls: [EVENTS.standup.url] }, { events: [EVENTS.standup] }],
+    // the series unchanged plus an override moving Thursday 15 October to 11:00
+    update_event_raw: [{
+      event_url: EVENTS.standup.url, event_etag: '"etag-standup-3"',
+      updated_ical_data: EVENTS.standup.data.replace('END:VCALENDAR', [
+        'BEGIN:VEVENT', 'UID:standup', 'DTSTAMP:20261008T090000Z',
+        'RECURRENCE-ID;TZID=Europe/Berlin:20261015T091500',
+        'DTSTART;TZID=Europe/Berlin:20261015T110000', 'DTEND;TZID=Europe/Berlin:20261015T111500',
+        'SUMMARY:Daily standup', 'END:VEVENT', 'END:VCALENDAR',
+      ].join('\r\n')),
+    }, { events: [EVENTS.standup] }],
   },
   'conflict-en': {
     calendar_multi_get: [{ calendar_url: `${CAL}/work/`, event_urls: [EVENTS.budgetV2.url] }, { events: [EVENTS.budgetV2] }],

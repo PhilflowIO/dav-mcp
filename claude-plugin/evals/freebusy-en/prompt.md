@@ -1,5 +1,5 @@
 ---
-description: "Availability goes to freebusy_query, and its UTC times are converted to local time."
+description: "Availability goes to freebusy_query, and its local times are passed on as they are."
 runs: 2
 max_turns: 12
 allowed_tools: ["Skill"]

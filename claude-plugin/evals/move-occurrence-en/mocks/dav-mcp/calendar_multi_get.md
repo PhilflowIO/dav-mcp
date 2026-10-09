@@ -2,11 +2,11 @@ Found events: **1**
 
 ### 1. Daily standup
 
-- **When**: October 12, 2026, 09:15 AM GMT+2 to October 12, 2026, 09:30 AM GMT+2
+- **When**: January 5, 2026, 09:15 AM GMT+1 to January 5, 2026, 09:30 AM GMT+1
 - **Recurring**: FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR
-- **Occurrence ID**: 2026-10-12T09:15:00 (this occurrence)
+- **Occurrence ID**: 2026-01-05T09:15:00 (series start, the first occurrence)
 - **Cancelled occurrences**: 2026-12-24T09:15:00
-- **Calendar**: All Calendars (2)
+- **Calendar**: https://dav.example.com/calendars/alex/work/
 - **URL**: https://dav.example.com/calendars/alex/work/standup.ics
 
 ---
