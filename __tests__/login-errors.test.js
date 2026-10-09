@@ -149,14 +149,31 @@ describe('a login that fails for another reason', () => {
     expectPasswordSettingsNamed(error.message);
   });
 
-  test('a server that answers, but not as a DAV server, is a CalDAV error naming the URL setting', async () => {
+  // A DAV path that answers 405 or 404 to PROPFIND is not a DAV endpoint:
+  // the server URL is wrong. Not -32600 (an invalid MCP request) and not a
+  // server fault: a configuration error, saying to check the URL.
+  test.each([
+    [405, 'Method Not Allowed'],
+    [404, 'Not Found'],
+    [400, 'Bad Request'],
+  ])('a login answered %i is a configuration error that says to check the server URL', async (status, statusText) => {
+    respond = async () => new Response('', { status, statusText });
+
+    const error = await loginError(passwordEnv);
+
+    expect(formatMCPError(error).code).toBe(MCP_ERROR_CODES.CONFIGURATION_ERROR);
+    expect(error.message).toContain(`the server answered ${status}`);
+    expect(error.message).toContain('Check the server URL');
+  });
+
+  test('a server that answers, but not as a DAV server, is a configuration error naming the URL setting', async () => {
     respond = async () => new Response('<html>Welcome</html>', {
       status: 200, statusText: 'OK', headers: { 'content-type': 'text/html' },
     });
 
     const error = await loginError(passwordEnv);
 
-    expect(formatMCPError(error).code).toBe(MCP_ERROR_CODES.CALDAV_ERROR);
+    expect(formatMCPError(error).code).toBe(MCP_ERROR_CODES.CONFIGURATION_ERROR);
     expect(error.message).toContain(SERVER);
     expect(error.message).toContain('CALDAV_SERVER_URL');
   });

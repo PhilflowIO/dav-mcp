@@ -22,6 +22,9 @@ export const MCP_ERROR_CODES = {
   TIMEOUT_ERROR: -32005,
   NOT_FOUND_ERROR: -32006,
   CONFLICT_ERROR: -32007,
+  // dav-mcp's own settings are wrong: an unknown AUTH_METHOD, missing
+  // credentials, or a server URL that does not lead to a DAV server.
+  CONFIGURATION_ERROR: -32008,
 };
 
 /**
@@ -34,6 +37,7 @@ const ERROR_TYPE_MAP = {
   'TimeoutError': MCP_ERROR_CODES.TIMEOUT_ERROR,
   'NotFoundError': MCP_ERROR_CODES.NOT_FOUND_ERROR,
   'ConflictError': MCP_ERROR_CODES.CONFLICT_ERROR,
+  'ConfigurationError': MCP_ERROR_CODES.CONFIGURATION_ERROR,
 };
 
 /**

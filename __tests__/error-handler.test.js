@@ -276,3 +276,9 @@ describe('a server that cannot be reached', () => {
       .toBe(MCP_ERROR_CODES.INTERNAL_ERROR);
   });
 });
+
+test('a ConfigurationError has its own code, not an internal error', async () => {
+  const { ConfigurationError } = await import('../src/auth-config.js');
+  expect(MCP_ERROR_CODES.CONFIGURATION_ERROR).toBe(-32008);
+  expect(formatMCPError(new ConfigurationError('Unsupported AUTH_METHOD')).code).toBe(MCP_ERROR_CODES.CONFIGURATION_ERROR);
+});

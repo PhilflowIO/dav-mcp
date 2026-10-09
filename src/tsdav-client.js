@@ -83,6 +83,21 @@ class LoginAnswers {
 }
 
 /**
+ * The code of a login answered with an error status other than 401. During
+ * login dav-mcp only asks the configured URL for its DAV account, so a 405
+ * (no PROPFIND there), a 404 or another 4xx means the server URL does not
+ * lead to a DAV server: dav-mcp's configuration, not a malformed request
+ * (405 is INVALID_REQUEST for a tool call). 403, 408, 429 and 5xx keep their
+ * meaning.
+ */
+function loginStatusCode(status) {
+  if (status >= 400 && status < 500 && ![403, 408, 429].includes(status)) {
+    return MCP_ERROR_CODES.CONFIGURATION_ERROR;
+  }
+  return codeForHttpStatus(status);
+}
+
+/**
  * The error a failed login is reported as. Every one of them is fixed where
  * dav-mcp's settings are kept, so each names that place (#123); the code says
  * which kind of failure it was, instead of leaving it to the message.
@@ -103,7 +118,13 @@ function loginError(cause, config, answers) {
   const answeredBy = status === undefined ? ''
     : cause.url === config.tokenUrl ? ` (the token endpoint answered ${status})`
       : refused ? '' : ` (the server answered ${status})`;
-  const message = `Login to ${config.serverUrl} failed: ${String(cause.message).replace(/\.$/, '')}${answeredBy}. ${hint}`;
+  const code = Number.isInteger(cause.code) ? cause.code
+    : status !== undefined ? loginStatusCode(status)
+      : answers.answered ? MCP_ERROR_CODES.CONFIGURATION_ERROR
+        : MCP_ERROR_CODES.NETWORK_ERROR;
+  const notDav = code === MCP_ERROR_CODES.CONFIGURATION_ERROR
+    ? `The server URL does not lead to a CalDAV/CardDAV server. ` : '';
+  const message = `Login to ${config.serverUrl} failed: ${String(cause.message).replace(/\.$/, '')}${answeredBy}. ${notDav}${hint}`;
 
   if (refused) {
     return new AuthenticationError(message, { serverUrl: config.serverUrl, status, url: cause.url });
@@ -111,10 +132,7 @@ function loginError(cause, config, answers) {
   const error = new Error(message, { cause });
   // A typed error (a redirect off the server, say) keeps its code; a status
   // says what kind of failure it was (403 forbidden, 429 rate limited, ...).
-  error.code = Number.isInteger(cause.code) ? cause.code
-    : status !== undefined ? codeForHttpStatus(status)
-      : answers.answered ? MCP_ERROR_CODES.CALDAV_ERROR
-        : MCP_ERROR_CODES.NETWORK_ERROR;
+  error.code = code;
   error.details = { serverUrl: config.serverUrl, ...(status !== undefined && { status, url: cause.url }) };
   return error;
 }

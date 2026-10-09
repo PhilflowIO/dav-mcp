@@ -17,8 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   failure used to escape the call as a JSON-RPC internal error (-32603). It
   is now the tool's error result: an authentication error (-32003) when the
   server or the OAuth token endpoint refused the credentials, a network
-  error (-32004) when the server could not be reached, a CalDAV error
-  (-32000) when it answered but not as a DAV server. OAuth without
+  error (-32004) when the server could not be reached, and a new
+  configuration error (-32008) when it answered but not as a DAV server (a
+  405, 404 or other 4xx to the login, or a web page), saying to check the
+  server URL; a wrong AUTH_METHOD or missing setting has that code too.
+  OAuth without
   `GOOGLE_USER` now stops the server at startup, like every other missing
   setting, instead of failing each tool call.
 - **Lookup and input mistakes carry their own error code; nothing is
