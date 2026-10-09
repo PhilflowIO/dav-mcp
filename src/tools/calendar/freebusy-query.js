@@ -1,7 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, freeBusyQuerySchema } from '../../validation.js';
 import { formatFreeBusy } from '../../formatters.js';
-import { buildTimeRangeOptions } from '../shared/helpers.js';
+import { buildTimeRangeOptions, findCalendarOrThrow } from '../shared/helpers.js';
 import { calculateFreeBusy } from '../shared/freebusy.js';
 
 /**
@@ -52,16 +52,7 @@ export const freeBusyQuery = {
 
     let calendarsToSearch = calendars;
     if (validated.calendar_url) {
-      const calendar = calendars.find(c => c.url === validated.calendar_url);
-      if (!calendar) {
-        const availableUrls = calendars.map(c => c.url).join('\n- ');
-        throw new Error(
-          `Calendar not found: ${validated.calendar_url}\n\n` +
-          `Available calendar URLs:\n- ${availableUrls}\n\n` +
-          `Tip: Omit calendar_url to consider all calendars.`
-        );
-      }
-      calendarsToSearch = [calendar];
+      calendarsToSearch = [findCalendarOrThrow(calendars, validated.calendar_url, { omit: 'to consider all calendars' })];
     }
 
     const timeRangeOptions = buildTimeRangeOptions(

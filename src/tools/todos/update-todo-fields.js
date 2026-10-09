@@ -1,7 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, davFieldMapSchema, davUrl, entityTag, etagQuotedByUs } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
-import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
+import { assertDavSuccess, etagAfterWrite, objectNotFoundError } from '../shared/helpers.js';
 import { z } from 'zod';
 import { writeFields, reconcileTodoDates } from '../shared/ical-dates.js';
 import { assertFieldUpdatable, describeSeriesChange } from '../../ical-components.js';
@@ -146,7 +146,7 @@ export const updateTodoFields = {
     });
 
     if (!currentTodos || currentTodos.length === 0) {
-      throw new Error('Todo not found');
+      throw objectNotFoundError('todo_url', validated.todo_url, 'todo', 'todo_query or list_todos');
     }
 
     const todoObject = currentTodos[0];

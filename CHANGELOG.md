@@ -21,6 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (-32000) when it answered but not as a DAV server. OAuth without
   `GOOGLE_USER` now stops the server at startup, like every other missing
   setting, instead of failing each tool call.
+- **Lookup and input mistakes carry their own error code** (#115). A
+  `calendar_url` or `addressbook_url` that names none of the collections is
+  a not-found error (-32006); it used to be classified by the words in the
+  message, which carries the URL, so on a host like `caldav.icloud.com` it
+  came back as a CalDAV server error (-32000, -32001 for CardDAV). An
+  `event_url`, `todo_url` or `vcard_url` with nothing behind it is a
+  not-found error too. A write the server refuses as malformed (400, 415,
+  422) is a validation error (-32002) instead of an internal error (-32603).
 - **Write tools refuse parameters they do not take.** A create, update or
   delete call with an unknown parameter is a validation error naming it,
   instead of succeeding without it (#126).
@@ -123,6 +131,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   compares strongly, so it could only end in a 412. A stale etag is still
   refused with 412, quoted or not; when dav-mcp added the quotes, the error
   says so, since a server that does not quote its ETags fails the same way.
+- **A wrong collection or object URL says what to send instead** (#115).
+  The error names the parameter and the URL, lists the calendars or address
+  books there are and the tool that lists them; the query tools add that
+  `calendar_url` can be left out. A missing event, to-do or contact names
+  the tools that return its current URL. Content a server rejects as
+  malformed (an `update_event_raw` with a broken iCalendar object, say) is
+  reported as invalid input with the server's reason, so the caller
+  corrects the object rather than retrying.
 - **A failed login says where to fix the settings** (#123). The hint used to
   point only at a `.env` file, which users of the Claude Code plugin and
   the Claude Desktop extension do not have (and it sat in a function nothing

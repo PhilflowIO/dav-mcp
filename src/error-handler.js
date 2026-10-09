@@ -40,6 +40,13 @@ const ERROR_TYPE_MAP = {
  */
 function codeForHttpStatus(status) {
   switch (status) {
+    // The server refused what was sent as malformed: an unparseable object
+    // (SabreDAV answers 415, Radicale 400) or one it cannot process. What a
+    // write sends comes from the caller's input, so the caller corrects it.
+    case 400:
+    case 415:
+    case 422:
+      return MCP_ERROR_CODES.VALIDATION_ERROR;
     case 401:
     case 403:
       return MCP_ERROR_CODES.AUTH_ERROR;

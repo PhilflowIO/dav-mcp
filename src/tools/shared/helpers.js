@@ -1,4 +1,4 @@
-import { MCP_ERROR_CODES } from '../../error-handler.js';
+import { MCP_ERROR_CODES, NotFoundError } from '../../error-handler.js';
 import { settingsHint } from '../../auth-config.js';
 import { tsdavManager } from '../../tsdav-client.js';
 /**
@@ -103,47 +103,87 @@ export function sanitizeNameForUrl(name) {
 }
 
 /**
- * Find calendar by URL and provide helpful error if not found
+ * The error for a collection URL from the caller that names none of the
+ * collections on the server: the caller's mistake, said as one (#115). An
+ * untyped error was classified by the words in its message, which carries
+ * the URL, so on a host like caldav.icloud.com a typo read as a CalDAV
+ * server failure.
+ *
+ * @param {object} what
+ * @param {string} what.parameter - the tool parameter, e.g. "calendar_url"
+ * @param {string} what.url - what the caller sent
+ * @param {string} what.noun - "calendars", "address books"
+ * @param {string} what.listTool - the tool that lists them
+ * @param {Array<{url: string}>} what.collections - the ones there are
+ * @param {string} [what.omit] - what leaving the parameter out does, if allowed
+ * @returns {NotFoundError}
+ */
+function unknownCollectionError({ parameter, url, noun, listTool, collections, omit }) {
+  const available = collections.length
+    ? `\n- ${collections.map(c => c.url).join('\n- ')}`
+    : ' none';
+  return new NotFoundError(
+    `${parameter} ${url} is not one of the ${noun} on this server.\n\n` +
+    `The ${noun} there:${available}\n\n` +
+    `Send one of these URLs as ${parameter} (${listTool} lists them)` +
+    `${omit ? `, or omit ${parameter} ${omit}` : ''}.`,
+    { parameter, url }
+  );
+}
+
+/**
+ * Find the calendar a calendar_url names.
  * @param {Array} calendars - List of calendars
  * @param {string} calendarUrl - URL to search for
+ * @param {object} [options]
+ * @param {string} [options.omit] - what omitting calendar_url does, for tools where it is optional
  * @returns {Object} Calendar object
- * @throws {Error} If calendar not found
+ * @throws {NotFoundError} If calendar not found
  */
-export function findCalendarOrThrow(calendars, calendarUrl) {
+export function findCalendarOrThrow(calendars, calendarUrl, { omit } = {}) {
   const calendar = calendars.find(c => c.url === calendarUrl);
-
   if (!calendar) {
-    const availableUrls = calendars.map(c => c.url).join('\n- ');
-    throw new Error(
-      `Calendar not found: ${calendarUrl}\n\n` +
-      `Available calendar URLs:\n- ${availableUrls}\n\n` +
-      `Please use list_calendars first to get the correct calendar URLs.`
-    );
+    throw unknownCollectionError({
+      parameter: 'calendar_url', url: calendarUrl, noun: 'calendars',
+      listTool: 'list_calendars', collections: calendars, omit,
+    });
   }
-
   return calendar;
 }
 
 /**
- * Find addressbook by URL and provide helpful error if not found
+ * Find the address book an addressbook_url names.
  * @param {Array} addressbooks - List of addressbooks
  * @param {string} addressbookUrl - URL to search for
  * @returns {Object} Addressbook object
- * @throws {Error} If addressbook not found
+ * @throws {NotFoundError} If addressbook not found
  */
 export function findAddressbookOrThrow(addressbooks, addressbookUrl) {
   const addressbook = addressbooks.find(ab => ab.url === addressbookUrl);
-
   if (!addressbook) {
-    const availableUrls = addressbooks.map(ab => ab.url).join('\n- ');
-    throw new Error(
-      `Address book not found: ${addressbookUrl}\n\n` +
-      `Available address book URLs:\n- ${availableUrls}\n\n` +
-      `Please use list_addressbooks first to get the correct URLs.`
-    );
+    throw unknownCollectionError({
+      parameter: 'addressbook_url', url: addressbookUrl, noun: 'address books',
+      listTool: 'list_addressbooks', collections: addressbooks,
+    });
   }
-
   return addressbook;
+}
+
+/**
+ * The error for an object URL from the caller with nothing behind it.
+ *
+ * @param {string} parameter - the tool parameter, e.g. "event_url"
+ * @param {string} url - what the caller sent
+ * @param {string} noun - "event", "todo", "contact"
+ * @param {string} findTools - where the caller gets a current URL
+ * @returns {NotFoundError}
+ */
+export function objectNotFoundError(parameter, url, noun, findTools) {
+  return new NotFoundError(
+    `No ${noun} at ${parameter} ${url}. Nothing was changed. ` +
+    `Get the ${noun}'s current URL and etag from ${findTools}.`,
+    { parameter, url }
+  );
 }
 
 /**

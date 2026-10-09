@@ -243,6 +243,6 @@ describe('freebusy_query tool', () => {
 
   test('an unknown calendar names the available ones', async () => {
     await expect(call({ calendar_url: 'https://dav.example.com/calendars/user/nope/' }))
-      .rejects.toThrow(/Available calendar URLs/);
+      .rejects.toThrow(/The calendars there:\n- https:\/\/dav.example.com\//);
   });
 });
