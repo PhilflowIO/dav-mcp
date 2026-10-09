@@ -1,4 +1,5 @@
 import ICAL from 'ical.js';
+import { parseICal } from '../../ical-parse.js';
 import { shareTimezones } from './ical-dates.js';
 import { readSeries, blocksTime } from '../../ical-components.js';
 import { relateSeries, seriesOccurrences, spanOf, touchesRange, requestBudget, budgetPool } from '../../occurrences.js';
@@ -130,7 +131,7 @@ export function calculateFreeBusy(calendarObjects, range) {
   for (const object of calendarObjects) {
     let root;
     try {
-      root = shareTimezones(new ICAL.Component(ICAL.parse(object.data)));
+      root = shareTimezones(new ICAL.Component(parseICal(object.data)));
     } catch {
       // A single unparseable object must not take the whole answer down
       continue;

@@ -1,4 +1,5 @@
 import ICAL from 'ical.js';
+import { parseICal, assertParseBounded } from '../../ical-parse.js';
 import { updateFields, seriesMaster } from 'tsdav-utils';
 import { explainWriteRefusal } from '../../ical-components.js';
 import { ValidationError } from '../../error-handler.js';
@@ -37,8 +38,12 @@ import { ValidationError } from '../../error-handler.js';
  * @param {Record<string, string>} fields - bare property name -> value
  * @param {'vevent'|'vtodo'} [type] - the component to write into
  * @returns {string} the rewritten object
+ * @throws {ValidationError} TOO_MANY_PARAMETERS for an object dav-mcp does
+ *   not parse (assertParseBounded), before the library sees it
  */
 export function writeFields(object, fields, type) {
+  // updateFields parses the object with ical.js too; see ical-parse.js
+  assertParseBounded(object);
   try {
     return updateFields(object, fields, { floatingTime: 'local', absoluteTime: 'keep-zone', type });
   } catch (error) {
@@ -368,7 +373,7 @@ function frameOf(property) {
 function editComponent(iCalString, name, edit) {
   let calendar;
   try {
-    calendar = new ICAL.Component(ICAL.parse(iCalString));
+    calendar = new ICAL.Component(parseICal(iCalString));
   } catch (error) {
     throw new Error(`Failed to parse iCal data: ${error.message}`);
   }

@@ -98,6 +98,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   occurrence, not by the stored text.
 
 ### Fixed
+- **One contact or event with a huge parameter list no longer stalls the
+  server** (#109). ical.js reads parameters in time that grows with their
+  number times the line length: a 1 MB vCard line with 500 000 parameters
+  took 11 s to read, blocking every other request meanwhile, in listings,
+  filters and edits alike. dav-mcp now refuses a property with more than
+  1 000 parameters before parsing, vCards and calendar objects alike (real
+  ones carry fewer than ten). A listing or query skips such an object, as
+  it skips any it cannot parse; `update_contact`, `update_event` and
+  `update_todo` refuse to edit it with a validation error naming the
+  property. Both now take milliseconds.
 - **Cancelling one occurrence no longer brings back the ones cancelled
   before** (#126). `update_event` wrote `fields.EXDATE` as the complete list of
   exclusions, so a model that wrote one date to cancel one more occurrence

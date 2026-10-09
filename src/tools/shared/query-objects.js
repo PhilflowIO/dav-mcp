@@ -1,4 +1,5 @@
 import ICAL from 'ical.js';
+import { parseICal } from '../../ical-parse.js';
 import { instantOf, shareTimezones } from './ical-dates.js';
 import { readSeries } from '../../ical-components.js';
 import { readVCard, structuredText, nameComponents, organizationText } from '../../vcard.js';
@@ -42,7 +43,7 @@ function parseRoot(data, kind) {
   try {
     // vCards go through the reader the display uses (see vcard.js)
     if (kind === 'vcard') return readVCard(data);
-    const jcal = ICAL.parse(data);
+    const jcal = parseICal(data);
     // a body holding several documents parses to a list of them; a DAV
     // resource is one, so the first is the one
     return shareTimezones(new ICAL.Component(Array.isArray(jcal[0]) ? jcal[0] : jcal));

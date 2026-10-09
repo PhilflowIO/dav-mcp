@@ -10,6 +10,7 @@
  */
 
 import ICAL from 'ical.js';
+import { parseICal } from './ical-parse.js';
 import { readVCard, nameComponents, organizationText } from './vcard.js';
 import { readSeries, shownEvent, todoStatus } from './ical-components.js';
 import { shareTimezones } from './tools/shared/ical-dates.js';
@@ -26,7 +27,7 @@ function parseICalEvent(icalData, timeRange = null, matches = null, resolved = n
   try {
     // the occurrence calendar_query's text filters read too (see shownEvent);
     // resolved there already for a listed event
-    const shown = resolved ?? shownEvent(shareTimezones(new ICAL.Component(ICAL.parse(icalData))), timeRange, matches, budget);
+    const shown = resolved ?? shownEvent(shareTimezones(new ICAL.Component(parseICal(icalData))), timeRange, matches, budget);
     if (!shown) {
       return {};
     }
@@ -926,7 +927,7 @@ export function formatCalendarAlreadyDeleted(calendarUrl) {
  */
 function parseVTodo(icalData) {
   try {
-    const jcalData = ICAL.parse(icalData);
+    const jcalData = parseICal(icalData);
     const comp = new ICAL.Component(jcalData);
     // the master, the todo update_todo edits, not whichever VTODO comes first
     const vtodo = readSeries(comp, 'vtodo')?.master;

@@ -1,4 +1,5 @@
 import ICAL from 'ical.js';
+import { parseICal, assertParseBounded } from './ical-parse.js';
 import { writeFields } from './tools/shared/ical-dates.js';
 
 /**
@@ -10,7 +11,7 @@ import { writeFields } from './tools/shared/ical-dates.js';
  * @throws when the card does not parse even then
  */
 export function readVCard(data) {
-  const jcard = ICAL.parse(normalizeVCard(data));
+  const jcard = parseICal(normalizeVCard(data));
   // a body holding several cards parses to a list of them; a DAV resource
   // is one card, so the first is the one
   return new ICAL.Component(Array.isArray(jcard[0]) ? jcard[0] : jcard);
@@ -57,10 +58,18 @@ export function writeVCardFields(vCard, fields) {
  * and because 3.0 is the version every CardDAV server must accept (RFC 6352
  * section 5.1); sabre/dav (Baïkal, Nextcloud) refuses 2.1 outright.
  *
+ * A property with more parameters than dav-mcp reads (MAX_PARAMETERS in
+ * ical-parse.js) is refused before any of this: normalizing half a million
+ * of them costs a quarter second for a card parseICal refuses anyway.
+ * Normalizing never adds a parameter, so the card it returns is within the
+ * bound too.
+ *
  * @param {string} data - the vCard text
  * @returns {string} the card, CRLF line endings, unfolded
+ * @throws {ValidationError} TOO_MANY_PARAMETERS
  */
 export function normalizeVCard(data) {
+  assertParseBounded(data);
   const lines = unfold(data);
   const versions = cardVersions(lines);
   let version = null;
