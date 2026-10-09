@@ -8,7 +8,11 @@
 # The stage runs on the build host ($BUILDPLATFORM) for every target: the
 # production dependencies are pure JavaScript (no native .node addons), so
 # node_modules is platform-independent and npm ci never runs under emulation.
-FROM --platform=$BUILDPLATFORM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS deps
+# Pulled from the Docker Official Images mirror on ECR Public, not Docker Hub:
+# Docker Hub limits anonymous pulls per IP, and CI runners share their IPs, so
+# builds failed with 429 (#140). The digest is the same index, so the bytes are
+# too.
+FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS deps
 WORKDIR /app
 # Copy package files
 COPY package*.json ./

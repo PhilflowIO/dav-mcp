@@ -85,6 +85,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is refused (#107).
 
 ### Changed
+- **The Docker image's build stage pulls Node.js from ECR Public** (#140), the
+  Docker Official Images mirror, at the same digest: Docker Hub refused CI
+  runners' anonymous pulls with 429.
 - **@philflow/tsdav 2.5.0**, for its typed errors (`DAVResponseError`,
   `DAVAuthenticationError`) that carry the status and URL of a failed
   request; dav-mcp classifies errors by them (#115, #123).
