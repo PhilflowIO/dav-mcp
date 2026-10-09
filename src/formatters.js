@@ -16,6 +16,7 @@ import { readSeries, shownEvent, todoStatus } from './ical-components.js';
 import { shareTimezones, toInstant } from './tools/shared/ical-dates.js';
 import { seriesNames, labelled } from './occurrence-names.js';
 import { budgetPool, zonedInstant } from './occurrences.js';
+import { listedEtag } from './etags.js';
 import {
   readCalendarTimezone, calendarTimezoneOf, serverZone, floatingZoneOf, setFloatingZone, objectFloatingZone, zoneWall,
 } from './calendar-zone.js';
@@ -226,14 +227,24 @@ function foundLine(noun, shown, total, which = `the ${shown} earliest`) {
 }
 
 /**
- * Shape a list of DAV objects for the Raw Data block
+ * Shape a list of DAV objects for the Raw Data block. The etag is there only
+ * if a write can use it; otherwise etag_note says why not (etags.js).
  */
 function toRawData(items) {
   return items.map(item => ({
     url: item.url,
-    etag: item.etag,
+    ...listedEtag(item.etag),
     data: stripBinaryValues(item.data),
   }));
+}
+
+/**
+ * The ETag line of an entry: a usable etag as it is, with `suffix` after it,
+ * anything else as the note on why there is none.
+ */
+function etagLine(etag, suffix = '') {
+  const shown = listedEtag(etag);
+  return shown.etag ? `- **ETag**: ${shown.etag}${suffix}\n` : `- **ETag**: ${shown.etag_note}\n`;
 }
 
 /**
@@ -1079,7 +1090,7 @@ function todoEntry(todo, calendar = 'Unknown Calendar') {
 
   output += `- **Calendar**: ${calendarName}\n`;
   output += `- **URL**: ${todo.url}\n`;
-  output += `- **ETag**: ${todo.etag} *(required for updates)*\n`;
+  output += etagLine(todo.etag, ' *(required for updates)*');
 
   return { text: output, unreadable: null };
 }
@@ -1144,7 +1155,7 @@ function unreadableEntry(noun, reason, object, [label, name], replaceTool, delet
   text += `- **Note**: could not be read — ${reason}. Its details are not shown; ${replaceTool} can replace it, ${deleteTool} remove it\n`;
   text += `- **${label}**: ${name}\n`;
   text += `- **URL**: ${object.url}\n`;
-  if (object.etag) text += `- **ETag**: ${object.etag}\n`;
+  text += etagLine(object.etag);
   return { text, unreadable: reason };
 }
 

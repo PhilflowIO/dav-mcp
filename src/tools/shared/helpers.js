@@ -1,4 +1,5 @@
 import { MCP_ERROR_CODES, NotFoundError, ValidationError, CalDAVError } from '../../error-handler.js';
+import { isWeakEtag } from '../../etags.js';
 /**
  * Shared helper functions for tool implementations
  */
@@ -447,7 +448,7 @@ export function etagAfterWrite(response) {
   if (!etag) {
     return { etag_note: 'no ETag returned — fetch the object before the next update' };
   }
-  if (etag.startsWith('W/')) {
+  if (isWeakEtag(etag)) {
     return { etag_note: `only a weak ETag returned (${etag}), which cannot be used for an update — fetch the object before the next update` };
   }
   return { etag };

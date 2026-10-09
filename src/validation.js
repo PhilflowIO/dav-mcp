@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { parseDateValue } from 'tsdav-utils';
 import { requestUrlProblem } from './request-origins.js';
 import { ValidationError } from './error-handler.js';
+import { isWeakEtag } from './etags.js';
 
 /**
  * Validation schemas for all MCP tools
@@ -262,14 +263,17 @@ const MAX_ETAG_LENGTH = 1024;
 export const entityTag = z.string({ required_error: 'ETag is required' }).transform((value, ctx) => {
   const etag = value.trim();
   const quoted = QUOTED_ETAG.test(etag) ? etag
-    : BARE_ETAG.test(etag) && !etag.startsWith('W/') ? `"${etag}"`
+    : BARE_ETAG.test(etag) && !isWeakEtag(etag) ? `"${etag}"`
       : null;
   if (quoted && quoted.length <= MAX_ETAG_LENGTH) return quoted;
   let message = 'ETag is required';
   if (quoted) {
     message = `not an ETag: longer than ${MAX_ETAG_LENGTH} characters; pass the etag exactly as the list, query or get tool returned it`;
-  } else if (etag.startsWith('W/')) {
-    message = 'a weak ETag cannot be used for an update or delete — fetch the object before the next update';
+  } else if (isWeakEtag(etag)) {
+    // "fetch it again" alone loops on a server whose getetag is weak: the
+    // list tools show that one as unusable, and the message says what it means
+    message = 'a weak ETag can never match, so it cannot be used for an update or delete — pass the etag a list, query or get tool ' +
+      'shows for the object; if it shows only a weak one, the server gives this object no ETag a write can be checked against';
   } else if (etag) {
     message = 'not an ETag; pass the etag exactly as the list, query or get tool returned it, e.g. "abc123"';
   }

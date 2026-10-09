@@ -307,3 +307,55 @@ describe('changing a single occurrence through the raw route (#107)', () => {
     expect(reply.content[0].text).toContain('"e-2"');
   });
 });
+
+// A weak getetag can never satisfy If-Match (RFC 9110 13.1.1), and the write
+// tools refuse it (#124). Handed out as `etag`, the model passes it to an
+// update and is refused, with nothing else to try. So an `etag` field is only
+// ever one a write can use; a weak one is shown as such, with the reason.
+describe('a weak getetag', () => {
+  const weak = (href, dataTag, data) =>
+    `<d:response><d:href>${href}</d:href><d:propstat><d:prop>` +
+    `<d:getetag>W/&quot;w-1&quot;</d:getetag><${dataTag}>${data}</${dataTag}>` +
+    `</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>`;
+
+  const expectMarkedWeak = (object) => {
+    expect(object).not.toHaveProperty('etag');
+    expect(object.etag_note).toContain('weak ETag');
+    expect(object.etag_note).toContain('W/"w-1"');
+    expect(object.etag_note).toContain('cannot be updated or deleted');
+  };
+
+  test('calendar_multi_get does not hand it out as a usable etag', async () => {
+    const url = `${CALENDAR_URL}a.ics`;
+    respond = multistatus(weak('/calendars/user/work/a.ics', 'cal:calendar-data', ics('a', 'Alpha')));
+    const [object] = rawData(await calendarMultiGet.handler({ calendar_url: CALENDAR_URL, event_urls: [url] }));
+    expect(object.url).toBe(url);
+    expect(object.data).toContain('SUMMARY:Alpha');
+    expectMarkedWeak(object);
+  });
+
+  test('todo_multi_get says so in the entry instead of "required for updates"', async () => {
+    const url = `${TASKS_URL}t.ics`;
+    respond = multistatus(weak('/calendars/user/tasks/t.ics', 'cal:calendar-data', ics('t', 'Task', 'VTODO')));
+    const result = await todoMultiGet.handler({ todo_urls: [url] });
+    expectMarkedWeak(rawData(result)[0]);
+    const etagLine = text(result).split('\n').find(line => line.startsWith('- **ETag**'));
+    expect(etagLine).toContain('weak ETag');
+    expect(etagLine).not.toContain('required for updates');
+  });
+
+  test('addressbook_multi_get does not hand it out as a usable etag', async () => {
+    const url = `${BOOK_URL}c.vcf`;
+    respond = multistatus(weak('/addressbooks/user/contacts/c.vcf', 'card:address-data', vcard('c', 'Carol')));
+    const [object] = rawData(await addressbookMultiGet.handler({ addressbook_url: BOOK_URL, contact_urls: [url] }));
+    expectMarkedWeak(object);
+  });
+
+  test('a strong one is handed out as before, todos still saying it is required for updates', async () => {
+    const url = `${TASKS_URL}t.ics`;
+    respond = multistatus(found('/calendars/user/tasks/t.ics', 'e-t', 'cal:calendar-data', ics('t', 'Task', 'VTODO')));
+    const result = await todoMultiGet.handler({ todo_urls: [url] });
+    expect(rawData(result)[0]).toEqual({ url, etag: '"e-t"', data: expect.any(String) });
+    expect(text(result)).toContain('- **ETag**: "e-t" *(required for updates)*');
+  });
+});

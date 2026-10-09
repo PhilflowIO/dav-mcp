@@ -231,10 +231,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bare tag gets its quotes, a quoted one is kept, surrounding whitespace is
   dropped, and a value that cannot be an entity-tag (inner whitespace, a stray
   quote, more than 1024 characters) is a validation error before any request. A weak etag (`W/"…"`)
-  is refused the same way, saying to fetch the object first: If-Match
-  compares strongly, so it could only end in a 412. A stale etag is still
-  refused with 412, quoted or not; when dav-mcp added the quotes, the error
-  says so, since a server that does not quote its ETags fails the same way.
+  is refused the same way: If-Match compares strongly, so it could only end
+  in a 412. A stale etag is still refused with 412, quoted or not; when
+  dav-mcp added the quotes, the error says so, since a server that does not
+  quote its ETags fails the same way.
+- **Listings no longer hand out a weak ETag as one to update with** (#136).
+  The list, query and multi-get tools passed a weak `W/"…"` getetag on as
+  `etag`, and todos labelled it "required for updates", although the update
+  and delete tools refuse it: a model fetched, was refused, fetched the same
+  ETag again. An `etag` field is now only ever one a write can use; a weak or
+  missing one is an `etag_note` saying the object cannot be updated or
+  deleted through dav-mcp and that the server has to be fixed. CalDAV and
+  CardDAV require strong ETags, and a compressing proxy, which only changes
+  ETag headers, cannot cause a weak getetag. Strong ETags are shown as
+  before; a todo without one no longer reads `undefined`.
 - **A wrong collection or object URL says what to send instead** (#115).
   The error names the parameter and the URL, lists up to 20 of the calendars
   or address books there are (and how many more the list tool shows), and

@@ -338,12 +338,15 @@ describe('entityTag', () => {
     ['a quoted weak ETag', 'W/"abc"'],
     ['a weak ETag without its quotes', 'W/abc'],
     ['a weak ETag with whitespace around it', '  W/"abc" '],
-  ])('refuses %s, saying to fetch the object first', (_, input) => {
+  ])('refuses %s, saying where a usable one comes from', (_, input) => {
     const result = entityTag.safeParse(input);
     expect(result.success).toBe(false);
     const { message } = result.error.issues[0];
     expect(message).toContain('weak ETag');
-    expect(message).toContain('fetch the object');
+    expect(message).toContain('list, query or get tool');
+    // the list tools show a weak one as such: "fetch it again" alone would be
+    // a loop on a server that only ever gives weak ones
+    expect(message).toContain('only a weak one');
   });
 
 describe('etagAfterWrite', () => {
