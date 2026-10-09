@@ -85,6 +85,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is refused (#107).
 
 ### Changed
+- **Docker builds and CI no longer pull from Docker Hub** (#140), which
+  refused CI runners' anonymous pulls with 429. The image's build stage pulls
+  Node.js from ECR Public, the Docker Official Images mirror, at the same
+  digest, and the Dockerfile uses BuildKit's built-in frontend instead of
+  fetching `docker/dockerfile`. The CI image builds take QEMU and BuildKit
+  from ECR Public at Docker Hub's digests. The smoke tests' CalDAV backend
+  is Radicale 3.8.3 from PyPI, pinned with hashes, on the official Python
+  image from ECR Public, configured like the `tomsquest/docker-radicale:latest`
+  image it replaces.
 - **@philflow/tsdav 2.5.0**, for its typed errors (`DAVResponseError`,
   `DAVAuthenticationError`) that carry the status and URL of a failed
   request; dav-mcp classifies errors by them (#115, #123).

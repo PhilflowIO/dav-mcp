@@ -1,0 +1,14 @@
+# Same settings as the tomsquest/docker-radicale image the smoke tests used
+# before (#140): no authentication, so any CALDAV_USERNAME/CALDAV_PASSWORD
+# logs in. Radicale 3.5 and later default to `denyall`, hence the explicit type.
+[server]
+hosts = 0.0.0.0:5232
+
+[auth]
+type = none
+
+[rights]
+type = owner_only
+
+[storage]
+filesystem_folder = /data/collections
