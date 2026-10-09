@@ -89,7 +89,9 @@ export const createContact = {
       filename: `${uid}.vcf`,
       vCardString,
     });
-    await assertDavSuccess(response, 'create contact');
+    await assertDavSuccess(response, 'create contact', {
+      callerContent: { noun: 'contact', fix: 'Correct the values given and send them again.' },
+    });
 
     return formatSuccess('Contact created successfully', {
       url: response.url,

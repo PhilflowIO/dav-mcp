@@ -21,14 +21,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (-32000) when it answered but not as a DAV server. OAuth without
   `GOOGLE_USER` now stops the server at startup, like every other missing
   setting, instead of failing each tool call.
-- **Lookup and input mistakes carry their own error code** (#115). A
-  `calendar_url` or `addressbook_url` that names none of the collections is
-  a not-found error (-32006); it used to be classified by the words in the
-  message, which carries the URL, so on a host like `caldav.icloud.com` it
-  came back as a CalDAV server error (-32000, -32001 for CardDAV). An
-  `event_url`, `todo_url` or `vcard_url` with nothing behind it is a
-  not-found error too. A write the server refuses as malformed (400, 415,
-  422) is a validation error (-32002) instead of an internal error (-32603).
+- **Lookup and input mistakes carry their own error code; nothing is
+  guessed from a message any more** (#115). Every tool that takes a
+  `calendar_url` or `addressbook_url` looks it up first, and one that names
+  none of the collections is a not-found error (-32006); it used to be
+  classified by the words in the message, which carries the URL, so on a host
+  like `caldav.icloud.com` it came back as a CalDAV server error (-32000,
+  -32001 for CardDAV), and `addressbook_query` searched nothing. An
+  `event_url`, `todo_url` or `vcard_url` with nothing behind it is a not-found
+  error too. Data the caller wrote (the raw update tools, field updates,
+  creates) that the server refuses as invalid (400, 415, 422) is a validation
+  error (-32002); the same status on a request dav-mcp builds itself stays an
+  internal error. An error without a type or status is now always an
+  internal error (-32603), including a JavaScript `TypeError` such as
+  `fetch failed`, which used to be reported as invalid params (-32602).
 - **Write tools refuse parameters they do not take.** A create, update or
   delete call with an unknown parameter is a validation error naming it,
   instead of succeeding without it (#126).
@@ -132,13 +138,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   refused with 412, quoted or not; when dav-mcp added the quotes, the error
   says so, since a server that does not quote its ETags fails the same way.
 - **A wrong collection or object URL says what to send instead** (#115).
-  The error names the parameter and the URL, lists the calendars or address
-  books there are and the tool that lists them; the query tools add that
-  `calendar_url` can be left out. A missing event, to-do or contact names
-  the tools that return its current URL. Content a server rejects as
-  malformed (an `update_event_raw` with a broken iCalendar object, say) is
-  reported as invalid input with the server's reason, so the caller
-  corrects the object rather than retrying.
+  The error names the parameter and the URL, lists up to 20 of the calendars
+  or address books there are (and how many more the list tool shows), and
+  names that tool; the query tools add that the parameter can be left out.
+  `list_todos`, `create_todo`, `calendar_multi_get`, `addressbook_multi_get`
+  and `addressbook_query` used to skip the lookup; `delete_calendar` lists
+  the calendars when the server answers 404 for a URL that is not one of
+  them. A missing event, to-do or contact names the tools that return its
+  current URL. A refused object says so in the caller's terms ("The server
+  refused the event as invalid (415 …): … Correct the iCalendar data in
+  `updated_ical_data`"), so the caller corrects it rather than retrying.
 - **A failed login says where to fix the settings** (#123). The hint used to
   point only at a `.env` file, which users of the Claude Code plugin and
   the Claude Desktop extension do not have (and it sat in a function nothing

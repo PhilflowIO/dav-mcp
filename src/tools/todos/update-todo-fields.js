@@ -188,6 +188,7 @@ export const updateTodoFields = {
     });
     await assertDavSuccess(updateResponse, `update todo ${validated.todo_url}`, {
       quotedEtag: etagQuotedByUs(args.todo_etag, validated.todo_etag),
+      callerContent: { noun: 'todo', fix: 'Correct the values in fields and send them again.' },
     });
 
     return formatSuccess('Todo updated successfully', {

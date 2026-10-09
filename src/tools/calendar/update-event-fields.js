@@ -219,6 +219,7 @@ export const updateEventFields = {
     });
     await assertDavSuccess(updateResponse, `update event ${validated.event_url}`, {
       quotedEtag: etagQuotedByUs(args.event_etag, validated.event_etag),
+      callerContent: { noun: 'event', fix: 'Correct the values in fields and send them again.' },
     });
 
     return formatSuccess('Event updated successfully', {

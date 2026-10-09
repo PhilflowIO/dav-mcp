@@ -47,6 +47,7 @@ export const updateEventRaw = {
     });
     await assertDavSuccess(response, `update event ${validated.event_url}`, {
       quotedEtag: etagQuotedByUs(args.event_etag, validated.event_etag),
+      callerContent: { noun: 'event', fix: 'Correct the iCalendar data in updated_ical_data and send it again.' },
     });
 
     return formatSuccess('Event updated successfully', {

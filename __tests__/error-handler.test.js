@@ -86,12 +86,24 @@ describe('Error Handler Module', () => {
       expect(formatted.data.stack).toBeUndefined();
     });
 
-    test('should detect error type from message', () => {
-      const error = new Error('caldav connection failed');
+    // An error that carries no code, type or HTTP status is a fault of
+    // dav-mcp or a library, never guessed from its wording (#115): the
+    // message usually holds a URL, and on caldav.icloud.com or a calendar
+    // called "author-notes" the guess was a CalDAV or auth error.
+    test.each([
+      ['caldav connection failed'],
+      ['Calendar not found: https://caldav.example.com/calendars/u/x/'],
+      ['request to https://dav.example.com/author-notes/ returned 404'],
+      ['invalid time value'],
+      ['connection timeout'],
+    ])('an untyped error is internal, whatever it says: %s', (message) => {
+      expect(formatMCPError(new Error(message)).code).toBe(MCP_ERROR_CODES.INTERNAL_ERROR);
+    });
 
-      const formatted = formatMCPError(error);
-
-      expect(formatted.code).toBe(MCP_ERROR_CODES.CALDAV_ERROR);
+    test('a JavaScript TypeError is internal, not invalid params', () => {
+      // fetch rejects with TypeError('fetch failed'); a bug throws one too.
+      // Tool parameters are validated before a handler runs.
+      expect(formatMCPError(new TypeError('fetch failed')).code).toBe(MCP_ERROR_CODES.INTERNAL_ERROR);
     });
   });
 

@@ -1,7 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, createTodoSchema, sanitizeICalString } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
-import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
+import { assertDavSuccess, etagAfterWrite, findCalendarOrThrow } from '../shared/helpers.js';
 import { writeFields } from '../shared/ical-dates.js';
 
 /**
@@ -55,6 +55,7 @@ export const createTodo = {
   handler: async (args) => {
     const validated = validateInput(createTodoSchema, args);
     const client = tsdavManager.getCalDavClient();
+    const calendar = findCalendarOrThrow(await client.fetchCalendars(), validated.calendar_url);
 
     // Build VTODO iCalendar string
     const uid = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}@tsdav-mcp`;
@@ -95,11 +96,13 @@ export const createTodo = {
     const iCalString = writeFields(vtodo, dates, 'vtodo');
 
     const result = await client.createTodo({
-      calendar: { url: validated.calendar_url },
+      calendar,
       filename: `${Date.now()}.ics`,
       iCalString,
     });
-    await assertDavSuccess(result, 'create todo');
+    await assertDavSuccess(result, 'create todo', {
+      callerContent: { noun: 'todo', fix: 'Correct the values given and send them again.' },
+    });
 
     return formatSuccess('Todo created successfully', {
       url: result.url,

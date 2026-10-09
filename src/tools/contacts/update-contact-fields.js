@@ -130,6 +130,7 @@ export const updateContactFields = {
     });
     await assertDavSuccess(updateResponse, `update contact ${validated.vcard_url}`, {
       quotedEtag: etagQuotedByUs(args.vcard_etag, validated.vcard_etag),
+      callerContent: { noun: 'contact', fix: 'Correct the values in fields and send them again.' },
     });
 
     return formatSuccess('Contact updated successfully', {

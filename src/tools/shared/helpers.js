@@ -1,4 +1,4 @@
-import { MCP_ERROR_CODES, NotFoundError } from '../../error-handler.js';
+import { MCP_ERROR_CODES, NotFoundError, ValidationError, CalDAVError } from '../../error-handler.js';
 import { settingsHint } from '../../auth-config.js';
 import { tsdavManager } from '../../tsdav-client.js';
 /**
@@ -28,7 +28,7 @@ export async function getCalendarHome(client) {
     const calendars = await client.fetchCalendars();
 
     if (!calendars || calendars.length === 0) {
-      throw new Error('Cannot determine calendar home: No calendar home found and no existing calendars available.');
+      throw new CalDAVError('Cannot determine calendar home: the server reported no calendar home and has no calendars to derive it from.');
     }
 
     // Extract calendar home from an existing calendar URL
@@ -119,8 +119,11 @@ export function sanitizeNameForUrl(name) {
  * @returns {NotFoundError}
  */
 function unknownCollectionError({ parameter, url, noun, listTool, collections, omit }) {
+  const shown = collections.slice(0, MAX_LISTED_COLLECTIONS);
+  const more = collections.length - shown.length;
   const available = collections.length
-    ? `\n- ${collections.map(c => c.url).join('\n- ')}`
+    ? `\n- ${shown.map(c => c.url).join('\n- ')}` +
+      (more > 0 ? `\n- and ${more} more (${listTool} lists them all)` : '')
     : ' none';
   return new NotFoundError(
     `${parameter} ${url} is not one of the ${noun} on this server.\n\n` +
@@ -130,6 +133,10 @@ function unknownCollectionError({ parameter, url, noun, listTool, collections, o
     { parameter, url }
   );
 }
+
+// An account can hold hundreds of calendars; the error names enough to spot
+// a typo and leaves the rest to the list tool.
+const MAX_LISTED_COLLECTIONS = 20;
 
 /**
  * Find the calendar a calendar_url names.
@@ -155,15 +162,17 @@ export function findCalendarOrThrow(calendars, calendarUrl, { omit } = {}) {
  * Find the address book an addressbook_url names.
  * @param {Array} addressbooks - List of addressbooks
  * @param {string} addressbookUrl - URL to search for
+ * @param {object} [options]
+ * @param {string} [options.omit] - what omitting addressbook_url does, for tools where it is optional
  * @returns {Object} Addressbook object
  * @throws {NotFoundError} If addressbook not found
  */
-export function findAddressbookOrThrow(addressbooks, addressbookUrl) {
+export function findAddressbookOrThrow(addressbooks, addressbookUrl, { omit } = {}) {
   const addressbook = addressbooks.find(ab => ab.url === addressbookUrl);
   if (!addressbook) {
     throw unknownCollectionError({
       parameter: 'addressbook_url', url: addressbookUrl, noun: 'address books',
-      listTool: 'list_addressbooks', collections: addressbooks,
+      listTool: 'list_addressbooks', collections: addressbooks, omit,
     });
   }
   return addressbook;
@@ -347,6 +356,32 @@ export function davFailureError(failure, prefix, suffix = '') {
   return error;
 }
 
+// Statuses a server answers when it refuses the body itself: SabreDAV
+// (Nextcloud, Baïkal) 415 for iCalendar or vCard it cannot parse or validate,
+// Radicale 400, and 422 for content understood but not processable.
+const CONTENT_REFUSALS = new Set([400, 415, 422]);
+
+/**
+ * A write whose body the caller supplied, refused as invalid: the caller's
+ * input, so a validation error that says what to correct (#115). Only for
+ * bodies from the caller — a request dav-mcp builds itself (a REPORT, a
+ * PROPFIND) refused the same way is dav-mcp's or the server's fault, and
+ * calling it invalid input would have the model "correct" what it sent.
+ */
+function contentRefusedError(failure, { noun, fix }) {
+  const reason = failure.message || failure.parseError || '';
+  return new ValidationError(
+    `The server refused the ${noun} as invalid (${`${failure.status} ${failure.statusText}`.trim()})` +
+    `${reason ? `: ${reason.replace(/\.$/, '')}` : ''}. ${fix}`,
+    {
+      status: failure.status,
+      statusText: failure.statusText,
+      ...(failure.message && { serverMessage: failure.message }),
+      ...(failure.url && { url: failure.url }),
+    }
+  );
+}
+
 /**
  * Assert that a DAV write was accepted by the server.
  *
@@ -358,10 +393,15 @@ export function davFailureError(failure, prefix, suffix = '') {
  * @param {string} action - what was attempted, e.g. "create event", for the error message
  * @param {object} [options]
  * @param {string} [options.quotedEtag] - the If-Match sent, if dav-mcp added its quotes (etagQuotedByUs)
+ * @param {{noun: string, fix: string}} [options.callerContent] - the body was the caller's
+ *   (raw data, or fields dav-mcp wrote as given): what it is and how to correct it
  */
-export async function assertDavSuccess(result, action, { quotedEtag } = {}) {
+export async function assertDavSuccess(result, action, { quotedEtag, callerContent } = {}) {
   const failure = await davFailure(result);
   if (!failure) return;
+  if (callerContent && CONTENT_REFUSALS.has(failure.status)) {
+    throw contentRefusedError(failure, callerContent);
+  }
   const hint = failure.status === 412 ? quotedEtagHint(quotedEtag) : '';
   throw davFailureError(failure, `Failed to ${action}`, hint && `. ${hint}`);
 }

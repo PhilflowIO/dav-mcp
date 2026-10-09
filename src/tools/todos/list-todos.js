@@ -1,4 +1,5 @@
 import { tsdavManager } from '../../tsdav-client.js';
+import { findCalendarOrThrow } from '../shared/helpers.js';
 import { validateInput, listTodosSchema } from '../../validation.js';
 import { formatTodoList } from '../../formatters.js';
 
@@ -29,7 +30,7 @@ export const listTodos = {
     const validated = validateInput(listTodosSchema, args);
     const client = tsdavManager.getCalDavClient();
 
-    const calendar = { url: validated.calendar_url };
+    const calendar = findCalendarOrThrow(await client.fetchCalendars(), validated.calendar_url);
     const todos = await client.fetchTodos({ calendar });
 
     return formatTodoList(todos, validated.calendar_url);

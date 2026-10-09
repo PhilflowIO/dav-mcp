@@ -47,6 +47,7 @@ export const updateContactRaw = {
     });
     await assertDavSuccess(response, `update contact ${validated.vcard_url}`, {
       quotedEtag: etagQuotedByUs(args.vcard_etag, validated.vcard_etag),
+      callerContent: { noun: 'contact', fix: 'Correct the vCard data in updated_vcard_data and send it again.' },
     });
 
     return formatSuccess('Contact updated successfully', {

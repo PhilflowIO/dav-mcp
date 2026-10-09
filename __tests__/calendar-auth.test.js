@@ -96,11 +96,25 @@ describe('delete_calendar', () => {
 
   test('no calendar at the URL (404 to lookup and DELETE): not found, never "deleted"', async () => {
     nextResponse = response(404, 'Not Found');
+    const other = 'https://dav.example.com/calendars/user/home/';
+    client.fetchCalendars = jest.fn().mockResolvedValue([{ url: other }]);
     const error = await deleteCalendar.handler({ calendar_url: CALENDAR_URL }).catch(e => e);
+    delete client.fetchCalendars;
 
     expect(requests.map(r => r.method)).toEqual(['PROPFIND', 'DELETE']);
-    expect(error.message).toBe(`No calendar at ${CALENDAR_URL} — nothing was deleted.`);
+    expect(error.message).toContain(`calendar_url ${CALENDAR_URL} is not one of the calendars`);
+    expect(error.message).toContain(other);
     expect(error.code).toBe(-32006); // NOT_FOUND_ERROR
+  });
+
+  test('a 404 for a URL that is listed keeps the plain not-found message', async () => {
+    nextResponse = response(404, 'Not Found');
+    client.fetchCalendars = jest.fn().mockResolvedValue([{ url: CALENDAR_URL }]);
+    const error = await deleteCalendar.handler({ calendar_url: CALENDAR_URL }).catch(e => e);
+    delete client.fetchCalendars;
+
+    expect(error.message).toBe(`No calendar at ${CALENDAR_URL} — nothing was deleted.`);
+    expect(error.code).toBe(-32006);
   });
 
   test('a calendar seen by the lookup that answers 404 to the DELETE existed and is gone: deleted', async () => {

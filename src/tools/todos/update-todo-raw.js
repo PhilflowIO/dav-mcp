@@ -47,6 +47,7 @@ export const updateTodoRaw = {
     });
     await assertDavSuccess(result, `update todo ${validated.todo_url}`, {
       quotedEtag: etagQuotedByUs(args.todo_etag, validated.todo_etag),
+      callerContent: { noun: 'todo', fix: 'Correct the iCalendar data in updated_ical_data and send it again.' },
     });
 
     return formatSuccess('Todo updated successfully', {

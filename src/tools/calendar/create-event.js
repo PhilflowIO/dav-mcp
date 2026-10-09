@@ -99,7 +99,9 @@ export const createEvent = {
       filename: `${uid}.ics`,
       iCalString,
     });
-    await assertDavSuccess(response, 'create event');
+    await assertDavSuccess(response, 'create event', {
+      callerContent: { noun: 'event', fix: 'Correct the values given and send them again.' },
+    });
 
     return formatSuccess('Event created successfully', {
       url: response.url,

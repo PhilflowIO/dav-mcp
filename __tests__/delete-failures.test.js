@@ -14,7 +14,11 @@ const deleteTodo = jest.fn();
 
 jest.unstable_mockModule('../src/tsdav-client.js', () => ({
   tsdavManager: {
-    getCalDavClient: () => ({ deleteObject, deleteCalendarObject, deleteTodo }),
+    getCalDavClient: () => ({
+      deleteObject, deleteCalendarObject, deleteTodo,
+      // the calendar is listed; whether the server lets it go is what is tested
+      fetchCalendars: async () => [{ url: 'https://dav.example.com/calendars/user/work/' }],
+    }),
     getCardDavClient: () => ({ deleteVCard }),
   },
 }));

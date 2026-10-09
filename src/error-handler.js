@@ -25,7 +25,6 @@ export const MCP_ERROR_CODES = {
  * Error type to code mapping
  */
 const ERROR_TYPE_MAP = {
-  'TypeError': MCP_ERROR_CODES.INVALID_PARAMS,
   'ValidationError': MCP_ERROR_CODES.VALIDATION_ERROR,
   'AuthenticationError': MCP_ERROR_CODES.AUTH_ERROR,
   'NetworkError': MCP_ERROR_CODES.NETWORK_ERROR,
@@ -40,13 +39,6 @@ const ERROR_TYPE_MAP = {
  */
 function codeForHttpStatus(status) {
   switch (status) {
-    // The server refused what was sent as malformed: an unparseable object
-    // (SabreDAV answers 415, Radicale 400) or one it cannot process. What a
-    // write sends comes from the caller's input, so the caller corrects it.
-    case 400:
-    case 415:
-    case 422:
-      return MCP_ERROR_CODES.VALIDATION_ERROR;
     case 401:
     case 403:
       return MCP_ERROR_CODES.AUTH_ERROR;
@@ -104,30 +96,12 @@ function getErrorCode(error) {
     return codeForHttpStatus(error.httpStatus);
   }
 
-  // Check error message for CalDAV/CardDAV specific errors
-  const message = error.message?.toLowerCase() || '';
-  if (message.includes('caldav')) {
-    return MCP_ERROR_CODES.CALDAV_ERROR;
-  }
-  if (message.includes('carddav')) {
-    return MCP_ERROR_CODES.CARDDAV_ERROR;
-  }
-  if (message.includes('auth') || message.includes('unauthorized') || message.includes('forbidden')) {
-    return MCP_ERROR_CODES.AUTH_ERROR;
-  }
-  if (message.includes('not found') || message.includes('404')) {
-    return MCP_ERROR_CODES.NOT_FOUND_ERROR;
-  }
-  if (message.includes('timeout')) {
-    return MCP_ERROR_CODES.TIMEOUT_ERROR;
-  }
-  if (message.includes('network') || message.includes('connection')) {
-    return MCP_ERROR_CODES.NETWORK_ERROR;
-  }
-  if (message.includes('validation') || message.includes('invalid')) {
-    return MCP_ERROR_CODES.VALIDATION_ERROR;
-  }
-
+  // Nothing is read from the message: it usually carries a URL, and a
+  // calendar on caldav.icloud.com or one called "author-notes" read as a
+  // CalDAV or auth error (#115). An error without a code, type or status is
+  // a fault of dav-mcp or a library. A JavaScript TypeError is one of those
+  // too (fetch rejects with one): tool parameters are validated before a
+  // handler runs, so it is never the caller's input.
   // Default to internal error
   return MCP_ERROR_CODES.INTERNAL_ERROR;
 }
