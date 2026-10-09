@@ -116,7 +116,7 @@ describe('calculateFreeBusy', () => {
     expect(busy).toEqual([]);
   });
 
-  test('an all-day event blocks the UTC day it covers, whatever the host zone', () => {
+  test('an all-day event blocks the whole day it covers', () => {
     const allDay = object([
       'DTSTART;VALUE=DATE:20260525',
       'DTEND;VALUE=DATE:20260526',

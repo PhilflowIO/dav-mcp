@@ -3,7 +3,8 @@ import { validateInput, davFieldMapSchema, davUrl, entityTag, etagQuotedByUs } f
 import { formatSuccess } from '../../formatters.js';
 import { assertDavSuccess, etagAfterWrite, objectNotFoundError } from '../shared/helpers.js';
 import { z } from 'zod';
-import { writeFields, reconcileTodoDates } from '../shared/ical-dates.js';
+import { writeFields, reconcileTodoDates, writesDates } from '../shared/ical-dates.js';
+import { fetchFloatingZone } from '../../calendar-zone.js';
 import { assertFieldUpdatable, describeSeriesChange } from '../../ical-components.js';
 import {
   occurrenceEditSchema, refineOccurrenceEdits, editOccurrences, notChanged, nothingWritten,
@@ -41,7 +42,8 @@ const updateTodoFieldsSchema = z.object({
 // What DUE and DTSTART accept; tsdav-utils parses exactly these forms
 const DATE_FORMS =
   'ISO 8601 with a zone ("2026-10-26T18:00:00Z", "2026-10-26T14:00:00-04:00"; that instant, written in the todo\'s own timezone if it has one), ' +
-  'without one (kept in the todo\'s own timezone if it has one, else read in the timezone of the computer running dav-mcp), ' +
+  'without one (kept in the todo\'s own timezone if it has one; a todo stored without a zone stays without one, ' +
+  'and a value with a zone becomes its local time in the calendar\'s time zone; else read in the calendar\'s time zone), ' +
   'or a date ("2026-10-26") for an all-day value';
 
 /**
@@ -168,7 +170,9 @@ export const updateTodoFields = {
     let updatedData = occurrences.data;
     if (writesFields) {
       try {
-        updatedData = reconcileTodoDates(writeFields(occurrences.data, fields, 'vtodo'), Object.keys(fields));
+        updatedData = reconcileTodoDates(
+          writeFields(occurrences.data, fields, 'vtodo',
+            writesDates(fields) ? await fetchFloatingZone(client, calendarUrl) : null), Object.keys(fields));
       } catch (error) {
         throw nothingWritten(error, occurrences.change);
       }

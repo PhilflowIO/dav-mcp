@@ -5,6 +5,7 @@ import { limitResults, DEFAULT_RESULT_LIMIT, findCalendarOrThrow } from '../shar
 import { dueSpan } from '../shared/ical-dates.js';
 import { todoStatus } from '../../ical-components.js';
 import { parseObjects, unsearchedObjects, textValues, containsText, dateKey, orNull } from '../shared/query-objects.js';
+import { floatingZoneFor, withFloatingZone, withZoneNote } from '../../calendar-zone.js';
 
 /**
  * Search and filter todos efficiently
@@ -63,8 +64,13 @@ export const todoQuery = {
 
     // Fetch todos from all selected calendars
     let todos = [];
+    // each calendar's zone, for a note when one could not be read
+    const zones = [];
     for (const calendar of calendarsToSearch) {
-      const calendarTodos = await client.fetchTodos({ calendar });
+      // floating times and dates are read in each calendar's own zone
+      const zone = floatingZoneFor(calendar);
+      zones.push(zone);
+      const calendarTodos = withFloatingZone(await client.fetchTodos({ calendar }), zone);
       todos = todos.concat(calendarTodos);
     }
 
@@ -107,6 +113,6 @@ export const todoQuery = {
     );
 
     const result = formatTodoList(items.map(({ object }) => object), calendarName, total);
-    return withUnsearched(result, unsearchedObjects(all, parsed), 'todos', 'list_todos');
+    return withZoneNote(withUnsearched(result, unsearchedObjects(all, parsed), 'todos', 'list_todos'), zones);
   },
 };

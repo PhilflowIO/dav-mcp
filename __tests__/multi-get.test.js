@@ -16,8 +16,16 @@ const TASKS_URL = `${SERVER}/calendars/user/tasks/`;
 const BOOK_URL = `${SERVER}/addressbooks/user/contacts/`;
 
 const requests = [];
+// the PROPFIND for a calendar's time zone, in which floating times and dates
+// are shown (#117): kept apart from the multiget requests under test
+const zoneLookups = [];
 let respond;
 const fetchStub = jest.fn(async (url, init) => {
+  if (init.method === 'PROPFIND' && /calendar-timezone/.test(init.body)) {
+    zoneLookups.push(url);
+    return new Response('<?xml version="1.0"?>\n<d:multistatus xmlns:d="DAV:"/>',
+      { status: 207, statusText: 'Multi-Status', headers: { 'content-type': 'application/xml; charset=utf-8' } });
+  }
   requests.push({ url, ...init });
   return respond(url, init);
 });
@@ -70,6 +78,7 @@ const rawData = (result) => JSON.parse(/```json\n([\s\S]*?)\n```/.exec(text(resu
 
 beforeEach(() => {
   requests.length = 0;
+  zoneLookups.length = 0;
   fetchStub.mockClear();
 });
 
@@ -203,6 +212,8 @@ describe('todo_multi_get', () => {
 
     expect(requests.map(r => r.url)).toEqual([TASKS_URL, other]);
     expect(rawData(result).map(t => t.url)).toEqual([`${TASKS_URL}t1.ics`, `${other}t9.ics`]);
+    // each list's own time zone, asked once per list
+    expect(zoneLookups).toEqual([TASKS_URL, other]);
   });
 });
 

@@ -2,6 +2,7 @@ import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, todoMultiGetSchema } from '../../validation.js';
 import { formatTodoList, withMissingObjects } from '../../formatters.js';
 import { multiGetObjects } from '../shared/multiget.js';
+import { fetchFloatingZone, withFloatingZone, withZoneNote } from '../../calendar-zone.js';
 
 /**
  * Batch fetch multiple specific todos by their URLs
@@ -43,6 +44,7 @@ export const todoMultiGet = {
 
     const todos = [];
     const missing = [];
+    const zones = [];
     for (const [calendarUrl, objectUrls] of byCalendar) {
       let result;
       try {
@@ -55,13 +57,16 @@ export const todoMultiGet = {
         missing.push(...objectUrls.map(url => ({ url, statusText: `task list ${calendarUrl} does not exist` })));
         continue;
       }
-      todos.push(...result.found);
+      // floating times and dates are read in each calendar's own zone
+      const zone = await fetchFloatingZone(client, calendarUrl);
+      zones.push(zone);
+      todos.push(...withFloatingZone(result.found, zone));
       missing.push(...result.missing);
     }
 
     const calendarName = byCalendar.size === 1
       ? [...byCalendar.keys()][0]
       : `${byCalendar.size} calendars`;
-    return withMissingObjects(formatTodoList(todos, calendarName), missing);
+    return withZoneNote(withMissingObjects(formatTodoList(todos, calendarName), missing), zones);
   },
 };

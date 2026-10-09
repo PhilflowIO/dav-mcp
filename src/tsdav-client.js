@@ -48,8 +48,13 @@ class OriginCheckedDAVClient extends DAVClient {
   // tsdav asks each listed collection for its reports while still listing,
   // so the collections in the home listing have to be known before the
   // listing call returns.
+  //
+  // projectedProps keeps each calendar's calendar-timezone as the server sent
+  // it: tsdav up to 2.4 drops it from `timezone` when it arrives as CDATA, and
+  // src/calendar-zone.js reads this raw value for every tool alike.
   async fetchCalendars(params) {
-    return super.fetchCalendars(this.#checked(params, { listingOf: this.account?.homeUrl }));
+    const projected = { ...params, projectedProps: { calendarTimezone: true, ...params?.projectedProps } };
+    return super.fetchCalendars(this.#checked(projected, { listingOf: this.account?.homeUrl }));
   }
 
   async fetchAddressBooks(params) {

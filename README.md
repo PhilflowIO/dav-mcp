@@ -127,8 +127,8 @@ When partial tools force your AI to improvise, complete tools let it **execute p
 5. **update_event_raw** - Update event with raw iCal data (advanced)
 6. **delete_event** - Delete an event permanently
 7. **calendar_query** - PREFERRED: Search and filter events efficiently by text, date range, or location
-8. **make_calendar** - Create a new calendar collection. A timezone is accepted but not applied yet ([#78](https://github.com/PhilflowIO/dav-mcp/issues/78))
-9. **update_calendar** - Update calendar properties (display name, description, color, timezone). The timezone is sent as a bare timezone ID today, which not every server accepts ([#78](https://github.com/PhilflowIO/dav-mcp/issues/78))
+8. **make_calendar** - Create a new calendar collection, optionally with a time zone (an IANA name such as `Europe/Berlin`, sent as a VTIMEZONE)
+9. **update_calendar** - Update calendar properties (display name, description, color, time zone)
 10. **delete_calendar** - Delete a calendar and all its events
 11. **calendar_multi_get** - Batch fetch multiple specific events by URLs
 12. **freebusy_query** - Find free and busy time in a range ("when am I free?"), calculated client-side
@@ -153,6 +153,18 @@ When partial tools force your AI to improvise, complete tools let it **execute p
 25. **delete_todo** - Delete a todo/task permanently
 26. **todo_query** - PREFERRED: Search and filter todos efficiently by status/due date
 27. **todo_multi_get** - Batch fetch multiple specific todos by URLs
+
+### Time zones
+
+An event or todo written without a time zone (a "floating" time such as
+`DTSTART:20261010T090000`, or an all-day date) is read in its calendar's time
+zone, as CalDAV specifies (RFC 4791 §9.9): the zone set with `make_calendar` /
+`update_calendar`, which `list_calendars` shows. A calendar without one is read
+in the zone dav-mcp runs in: the `TZ` environment variable (for example
+`TZ=Europe/Berlin` in Docker or an HTTP deployment), else the system's. A time
+without a zone given to the create and update tools is read the same way, and
+an event stored without a zone stays without one when it is moved.
+`freebusy_query` prints its slots in the calendar's zone and names it.
 
 ---
 

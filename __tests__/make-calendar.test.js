@@ -219,20 +219,7 @@ describe('make_calendar', () => {
     expect(Object.entries(headers).find(([k]) => k.toLowerCase() === 'authorization')?.[1]).toBe('Basic dXNlcjpwYXNz');
   });
 
-  test('a timezone is not sent as a bare TZID, and the result says it was not applied', async () => {
-    mkcalendar = [created];
-    const result = await makeCalendar.handler({ display_name: 'Team Plan', timezone: 'Europe/Berlin' });
-
-    // RFC 4791 §5.2.2: calendar-timezone holds an iCalendar VTIMEZONE, never a TZID
-    const [{ body }] = sent('MKCALENDAR');
-    expect(body).not.toContain('calendar-timezone');
-    expect(body).not.toContain('Europe/Berlin');
-    const text = result.content[0].text;
-    expect(text).toContain('Calendar created successfully');
-    expect(text).toContain('The timezone "Europe/Berlin" was NOT applied');
-    expect(text).toContain('issues/78');
-    expect(text).toContain('"timezoneApplied": false');
-  });
+  // a timezone: see calendar-timezone.test.js (#78)
 
   test('without a timezone the result carries no timezone note', async () => {
     mkcalendar = [created];
