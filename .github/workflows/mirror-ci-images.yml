@@ -6,24 +6,27 @@ name: Mirror CI images
 # runners share their IPs, and every public registry rate-limits anonymous
 # pulls per IP (Docker Hub in #140, ECR Public in #142).
 #
-# The packages are meant to be private: they are CI tooling, not artifacts
-# of this project. A package this workflow creates starts with the
-# repository's visibility, which is public (seen on the first run, and so
-# documented for packages created with the GITHUB_TOKEN). Its visibility can
-# only be changed in the package settings, there is no API for it, so a new
-# image name is set to private there once (CONTRIBUTING.md, "CI image
-# mirror"); the last step here warns while one is public. The repository
-# that published a package keeps access to it, so CI pulls it either way.
+# The packages are private: they are CI tooling, not artifacts of this
+# project. A package this workflow creates starts with the repository's
+# visibility, public, and only its package settings can change that (there
+# is no API), so a new image name is set to private there once
+# (CONTRIBUTING.md, "CI image mirror"); the last step warns while one is
+# public. The repository that published a package keeps access to it.
 #
-# docker.yml and publish-image.yml call this before they build, so a digest
-# bumped in a pull request is copied before the same run needs it. An image
-# already on ghcr.io is only checked, not copied again. On a pull request
-# from a fork the token cannot write packages: a digest that is not mirrored
-# yet fails here with a message, and a maintainer runs this workflow from a
-# branch of this repository that carries the new digest.
-# The monthly run proves the mirror still serves every pinned digest.
+# Copying needs packages: write, so it never runs on a pull request, whose
+# code is the pull request's own: docker.yml only verifies the mirror there
+# (.github/scripts/mirror-ci-images.sh verify). A digest bumped in a pull
+# request is copied by starting this workflow by hand on its branch. The
+# release path (publish-image.yml) calls this before it builds, and the
+# monthly run proves the mirror still serves every pinned digest.
 on:
   workflow_call:
+    inputs:
+      extra-ref:
+        description: 'Another ref whose .github/ci-images.txt is mirrored too, e.g. a tag being rebuilt'
+        required: false
+        type: string
+        default: ''
   workflow_dispatch:
   schedule:
     - cron: '23 5 1 * *'
@@ -41,10 +44,28 @@ jobs:
       packages: write
 
     steps:
+      - name: Refuse pull request code
+        if: github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
+        run: |
+          echo "::error::Mirror CI images copies with packages: write and does not run for a pull request"
+          exit 1
+
       - name: Checkout code
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+
+      # A rebuilt tag builds from its own list (publish-image.yml), which may
+      # name other digests than this commit's.
+      - name: Checkout image list of ${{ inputs.extra-ref }}
+        if: inputs.extra-ref != ''
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.extra-ref }}
+          path: .extra
+          persist-credentials: false
+          sparse-checkout: .github/ci-images.txt
+          sparse-checkout-cone-mode: false
 
       # The Dockerfile and the CalDAV script fall back to public references
       # for builds outside CI; those must name the digests copied here.
@@ -59,73 +80,18 @@ jobs:
           skopeo --version
           printf '%s' "$TOKEN" | skopeo login ghcr.io --username "$ACTOR" --password-stdin
 
-      # --all copies every platform plus the index, --preserve-digests refuses
-      # any copy that would change a digest. The source is pulled by digest,
-      # so a moved tag upstream cannot change what lands here. The mirror is
-      # then read back by digest and hashed, independent of what skopeo said.
-      # A failed copy is tried again from scratch: skopeo's --retry-times does
-      # not cover the token request. For Docker Hub images the copy also tries
-      # mirror.gcr.io, Google's cache of Docker Hub: in the first runs of this
-      # workflow Docker Hub's token endpoint answered every request for
-      # tonistiigi/binfmt with 504. The digest is the same index, and
-      # --preserve-digests plus the read-back below hold any source to it.
       - name: Copy missing images and verify digests
+        id: copy
         run: |
-          status=0
-          .github/scripts/ci-images.sh list > "$RUNNER_TEMP/ci-images"
-          while read -r name source target digest; do
-            mirror="${target%:*}@${digest}"
-            if skopeo inspect --raw "docker://${mirror}" < /dev/null > /dev/null 2>&1; then
-              echo "${name}: ${mirror} already mirrored"
-            else
-              echo "${name}: copying ${source} to ${target}"
-              candidates="$source"
-              case "$source" in
-                docker.io/*) candidates="$source mirror.gcr.io/${source#docker.io/}" ;;
-              esac
-              copied=false
-              for attempt in 1 2 3; do
-                for from in $candidates; do
-                  if skopeo copy --all --preserve-digests --retry-times 5 "docker://${from}" "docker://${target}" < /dev/null; then
-                    echo "${name}: copied from ${from}"
-                    copied=true
-                    break 2
-                  fi
-                  echo "${name}: attempt ${attempt} from ${from} failed"
-                done
-                sleep $((attempt * 20))
-              done
-              if [ "$copied" != true ]; then
-                echo "::error::${name}: could not copy ${source} to ${target}. On a pull request from a fork the token cannot write packages: a maintainer copies the image by running this workflow from a branch of this repository that carries the new digest."
-                status=1
-                continue
-              fi
-            fi
-            served="sha256:$(skopeo inspect --raw "docker://${mirror}" < /dev/null | sha256sum | cut -d' ' -f1)"
-            if [ "$served" != "$digest" ]; then
-              echo "::error::${name}: ${mirror} serves a manifest with digest ${served}"
-              status=1
-              continue
-            fi
-            echo "${name}: ${mirror} verified"
-          done < "$RUNNER_TEMP/ci-images"
-          exit "$status"
+          set -- .github/ci-images.txt
+          [ -f .extra/.github/ci-images.txt ] && set -- "$@" .extra/.github/ci-images.txt
+          echo "manifests=$*" >> "$GITHUB_OUTPUT"
+          .github/scripts/mirror-ci-images.sh copy "$@"
 
-      # Anonymous, the way anyone outside this repository would ask: a public
-      # package answers with the manifest. A warning, not a failure, because
-      # only a maintainer can change it, in the package settings.
+      # A warning, not a failure: only a maintainer can change visibility.
       - name: Mirror packages are private
+        env:
+          MANIFESTS: ${{ steps.copy.outputs.manifests }}
         run: |
-          .github/scripts/ci-images.sh list | while read -r name _source target digest; do
-            repo=${target#ghcr.io/}
-            repo=${repo%:*}
-            token=$(curl -fsS "https://ghcr.io/token?service=ghcr.io&scope=repository:${repo}:pull" | jq -r .token)
-            code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${token}" \
-              -H 'Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json' \
-              "https://ghcr.io/v2/${repo}/manifests/${digest}")
-            if [ "$code" = 200 ]; then
-              echo "::warning::${name}: ghcr.io/${repo} is public. Set it to private: https://github.com/users/PhilflowIO/packages/container/$(echo "${repo#philflowio/}" | sed 's|/|%2F|g')/settings"
-            else
-              echo "${name}: ghcr.io/${repo} refuses anonymous pulls (HTTP ${code})"
-            fi
-          done
+          # shellcheck disable=SC2086 # list of paths without spaces
+          .github/scripts/mirror-ci-images.sh visibility $MANIFESTS

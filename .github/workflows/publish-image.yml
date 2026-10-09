@@ -32,12 +32,16 @@ env:
 
 jobs:
   # Every image this workflow pulls, apart from the published one, comes from
-  # our own registry (#142); this copies any digest not mirrored yet.
+  # our own registry (#142); this copies any digest not mirrored yet. Both
+  # lists: this commit's (CI tooling) and the tag's (its base images, see
+  # "Base images of the tag"), which differ when an older tag is rebuilt.
   mirror:
     permissions:
       contents: read
       packages: write
     uses: ./.github/workflows/mirror-ci-images.yml
+    with:
+      extra-ref: ${{ inputs.tag }}
 
   publish:
     needs: mirror

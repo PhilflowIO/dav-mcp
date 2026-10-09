@@ -12,14 +12,39 @@ permissions:
   contents: read
 
 jobs:
-  # Every image the build pulls comes from our own registry (#142). This
-  # copies a digest that is not mirrored yet, so a pull request that bumps one
-  # builds with it in the same run.
+  # Every image the build pulls comes from our own registry (#142). This only
+  # checks that the mirror serves each listed digest: it runs the code of the
+  # pull request, so it gets no packages: write. A pull request that bumps a
+  # digest gets it copied by starting "Mirror CI images" by hand on its branch
+  # (CONTRIBUTING.md, "CI image mirror"); until then this job says so.
   mirror:
+    name: Mirror has the CI images
+    runs-on: ubuntu-latest
+
     permissions:
       contents: read
-      packages: write
-    uses: ./.github/workflows/mirror-ci-images.yml
+      packages: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Public defaults match the manifest
+        run: .github/scripts/ci-images.sh check
+
+      - name: Log in to GitHub Container Registry
+        env:
+          ACTOR: ${{ github.actor }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$TOKEN" | skopeo login ghcr.io --username "$ACTOR" --password-stdin
+
+      - name: Verify every listed digest is mirrored
+        run: .github/scripts/mirror-ci-images.sh verify
+
+      - name: Mirror packages are private
+        run: .github/scripts/mirror-ci-images.sh visibility
 
   # One leg per published architecture, each on a runner of that architecture.
   # The arm64 leg builds and boots the image without emulation, so a pull

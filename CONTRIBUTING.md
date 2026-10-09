@@ -193,21 +193,23 @@ runners share their IPs, and Docker Hub and ECR Public both rate-limit
 anonymous pulls per IP, which failed builds and a release (#140, #142). Every
 image CI pulls is listed with its digest in `.github/ci-images.txt` and
 copied, with all platforms and the same digest, to
-`ghcr.io/philflowio/ci-mirror/<name>`. The workflows of this repository
-pull them with their `GITHUB_TOKEN`. The packages are kept private, as CI
-tooling rather than artifacts of this project; but a package the workflow
-creates starts public, like the repository, and only the package settings can
-change that. So when a new image name is mirrored for the first time, open
-its package settings (the run's warning links them), "Change visibility",
-Private. The repository keeps access. The
-Dockerfile keeps the public references with the same digests as defaults, so
-it builds the same image anywhere else.
+`ghcr.io/philflowio/ci-mirror/<name>`. These packages are private, as CI
+tooling rather than artifacts of this project; every job that pulls them logs
+in to ghcr.io with its `GITHUB_TOKEN` (`packages: read`). A package the mirror
+workflow creates starts public, like the repository, and only its package
+settings can change that: when a new image name is mirrored for the first
+time, open its settings (the run's warning links them), "Change visibility",
+Private. The repository keeps access. The Dockerfile keeps the public
+references with the same digests as defaults, so it builds the same image
+anywhere else.
 
-`.github/workflows/mirror-ci-images.yml` does the copying. `docker.yml` and
-`publish-image.yml` call it before they build, so a new digest is copied in
-the same run that first needs it; it also runs monthly and can be started by
-hand. It fails if a copy would change a digest, or if the Dockerfile or
-`start-radicale.sh` fall back to a different public reference than the list.
+`.github/workflows/mirror-ci-images.yml` does the copying, with
+`packages: write`. It runs when started by hand, monthly, and in a release
+before the image is built; never for a pull request, whose code is the pull
+request's own. On a pull request, `docker.yml` only checks that the mirror
+serves every listed digest. Both fail if the Dockerfile or
+`start-radicale.sh` fall back to a different public reference than the list,
+and copying fails if it would change a digest.
 
 To move an image to a new digest:
 
@@ -216,11 +218,15 @@ To move an image to a new digest:
    (the `Digest:` line at the top, not a per-platform one).
 2. Change it in `.github/ci-images.txt` and, for `node`,
    `distroless-nodejs22` and `python`, in the default in `Dockerfile` or
-   `.github/scripts/start-radicale.sh`.
-3. Open the pull request from a branch of this repository. Its "Docker
-   Image" run copies the new digest before the builds pull it. A pull request
-   from a fork has a read-only token and cannot copy: a maintainer pushes the
-   change to a branch here, or runs "Mirror CI images" from one.
+   `.github/scripts/start-radicale.sh`. Push the branch to this repository.
+3. Copy the new digest by starting "Mirror CI images" on that branch
+   (Actions, Run workflow, or `gh workflow run mirror-ci-images.yml --ref
+   <branch>`). Read the diff first: the run executes the branch's workflow
+   with write access to the packages.
+4. Open the pull request, or re-run its "Docker Image" checks; they fail
+   until the digest is mirrored. A pull request from a fork gets the same
+   message; a maintainer then pushes its change to a branch here and runs
+   step 3.
 
 ## Security issues
 
