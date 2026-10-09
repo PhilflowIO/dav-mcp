@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { parseDateValue } from 'tsdav-utils';
 import { requestUrlProblem } from './request-origins.js';
 import { ValidationError } from './error-handler.js';
-import { isWeakEtag } from './etags.js';
+import { readEntityTag, MAX_ETAG_LENGTH } from './etags.js';
 
 /**
  * Validation schemas for all MCP tools
@@ -231,22 +231,6 @@ export const davUrl = (message) =>
     if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem });
   });
 
-// The characters an entity-tag may hold between its quotes (RFC 9110 8.8.3:
-// etagc = %x21 / %x23-7E / obs-text): no whitespace, no control characters,
-// no double quote.
-const ETAGC = '[\\x21\\x23-\\x7E\\x80-\\xFF]';
-const QUOTED_ETAG = new RegExp(`^"${ETAGC}*"$`);
-const BARE_ETAG = new RegExp(`^${ETAGC}+$`);
-
-// The longest etag a tool takes, quotes included. Servers make ETags from a
-// hash or a revision counter: SabreDAV (Baikal, Nextcloud) sends 34
-// characters, Google and iCloud well under 100. HTTP servers and proxies cap
-// a request header line at about 8 KB (Apache LimitRequestFieldSize 8190,
-// nginx large_client_header_buffers 8k), so 1 KiB leaves real ETags a wide
-// margin while a value pasted into the wrong parameter (a whole iCalendar
-// object, say) is named here instead of coming back as a 400 or 431.
-const MAX_ETAG_LENGTH = 1024;
-
 /**
  * An etag parameter of a write or delete tool, normalised to the entity-tag
  * form the server compares If-Match against (RFC 9110 13.1.1). The server
@@ -258,25 +242,22 @@ const MAX_ETAG_LENGTH = 1024;
  * (`W/"…"`, or `W/…` without the quotes): If-Match compares strongly, so it
  * can never match, and the 412 it ends in would read like a conflict; and so
  * is one longer than MAX_ETAG_LENGTH. Every
- * etag parameter uses this, so tsdav always receives a usable If-Match.
+ * etag parameter uses this, so tsdav always receives a usable If-Match. The
+ * rule itself is readEntityTag (etags.js), which also decides what the list
+ * and write tools hand out as an etag.
  */
 export const entityTag = z.string({ required_error: 'ETag is required' }).transform((value, ctx) => {
-  const etag = value.trim();
-  const quoted = QUOTED_ETAG.test(etag) ? etag
-    : BARE_ETAG.test(etag) && !isWeakEtag(etag) ? `"${etag}"`
-      : null;
-  if (quoted && quoted.length <= MAX_ETAG_LENGTH) return quoted;
-  let message = 'ETag is required';
-  if (quoted) {
-    message = `not an ETag: longer than ${MAX_ETAG_LENGTH} characters; pass the etag exactly as the list, query or get tool returned it`;
-  } else if (isWeakEtag(etag)) {
+  const read = readEntityTag(value);
+  if (read.ifMatch) return read.ifMatch;
+  const message = {
+    missing: 'ETag is required',
+    long: `not an ETag: longer than ${MAX_ETAG_LENGTH} characters; pass the etag exactly as the list, query or get tool returned it`,
     // "fetch it again" alone loops on a server whose getetag is weak: the
     // list tools show that one as unusable, and the message says what it means
-    message = 'a weak ETag can never match, so it cannot be used for an update or delete — pass the etag a list, query or get tool ' +
-      'shows for the object; if it shows only a weak one, the server gives this object no ETag a write can be checked against';
-  } else if (etag) {
-    message = 'not an ETag; pass the etag exactly as the list, query or get tool returned it, e.g. "abc123"';
-  }
+    weak: 'a weak ETag can never match, so it cannot be used for an update or delete — pass the etag a list, query or get tool ' +
+      'shows for the object; if it shows only a weak one, the server gives this object no ETag a write can be checked against',
+    malformed: 'not an ETag; pass the etag exactly as the list, query or get tool returned it, e.g. "abc123"',
+  }[read.problem];
   ctx.addIssue({ code: z.ZodIssueCode.custom, message });
   return z.NEVER;
 });

@@ -239,9 +239,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The list, query and multi-get tools passed a weak `W/"…"` getetag on as
   `etag`, and todos labelled it "required for updates", although the update
   and delete tools refuse it: a model fetched, was refused, fetched the same
-  ETag again. An `etag` field is now only ever one a write can use; a weak or
-  missing one is an `etag_note` saying the object cannot be updated or
-  deleted through dav-mcp and that the server has to be fixed. CalDAV and
+  ETag again. An `etag` field, in listings and in write results, is now only
+  ever one the etag parameters take (one rule for both); a weak, missing or
+  malformed one is an `etag_note` saying the object cannot be updated or
+  deleted through dav-mcp and that the server has to be fixed (after a write:
+  fetch the object first). The delete tools say what an `etag_note` means. CalDAV and
   CardDAV require strong ETags, and a compressing proxy, which only changes
   ETag headers, cannot cause a weak getetag. Strong ETags are shown as
   before; a todo without one no longer reads `undefined`.

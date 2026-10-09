@@ -15,7 +15,7 @@ export const deleteTodo = {
     idempotentHint: true,
     openWorldHint: true,
   },
-  description: 'Permanently delete a todo/task from the calendar. WARNING: This action cannot be undone — the todo is removed from the server immediately. Use only when the user explicitly requests deletion. Obtain the todo URL and etag from list_todos or todo_query first. The etag ensures no conflicting changes occurred since the todo was last retrieved.',
+  description: 'Permanently delete a todo/task from the calendar. WARNING: This action cannot be undone — the todo is removed from the server immediately. Use only when the user explicitly requests deletion. Obtain the todo URL and etag from list_todos or todo_query first. The etag ensures no conflicting changes occurred since the todo was last retrieved. If the listing shows an etag_note instead of an etag, this todo cannot be deleted with this tool: tell the user what the note says.',
   inputSchema: {
     type: 'object',
     properties: {

@@ -1,5 +1,5 @@
 import { MCP_ERROR_CODES, NotFoundError, ValidationError, CalDAVError } from '../../error-handler.js';
-import { isWeakEtag } from '../../etags.js';
+import { readEntityTag } from '../../etags.js';
 /**
  * Shared helper functions for tool implementations
  */
@@ -436,7 +436,8 @@ function quotedEtagHint(quotedEtag) {
  * A server may leave the header out — RFC 4791 5.3.4 and RFC 6352 6.3.2.3
  * tell it to when what it stored is not octet-for-octet what was sent. A weak
  * ETag (W/"...", the prefix is case-sensitive) is no better: If-Match compares strongly (RFC 9110 13.1.1),
- * so it can never match. Both cases are said out loud, because a missing
+ * so it can never match, and one the etag parameters refuse as malformed
+ * (readEntityTag) cannot be sent either. These cases are said out loud, because a missing
  * field reads as "nothing to do" and the next update would fail with a 412.
  *
  * @param {Response|undefined} response - what tsdav handed back from a write
@@ -448,8 +449,13 @@ export function etagAfterWrite(response) {
   if (!etag) {
     return { etag_note: 'no ETag returned — fetch the object before the next update' };
   }
-  if (isWeakEtag(etag)) {
+  const { problem } = readEntityTag(etag);
+  if (problem === 'weak') {
     return { etag_note: `only a weak ETag returned (${etag}), which cannot be used for an update — fetch the object before the next update` };
+  }
+  // one the etag parameters would refuse (entityTag) is no use either
+  if (problem) {
+    return { etag_note: `the ETag returned is not a valid ETag${problem === 'long' ? ' (too long)' : ` (${etag})`}, so it cannot be used for an update — fetch the object before the next update` };
   }
   return { etag };
 }

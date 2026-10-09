@@ -365,8 +365,19 @@ describe('etagAfterWrite', () => {
     expect(result.etag_note).toContain('weak ETag');
     expect(result.etag_note).toContain('W/"abc"');
     expect(result.etag_note).toContain('fetch the object before the next update');
-    // the weak prefix is case-sensitive (RFC 9110 8.8.3): this is not one
-    expect(etagAfterWrite(responseWith('w/"abc"'))).toEqual({ etag: 'w/"abc"' });
+  });
+
+  // the write tools' own rule decides (entityTag): a header they would refuse
+  // is not handed out as the etag for the next update
+  test.each([
+    ['a lowercase weak prefix', 'w/"abc"'],
+    ['inner whitespace', '"a b"'],
+    ['a stray quote', '"a"b"'],
+  ])('does not hand out a malformed ETag (%s)', (_, header) => {
+    const result = etagAfterWrite(responseWith(header));
+    expect(result).not.toHaveProperty('etag');
+    expect(result.etag_note).toContain('not a valid ETag');
+    expect(result.etag_note).toContain('fetch the object before the next update');
   });
 
   test.each([

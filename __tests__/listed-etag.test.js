@@ -1,6 +1,7 @@
 import { describe, test, expect } from '@jest/globals';
 import { formatEventList, formatContactList, formatTodoList } from '../src/formatters.js';
 import { listedEtag } from '../src/etags.js';
+import { entityTag } from '../src/validation.js';
 
 // What the list, query and get tools show of an object's ETag. An `etag` field
 // is only ever one a write tool can send as If-Match; a weak or missing one is
@@ -18,9 +19,38 @@ const vcf = 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:c1\r\nFN:Carol\r\nN:Carol;;;;\r\n
 describe('listedEtag', () => {
   test('a strong ETag is the etag field, unchanged', () => {
     expect(listedEtag('"abc"')).toEqual({ etag: '"abc"' });
-    // the weak prefix is case-sensitive (RFC 9110 8.8.3): this is not one
-    expect(listedEtag('w/"abc"')).toEqual({ etag: 'w/"abc"' });
+    // a bare one too: the write tools take it and add the quotes (#124)
+    expect(listedEtag('abc')).toEqual({ etag: 'abc' });
   });
+
+  // The rule is the write tools' own (entityTag): whatever they would refuse
+  // is not handed out as an etag, or the caller is refused with nothing to retry
+  test.each([
+    ['a lowercase weak prefix (RFC 9110 8.8.3 is case-sensitive)', 'w/"abc"'],
+    ['inner whitespace, quoted', '"a b"'],
+    ['inner whitespace, bare', 'abc def'],
+    ['a stray quote', '"a"b"'],
+  ])('%s is a note saying the server\'s ETag is malformed', (_, value) => {
+    const { etag, etag_note: note } = listedEtag(value);
+    expect(etag).toBeUndefined();
+    expect(note).toContain('not a valid ETag');
+    expect(note).toContain(value);
+    expect(note).toContain('cannot be updated or deleted');
+    expect(entityTag.safeParse(value).success).toBe(false);
+  });
+
+  test('one longer than the write tools take is a note, without the value', () => {
+    const long = `"${'a'.repeat(1100)}"`;
+    const { etag, etag_note: note } = listedEtag(long);
+    expect(etag).toBeUndefined();
+    expect(note).toContain('longer than 1024 characters');
+    expect(note).not.toContain(long);
+  });
+
+  test.each([['"abc"'], ['abc'], ['W/"abc"'], ['w/"abc"'], ['"a b"'], ['']])(
+    'hands out %p as etag exactly when the write tools take it', (value) => {
+      expect('etag' in listedEtag(value)).toBe(entityTag.safeParse(value).success);
+    });
 
   test('a weak ETag is a note naming it, and that it is the server that needs fixing', () => {
     const { etag, etag_note: note } = listedEtag('W/"abc"');

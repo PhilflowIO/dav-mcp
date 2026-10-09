@@ -15,7 +15,7 @@ export const deleteContact = {
     idempotentHint: true,
     openWorldHint: true,
   },
-  description: 'Permanently delete a contact (vCard) from the address book. WARNING: This action cannot be undone — the contact is removed from the server immediately. Use only when the user explicitly requests deletion. Obtain the vCard URL and etag from list_contacts or addressbook_query first. The etag ensures no conflicting changes occurred since the contact was last retrieved.',
+  description: 'Permanently delete a contact (vCard) from the address book. WARNING: This action cannot be undone — the contact is removed from the server immediately. Use only when the user explicitly requests deletion. Obtain the vCard URL and etag from list_contacts or addressbook_query first. The etag ensures no conflicting changes occurred since the contact was last retrieved. If the listing shows an etag_note instead of an etag, this contact cannot be deleted with this tool: tell the user what the note says.',
   inputSchema: {
     type: 'object',
     properties: {

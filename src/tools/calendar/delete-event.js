@@ -15,7 +15,7 @@ export const deleteEvent = {
     idempotentHint: true,
     openWorldHint: true,
   },
-  description: 'Permanently delete a calendar event. WARNING: This action cannot be undone — the event is removed from the server immediately. Use only when the user explicitly requests deletion. Obtain the event URL and etag from list_events or calendar_query first. The etag ensures no conflicting changes occurred since the event was last retrieved.',
+  description: 'Permanently delete a calendar event. WARNING: This action cannot be undone — the event is removed from the server immediately. Use only when the user explicitly requests deletion. Obtain the event URL and etag from list_events or calendar_query first. The etag ensures no conflicting changes occurred since the event was last retrieved. If the listing shows an etag_note instead of an etag, this event cannot be deleted with this tool: tell the user what the note says.',
   inputSchema: {
     type: 'object',
     properties: {
