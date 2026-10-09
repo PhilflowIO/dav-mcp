@@ -56,6 +56,10 @@ claude.ai chat and Cowork load only this guide.
   the etag exactly as returned, quotes included. Use
   `update_event`/`update_contact`/`update_todo`; the `*_raw` tools only for a
   complete object the user supplies.
+- If the listing gives no etag but a note that the item cannot be updated or
+  deleted (`etag_note`), the server hands out only a weak or invalid ETag.
+  Tell the user their server has to be fixed for this; do not retry or read
+  the item again, the answer stays the same.
 - If an update fails with `412 Precondition Failed`, the item changed since
   you read it. Do not retry with the same etag. Read it again, tell the user
   what changed, and ask before applying the change to the new version.
