@@ -128,10 +128,14 @@ function propertyName(text, start, end) {
  * The refusal of a property over the bound — here, and in the vCard
  * normalizer, which counts the same parameters on its own way to ical.js.
  *
- * @param {string} property - its name as written
+ * @param {string} name - its name as written; only letters, digits, "." and
+ *   "-" of it, at most 32, are repeated
  * @returns {ValidationError}
  */
-export function tooManyParameters(property) {
+export function tooManyParameters(name) {
+  // the name is written by whoever wrote the object and ends up in the
+  // model's context: keep it to what a property name is made of, and short
+  const property = name.replace(/[^A-Za-z0-9.-]/g, '').slice(0, 32) || 'unnamed';
   return new ValidationError(
     `The ${property} property has more than ${MAX_PARAMETERS} parameters. dav-mcp does not read a vCard or ` +
     `calendar object like that: no real one has more than a few dozen, and parsing one takes time that grows ` +

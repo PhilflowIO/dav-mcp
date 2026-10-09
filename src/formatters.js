@@ -1126,6 +1126,17 @@ function unreadableLine(count, noun) {
 }
 
 /**
+ * How many skipped objects a notice names one by one: enough to act on, and a
+ * calendar full of them does not flood the answer.
+ */
+const LISTED_UNREADABLE = 10;
+
+/** the line for the skipped objects past LISTED_UNREADABLE, or '' */
+function moreLine(count) {
+  return count > LISTED_UNREADABLE ? `- and ${count - LISTED_UNREADABLE} more\n` : '';
+}
+
+/**
  * Add the objects a query could not search to its result: they could not be
  * read, so they match no filter — which must not read as "not there".
  *
@@ -1139,7 +1150,8 @@ export function withUnsearched(result, unsearched, noun, listTool) {
 
   let output = `\n\n---\nNot searched: **${unsearched.length}** ${noun} could not be read, so no filter can match them ` +
     `(${listTool} lists them with the reason):\n\n`;
-  for (const { object, reason } of unsearched) output += `- ${object.url} — ${reason}\n`;
+  for (const { object, reason } of unsearched.slice(0, LISTED_UNREADABLE)) output += `- ${object.url} — ${reason}\n`;
+  output += moreLine(unsearched.length);
 
   const [first, ...rest] = result.content;
   return { ...result, content: [{ ...first, text: first.text + output }, ...rest] };
@@ -1230,9 +1242,10 @@ export function formatFreeBusy({ busy, free, range, calendarCount = 1, events = 
   // so neither the free slots nor an empty busy list can be taken as certain
   if (incomplete.length > 0) {
     output += `**Warning**: incomplete — ${incomplete.length === 1 ? 'an event' : `${incomplete.length} events`} could not be read or expanded fully (an object that cannot be read, a series that cannot be read, or too many occurrences), so busy time from ${incomplete.length === 1 ? 'it' : 'them'} may be missing and the free time below is not certain:\n`;
-    incomplete.forEach(({ object, summary, reason }) => {
+    incomplete.slice(0, LISTED_UNREADABLE).forEach(({ object, summary, reason }) => {
       output += `- ${summary || 'Untitled Event'} (${object.url})${reason ? `: cannot be read — ${reason}` : ''}\n`;
     });
+    output += moreLine(incomplete.length);
     output += '\n';
   }
 
