@@ -194,13 +194,7 @@ Works with any CalDAV/CardDAV server that follows RFC 4791 and RFC 6352:
 | `Digest` | `CALDAV_USERNAME`, `CALDAV_PASSWORD` | Servers that only accept Digest (RFC 7616). Unlike the automatic switch under `Basic`, which first sends the password once Basic-encoded and is then rejected, `Digest` never sends the password — use it when the connection is not HTTPS. |
 | `OAuth` (or `OAuth2`) | `GOOGLE_*`, see below | Google Calendar |
 
-Digest needs WebCrypto as a global, which Node.js 20 and newer have and
-Node.js 18 does not. On Node.js 18 it depends on the transport: over stdio the
-server stops at startup against a Digest-only server, with an error that says
-so and names the Node.js version; the HTTP server provides the global itself,
-so Digest works there. Basic and OAuth work on Node.js 18 over both. Node.js 18
-is end-of-life and support for it ends with the next major version
-([#85](https://github.com/PhilflowIO/dav-mcp/issues/85)). A wrong configuration — an unknown
+dav-mcp needs Node.js 22 or newer. A wrong configuration — an unknown
 `AUTH_METHOD` value, or missing credentials for the chosen method — stops the
 server at startup instead of falling back to Basic.
 
