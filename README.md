@@ -161,7 +161,10 @@ An event or todo written without a time zone (a "floating" time such as
 zone, as CalDAV specifies (RFC 4791 §9.9): the zone set with `make_calendar` /
 `update_calendar`, which `list_calendars` shows. A calendar without one is read
 in the zone dav-mcp runs in: the `TZ` environment variable (for example
-`TZ=Europe/Berlin` in Docker or an HTTP deployment), else the system's.
+`TZ=Europe/Berlin` in Docker or an HTTP deployment), else the system's. A time
+without a zone given to the create and update tools is read the same way, and
+an event stored without a zone stays without one when it is moved.
+`freebusy_query` prints its slots in the calendar's zone and names it.
 
 ---
 

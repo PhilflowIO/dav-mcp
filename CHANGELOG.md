@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Breaking changes
+- **`freebusy_query` prints local times, no longer UTC** (#125). Free and
+  busy slots and the window were printed in UTC (`01:30 PM UTC`) while
+  `list_events` and `calendar_query` print local times (`03:30 PM GMT+2`), so
+  an answer to "when am I free?" could pass UTC times off as local ones. They
+  are now printed in the calendar's time zone, the same wall times the
+  listings show, and a new `Time zone` line names it. Several calendars that
+  set the same zone are shown in it; calendars in different zones are shown
+  in the zone dav-mcp runs in, and the line says which calendar has which.
 - **Times without a zone are read in the calendar's time zone** (#117). An
   event written without a zone (`DTSTART:20261010T090000`) or as an all-day
   date was placed on the clock of the machine dav-mcp runs on, so an HTTP or

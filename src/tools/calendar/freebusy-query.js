@@ -3,7 +3,7 @@ import { validateInput, freeBusyQuerySchema } from '../../validation.js';
 import { formatFreeBusy } from '../../formatters.js';
 import { buildTimeRangeOptions } from '../shared/helpers.js';
 import { calculateFreeBusy } from '../shared/freebusy.js';
-import { floatingZoneFor, withFloatingZone } from '../../calendar-zone.js';
+import { floatingZoneFor, withFloatingZone, displayZoneFor } from '../../calendar-zone.js';
 
 /**
  * Answer "when am I free?" from the events themselves.
@@ -23,7 +23,7 @@ export const freeBusyQuery = {
     idempotentHint: true,
     openWorldHint: true,
   },
-  description: 'Find free and busy time in a date range — use for "when am I free?", "am I available Tuesday afternoon?" or finding a slot for a new meeting. Searches all calendars unless one is given. Events marked TRANSPARENT (does not block time) and cancelled events are ignored; recurring events are expanded, each occurrence at its own time and status, so a single cancelled occurrence is free and a moved one is busy where it moved to. A recurring event too dense to expand fully is named in a warning.',
+  description: 'Find free and busy time in a date range — use for "when am I free?", "am I available Tuesday afternoon?" or finding a slot for a new meeting. Searches all calendars unless one is given. Events marked TRANSPARENT (does not block time) and cancelled events are ignored; recurring events are expanded, each occurrence at its own time and status, so a single cancelled occurrence is free and a moved one is busy where it moved to. A recurring event too dense to expand fully is named in a warning. Times are shown in the calendar\'s time zone, the one list_events shows them in; the answer names it (several calendars in different zones: the zone dav-mcp runs in).',
   inputSchema: {
     type: 'object',
     properties: {
@@ -85,10 +85,15 @@ export const freeBusyQuery = {
 
     const { busy, free, blocking, incomplete } = calculateFreeBusy(events, range);
 
+    // shown in the zone the listings read these calendars in (#125)
+    const { zone, why } = displayZoneFor(calendarsToSearch);
+
     return formatFreeBusy({
       busy,
       free,
       range,
+      zone,
+      zoneNote: why,
       calendarCount: calendarsToSearch.length,
       events: validated.include_event_details ? blocking : null,
       incomplete,

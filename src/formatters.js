@@ -1164,12 +1164,15 @@ export function formatError(error, context = '') {
  * Free slots come first: the question behind this tool is almost always "when
  * can I put something", not "what am I doing".
  */
-export function formatFreeBusy({ busy, free, range, calendarCount = 1, events = null, incomplete = [] }) {
+export function formatFreeBusy({ busy, free, range, zone = null, zoneNote = null, calendarCount = 1, events = null, incomplete = [] }) {
   const scope = calendarCount === 1 ? '1 calendar' : `${calendarCount} calendars`;
+  // the zone list_events shows these calendars' times in (src/calendar-zone.js)
+  const shownIn = zone ?? serverZone();
 
   let output = `## Free/Busy\n\n`;
-  output += `- **Window**: ${formatDateTime(ICAL.Time.fromJSDate(range.start, true))} to ${formatDateTime(ICAL.Time.fromJSDate(range.end, true))}\n`;
-  output += `- **Scope**: ${scope}\n\n`;
+  output += `- **Window**: ${formatInstant(range.start.getTime(), shownIn)} to ${formatInstant(range.end.getTime(), shownIn)}\n`;
+  output += `- **Scope**: ${scope}\n`;
+  output += `- **Time zone**: ${shownIn.tzid}${zoneNote ? ` (${zoneNote})` : ''}\n\n`;
 
   // a series too dense to expand fully may hold busy time not counted below,
   // so neither the free slots nor an empty busy list can be taken as certain
@@ -1186,7 +1189,7 @@ export function formatFreeBusy({ busy, free, range, calendarCount = 1, events = 
   } else {
     output += `### Free (${free.length})\n\n`;
     free.forEach(slot => {
-      output += `- ${formatInterval(slot)}\n`;
+      output += `- ${formatInterval(slot, shownIn)}\n`;
     });
     output += '\n';
   }
@@ -1198,7 +1201,7 @@ export function formatFreeBusy({ busy, free, range, calendarCount = 1, events = 
   } else {
     output += `### Busy (${busy.length})\n\n`;
     busy.forEach(slot => {
-      output += `- ${formatInterval(slot)}\n`;
+      output += `- ${formatInterval(slot, shownIn)}\n`;
     });
   }
 
@@ -1219,9 +1222,9 @@ export function formatFreeBusy({ busy, free, range, calendarCount = 1, events = 
   };
 }
 
-function formatInterval({ start, end }) {
-  const from = formatDateTime(ICAL.Time.fromJSDate(start, true));
-  const to = formatDateTime(ICAL.Time.fromJSDate(end, true));
+function formatInterval({ start, end }, zone) {
+  const from = formatInstant(start.getTime(), zone);
+  const to = formatInstant(end.getTime(), zone);
   const minutes = Math.round((end.getTime() - start.getTime()) / 60000);
   const duration = minutes >= 60
     ? `${Math.floor(minutes / 60)}h${minutes % 60 ? ` ${minutes % 60}m` : ''}`

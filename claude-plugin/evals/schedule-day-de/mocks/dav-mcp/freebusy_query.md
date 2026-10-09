@@ -1,16 +1,17 @@
 ## Free/Busy
 
-- **Window**: October 14, 2026, 10:00 PM UTC to October 15, 2026, 10:00 PM UTC
+- **Window**: October 15, 2026, 12:00 AM GMT+2 to October 16, 2026, 12:00 AM GMT+2
 - **Scope**: 2 calendars
+- **Time zone**: Europe/Berlin (dav-mcp's; the calendars set none)
 
 ### Free (2)
 
-- October 14, 2026, 10:00 PM UTC → October 15, 2026, 10:30 AM UTC (12h 30m)
-- October 15, 2026, 11:30 AM UTC → October 15, 2026, 10:00 PM UTC (10h 30m)
+- October 15, 2026, 12:00 AM GMT+2 → October 15, 2026, 12:30 PM GMT+2 (12h 30m)
+- October 15, 2026, 01:30 PM GMT+2 → October 16, 2026, 12:00 AM GMT+2 (10h 30m)
 
 ### Busy (1)
 
-- October 15, 2026, 10:30 AM UTC → October 15, 2026, 11:30 AM UTC (1h)
+- October 15, 2026, 12:30 PM GMT+2 → October 15, 2026, 01:30 PM GMT+2 (1h)
 
 ### Events behind the busy blocks (1)
 

@@ -235,6 +235,36 @@ function davText(value) {
   return typeof text === 'string' ? text : '';
 }
 
+/**
+ * The zone to show times of several calendars in at once (free/busy): the
+ * one every calendar that sets a zone agrees on; else dav-mcp's, with why.
+ * Calendars without a zone of their own express no preference.
+ *
+ * @param {Array<{timezone?: unknown, displayName?: unknown, url: string}>} calendars
+ * @returns {{zone: Object, why: string}} why: whose zone it is, for the answer
+ */
+export function displayZoneFor(calendars) {
+  const own = calendars
+    .map((calendar) => ({ calendar, zone: calendarZone(calendar) }))
+    .filter(({ zone }) => zone);
+  const names = [...new Set(own.map(({ zone }) => zone.tzid))];
+  if (names.length === 1) {
+    return { zone: own[0].zone, why: calendars.length === 1 ? 'the calendar\'s' : 'the calendars\'' };
+  }
+  if (names.length === 0) {
+    return { zone: serverZone(), why: `dav-mcp's; the ${calendars.length === 1 ? 'calendar sets' : 'calendars set'} none` };
+  }
+  const list = own.map(({ calendar, zone }) => `${nameOf(calendar)} ${zone.tzid}`).join(', ');
+  return { zone: serverZone(), why: `dav-mcp's; the calendars set different ones: ${list}` };
+}
+
+function nameOf(calendar) {
+  const name = calendar.displayName;
+  if (typeof name === 'string' && name) return name;
+  const text = name?._cdata ?? name?._text;
+  return typeof text === 'string' && text ? text : calendar.url;
+}
+
 const objectZones = new WeakMap();
 const rootZones = new WeakMap();
 
