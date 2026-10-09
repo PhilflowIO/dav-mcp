@@ -347,7 +347,9 @@ function quotedEtagHint(quotedEtag) {
  *
  * The value is passed on exactly as the server sent it, quotes included: that
  * is the form the list and query tools return (getetag), and the form the
- * update and delete tools send back as If-Match without touching it.
+ * update and delete tools send as If-Match. Those normalise what they are
+ * given (validation.js entityTag): a quoted strong ETag goes out unchanged, a
+ * bare one gets its quotes, a weak one is refused.
  *
  * A server may leave the header out — RFC 4791 5.3.4 and RFC 6352 6.3.2.3
  * tell it to when what it stored is not octet-for-octet what was sent. A weak
