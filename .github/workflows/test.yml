@@ -17,7 +17,7 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [18.x, 20.x, 22.x]
+        node-version: [22.x, 24.x, 26.x]
 
     steps:
       - name: Checkout code
@@ -37,11 +37,11 @@ jobs:
 
       - name: Run tests with coverage
         run: npm run test:coverage
-        if: matrix.node-version == '20.x'
+        if: matrix.node-version == '22.x'
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
-        if: matrix.node-version == '20.x'
+        if: matrix.node-version == '22.x'
         with:
           files: ./coverage/coverage-final.json
           fail_ci_if_error: false
@@ -58,7 +58,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20.x'
+          node-version: '22.x'
           cache: 'npm'
 
       - name: Install dependencies
@@ -83,8 +83,8 @@ jobs:
         with:
           persist-credentials: false
 
-      # Claude Desktop runs the bundle on its own Node.js; 22 is the newest
-      # line the test job covers.
+      # Claude Desktop runs the bundle on its own Node.js; 22 is the oldest
+      # line the bundle's runtime range allows.
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -205,7 +205,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20.x'
+          node-version: '22.x'
 
       # Production tree only, read from package-lock.json: dev dependencies
       # never reach a user, and an advisory in jest should not block a fix.

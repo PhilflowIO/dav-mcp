@@ -16,7 +16,7 @@ break them are closed.
 
 ## Setup
 
-dav-mcp needs Node.js 18 or newer. CI tests on 18, 20 and 22; the container
+dav-mcp needs Node.js 22 or newer. CI tests on 22, 24 and 26; the container
 image runs on Node 22.
 
 ```bash
@@ -124,7 +124,7 @@ docker inspect -f '{{.State.Health.Status}}' dav-mcp   # "healthy" within a minu
 
 Releases are published from CI by `.github/workflows/release.yml`, never from
 a local checkout. Pushing a tag `v<version>` on a commit of `main` packs the
-package once, installs and starts that tarball on Node 18 to 26 (Node 26 with
+package once, installs and starts that tarball on Node 22 to 26 (Node 26 with
 npm 12, which refuses git and tarball-URL dependencies), publishes it to npm
 with a provenance attestation, creates the GitHub release from the CHANGELOG,
 and then builds the MCP Bundle, the MCP Registry entry and the container image
