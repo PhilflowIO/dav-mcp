@@ -8,7 +8,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 // src/server-http.js in its own process, the real MCP client talking to it
 // over the network. Only the DAV server behind it is a stub. The suite runs on
 // every Node.js version in CI, which is the point: an MCP SDK update once left
-// the transport without the global `crypto` it needs on Node.js 18, and every
+// the transport without a global it needed on an older Node.js, and every
 // request failed while all unit tests stayed green.
 
 const TOKEN = 'test-token';

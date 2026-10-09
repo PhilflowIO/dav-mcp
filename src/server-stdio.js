@@ -177,7 +177,7 @@ async function startStdioServer() {
       await initializeTsdav();
       tsdavInitialized = true;
     } catch (initError) {
-      // e.g. a Digest-only server on a Node.js without WebCrypto: no retry will fix it
+      // e.g. a server URL with a password in it: no retry will fix it
       if (initError.name === 'ConfigurationError') throw initError;
       logger.warn({ error: initError.message }, 'DAV server not reachable at startup — will retry on first tool call');
     }

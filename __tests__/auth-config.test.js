@@ -13,7 +13,6 @@ jest.unstable_mockModule('tsdav', () => ({
     }
     async login() {}
   },
-  isDigestUnsupportedError: () => false,
 }));
 
 const logged = [];
