@@ -108,10 +108,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   took 11 s to read, blocking every other request meanwhile, in listings,
   filters and edits alike. dav-mcp now refuses a property with more than
   1 000 parameters before parsing, vCards and calendar objects alike (real
-  ones carry fewer than ten). A listing or query skips such an object, as
-  it skips any it cannot parse; `update_contact`, `update_event` and
+  ones carry fewer than ten). `update_contact`, `update_event` and
   `update_todo` refuse to edit it with a validation error naming the
-  property. Both now take milliseconds.
+  property; both take milliseconds now.
+- **Listings say which objects they could not read, and why.** An event,
+  contact or todo that does not parse (over the bound above, or not valid
+  iCalendar/vCard) used to show up as an empty "Untitled" entry, or not at
+  all once a query filter ran. Lists now count them up front and mark each
+  with the reason and the tools to replace or delete it; the query tools
+  name the ones no filter could search; `freebusy_query` reports its answer
+  as incomplete, naming the object, instead of losing its busy time
+  silently. The reason never quotes the stored text.
 - **Cancelling one occurrence no longer brings back the ones cancelled
   before** (#126). `update_event` wrote `fields.EXDATE` as the complete list of
   exclusions, so a model that wrote one date to cancel one more occurrence

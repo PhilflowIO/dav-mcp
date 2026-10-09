@@ -1,5 +1,5 @@
 import ICAL from 'ical.js';
-import { parseICal } from '../../ical-parse.js';
+import { parseICal, unreadableReason } from '../../ical-parse.js';
 import { shareTimezones } from './ical-dates.js';
 import { readSeries, blocksTime } from '../../ical-components.js';
 import { relateSeries, seriesOccurrences, spanOf, touchesRange, requestBudget, budgetPool } from '../../occurrences.js';
@@ -116,8 +116,9 @@ function mergeIntervals(intervals) {
  * }} blocking: each object that makes up busy time, in input order, with the
  *   occurrences of it that do (`shown`, as formatEvent takes it) — not the
  *   objects the server returned for the range that block none of it.
- *   incomplete: series too dense to expand fully (the iteration cap): busy
- *   time from them may be missing, so the free time is not certain.
+ *   incomplete: series too dense to expand fully (the iteration cap), and
+ *   objects that could not be read at all: busy time from them may be
+ *   missing, so the free time is not certain.
  */
 export function calculateFreeBusy(calendarObjects, range) {
   const window = { start: range.start.getTime(), end: range.end.getTime() };
@@ -132,8 +133,10 @@ export function calculateFreeBusy(calendarObjects, range) {
     let root;
     try {
       root = shareTimezones(new ICAL.Component(parseICal(object.data)));
-    } catch {
-      // A single unparseable object must not take the whole answer down
+    } catch (error) {
+      // A single unparseable object must not take the whole answer down,
+      // nor its busy time vanish unsaid: the answer is incomplete
+      incomplete.push({ object, summary: '', reason: unreadableReason(error, 'iCalendar') });
       continue;
     }
     const share = budget.take();

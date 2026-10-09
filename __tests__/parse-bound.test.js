@@ -13,6 +13,7 @@ connectTo('https://dav.example.com/');
 
 let storedCards = [];
 let storedEvents = [];
+let storedTodos = [];
 const updateVCard = jest.fn(async () => ({ ok: true, status: 204, headers: new Headers({ etag: '"2"' }) }));
 const updateCalendarObject = jest.fn(async () => ({ ok: true, status: 204, headers: new Headers({ etag: '"2"' }) }));
 
@@ -21,6 +22,7 @@ jest.unstable_mockModule('../src/tsdav-client.js', () => ({
     getCalDavClient: () => ({
       fetchCalendars: async () => [{ url: CALENDAR_URL, displayName: 'Main' }],
       fetchCalendarObjects: async () => storedEvents,
+      fetchTodos: async () => storedTodos,
       updateCalendarObject,
     }),
     getCardDavClient: () => ({
@@ -40,6 +42,9 @@ const { updateContactFields } = await import('../src/tools/contacts/update-conta
 const { listEvents } = await import('../src/tools/calendar/list-events.js');
 const { calendarQuery } = await import('../src/tools/calendar/calendar-query.js');
 const { updateEventFields } = await import('../src/tools/calendar/update-event-fields.js');
+const { updateTodoFields } = await import('../src/tools/todos/update-todo-fields.js');
+const { listTodos } = await import('../src/tools/todos/list-todos.js');
+const { freeBusyQuery } = await import('../src/tools/calendar/freebusy-query.js');
 
 const vcard = (...lines) => ['BEGIN:VCARD', 'VERSION:3.0', ...lines, 'END:VCARD', ''].join('\r\n');
 const ics = (...lines) => [
@@ -153,18 +158,71 @@ describe('a stored object over the bound', () => {
   const goodEvent = { url: `${CALENDAR_URL}good.ics`, etag: '"1"', data: ics('UID:good', 'SUMMARY:Standup') };
   const hostileEvent = { url: `${CALENDAR_URL}hostile.ics`, etag: '"1"', data: ics('UID:hostile', 'SUMMARY:Mallory', HOSTILE_ICAL_LINE) };
 
-  test('list_contacts lists the other cards and skips that one fast', async () => {
+  const hostileTodo = {
+    url: `${CALENDAR_URL}hostile-todo.ics`, etag: '"1"',
+    data: ics('UID:t', HOSTILE_ICAL_LINE).replace(/VEVENT/g, 'VTODO').replace(/DTEND:[^\r]*\r\n/, ''),
+  };
+  const BOUND_REASON = `its X-A property has more than ${MAX_PARAMETERS} parameters`;
+
+  test('list_contacts lists the other cards fast and says which one it could not read, and why', async () => {
     storedCards = [hostileCard, goodCard];
     const [result, ms] = await timed(() => listContacts.handler({ addressbook_url: ADDRESSBOOK_URL }));
     expect(ms).toBeLessThan(1000);
-    expect(result.content[0].text).toContain('Alice Good');
+    const text = result.content[0].text;
+    expect(text).toContain('Alice Good');
+    expect(text).toContain('**1 of these contacts could not be read**');
+    expect(text).toContain('Unreadable contact');
+    expect(text).toContain(BOUND_REASON);
+    expect(text).toContain(hostileCard.url);
   });
 
-  test('addressbook_query filters past it fast', async () => {
+  test('a card that is no vCard at all is reported the same way, without quoting it', async () => {
+    storedCards = [{ url: `${ADDRESSBOOK_URL}broken.vcf`, etag: '"1"', data: 'BEGIN:VCARD\r\nsecret;;;\r\n' }, goodCard];
+    const text = (await listContacts.handler({ addressbook_url: ADDRESSBOOK_URL })).content[0].text.split('<details>')[0];
+    expect(text).toContain('could not be read — it is not valid vCard');
+    expect(text).not.toContain('secret');
+  });
+
+  test('addressbook_query filters past it fast and says it could not search it', async () => {
     storedCards = [hostileCard, goodCard];
     const [result, ms] = await timed(() => addressbookQuery.handler({ addressbook_url: ADDRESSBOOK_URL, name_filter: 'a' }));
     expect(ms).toBeLessThan(1000);
-    expect(result.content[0].text).toContain('Alice Good');
+    const text = result.content[0].text;
+    expect(text).toContain('Alice Good');
+    expect(text).toContain('Not searched: **1** contacts could not be read');
+    expect(text).toContain(`${hostileCard.url} — ${BOUND_REASON}`);
+  });
+
+  test('list_todos says which todo it could not read', async () => {
+    storedTodos = [hostileTodo];
+    const text = (await listTodos.handler({ calendar_url: CALENDAR_URL })).content[0].text;
+    expect(text).toContain('**1 of these todos could not be read**');
+    expect(text).toContain(BOUND_REASON);
+  });
+
+  test('update_todo refuses to edit it and writes nothing', async () => {
+    storedTodos = [hostileTodo];
+    for (const args of [{ fields: { SUMMARY: 'Renamed' } }, { cancel_occurrences: ['2026-01-05'] }]) {
+      const [error, ms] = await timed(() => updateTodoFields.handler({
+        todo_url: hostileTodo.url, todo_etag: '"1"', ...args,
+      }));
+      expect(ms).toBeLessThan(500);
+      expect(error).toBeInstanceOf(ValidationError);
+      expect(error.details).toMatchObject({ code: 'TOO_MANY_PARAMETERS' });
+    }
+    expect(updateCalendarObject).not.toHaveBeenCalled();
+  });
+
+  test('free/busy names it as missing instead of dropping its busy time silently', async () => {
+    storedEvents = [hostileEvent, goodEvent];
+    const [result, ms] = await timed(() => freeBusyQuery.handler({
+      time_range_start: '2026-01-05T00:00:00Z', time_range_end: '2026-01-06T00:00:00Z',
+    }));
+    if (result instanceof Error) throw result;
+    expect(ms).toBeLessThan(1000);
+    const text = result.content[0].text;
+    expect(text).toContain('**Warning**: incomplete');
+    expect(text).toContain(`(${hostileEvent.url}): cannot be read — ${BOUND_REASON}`);
   });
 
   test('update_contact refuses to edit it, says why, and writes nothing', async () => {
