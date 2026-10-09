@@ -24,6 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is refused (#107).
 
 ### Changed
+- **Calendars get a real time zone** (#78). `make_calendar` now applies
+  `timezone` (it used to create the calendar without one and say so), and
+  `update_calendar` sends it as the VTIMEZONE CalDAV asks for instead of the
+  bare name (`Europe/Berlin`), which stricter servers reject or ignore. Both
+  take any IANA zone name, `UTC` included, and refuse anything else (`Berlin`,
+  `CEST`, `+02:00`) as invalid input before sending anything.
+  `update_calendar` reports the zone the server holds afterwards, and
+  `list_calendars` shows each calendar's zone.
 - **tsdav-utils 0.7.0** (`@philflow/tsdav-utils`), for its bounded,
   zone-correct occurrence expansion and its occurrence edits. Its write
   semantics change too: moving a series' DTSTART now moves its overrides with

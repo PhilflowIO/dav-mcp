@@ -15,6 +15,7 @@ import { readSeries, shownEvent, todoStatus } from './ical-components.js';
 import { shareTimezones } from './tools/shared/ical-dates.js';
 import { seriesNames, labelled } from './occurrence-names.js';
 import { budgetPool, zonedInstant } from './occurrences.js';
+import { readCalendarTimezone } from './calendar-zone.js';
 
 /**
  * Parse iCal data string to extract event properties (RFC 5545 compliant)
@@ -733,6 +734,11 @@ export function formatCalendarList(calendars) {
       output += `- **Color**: ${color}\n`;
     }
 
+    const timezone = readCalendarTimezone(cal.timezone)?.tzid;
+    if (timezone) {
+      output += `- **Time zone**: ${timezone}\n`;
+    }
+
     output += `- **URL**: ${cal.url}\n\n`;
   });
 
@@ -743,6 +749,7 @@ export function formatCalendarList(calendars) {
     components: cal.components,
     calendarColor: extractPropertyValue(cal.calendarColor) || undefined,
     description: extractPropertyValue(cal.description) || undefined,
+    timezone: readCalendarTimezone(cal.timezone)?.tzid,
   })), null, 2);
   output += '\n```\n</details>';
 
@@ -863,7 +870,10 @@ export function formatCalendarUpdateSuccess(calendar, updatedFields) {
       output += `- Color: ${updatedFields.color}\n`;
     }
     if (updatedFields.timezone) {
-      output += `- Timezone: ${updatedFields.timezone}\n`;
+      const held = updatedFields.timezoneReadBack;
+      output += held === updatedFields.timezone
+        ? `- Timezone: ${updatedFields.timezone}\n`
+        : `- Timezone: ${updatedFields.timezone} was sent, but the server reports ${held ? `"${held}"` : 'no time zone'} for the calendar now\n`;
     }
   }
 

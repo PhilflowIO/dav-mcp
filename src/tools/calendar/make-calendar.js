@@ -3,6 +3,7 @@ import { validateInput, makeCalendarSchema } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
 import { MCP_ERROR_CODES } from '../../error-handler.js';
 import { getCalendarHome, sanitizeNameForUrl, davFailure, davFailureError, inspectCollection } from '../shared/helpers.js';
+import { calendarTimezoneValue } from '../../calendar-zone.js';
 
 // How many URLs to try before giving up: <slug>, <slug>-2 … <slug>-10.
 const MAX_SLUG_ATTEMPTS = 10;
@@ -43,7 +44,7 @@ export const makeCalendar = {
     idempotentHint: false,
     openWorldHint: true,
   },
-  description: 'Create a new calendar collection on the CalDAV server with optional color, description, and component types. A timezone is accepted but not applied yet (the result says so). The URL is derived from display_name. If a calendar already exists at that URL, nothing is created and the error names the existing calendar — use it instead of creating another. If the URL is only held by something else (e.g. a deleted calendar in the trash bin), a numeric suffix is added (-2, -3, ...). Always use the URL returned in the response.',
+  description: 'Create a new calendar collection on the CalDAV server with optional color, description, time zone and component types. The time zone is the one events without a zone of their own (floating times, all-day dates) are read in. The URL is derived from display_name. If a calendar already exists at that URL, nothing is created and the error names the existing calendar — use it instead of creating another. If the URL is only held by something else (e.g. a deleted calendar in the trash bin), a numeric suffix is added (-2, -3, ...). Always use the URL returned in the response.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -61,7 +62,7 @@ export const makeCalendar = {
       },
       timezone: {
         type: 'string',
-        description: 'Currently NOT applied: the calendar is created with the server\'s default timezone and the result says so (issue #78). Timezone ID (e.g., Europe/Berlin).',
+        description: 'Optional: the calendar\'s time zone, an IANA name (e.g., Europe/Berlin, America/New_York, UTC). Sent as the VTIMEZONE CalDAV asks for.',
       },
       components: {
         type: 'array',
@@ -76,6 +77,8 @@ export const makeCalendar = {
   },
   handler: async (args) => {
     const validated = validateInput(makeCalendarSchema, args);
+    // refused before anything is created
+    const timezone = validated.timezone !== undefined ? calendarTimezoneValue(validated.timezone) : null;
     const client = tsdavManager.getCalDavClient();
 
     // Get calendar home URL
@@ -97,10 +100,11 @@ export const makeCalendar = {
     if (validated.color) {
       calendarProps['ca:calendar-color'] = validated.color;
     }
-    // timezone is deliberately not sent. RFC 4791 §5.2.2 defines
-    // c:calendar-timezone as an iCalendar object holding a VTIMEZONE, not a
-    // TZID such as "Europe/Berlin"; a bare TZID is invalid there and servers
-    // may reject the whole MKCALENDAR for it. Building the VTIMEZONE is #78.
+    // RFC 4791 §5.2.2: an iCalendar object holding the zone's VTIMEZONE, not
+    // a TZID such as "Europe/Berlin" (#78)
+    if (timezone) {
+      calendarProps['c:calendar-timezone'] = timezone.text;
+    }
     if (validated.components && validated.components.length > 0) {
       calendarProps['c:supported-calendar-component-set'] = {
         'c:comp': validated.components.map(name => ({ _attributes: { name } })),
@@ -119,12 +123,7 @@ export const makeCalendar = {
         return formatSuccess('Calendar created successfully', {
           displayName: validated.display_name,
           url,
-          ...(validated.timezone && {
-            timezoneApplied: false,
-            message: `The timezone "${validated.timezone}" was NOT applied: the calendar was created ` +
-              'with the server\'s default timezone. Setting a calendar timezone is not supported yet ' +
-              '(https://github.com/PhilflowIO/dav-mcp/issues/78).',
-          }),
+          ...(timezone && { timezone: timezone.tzid }),
         });
       }
 

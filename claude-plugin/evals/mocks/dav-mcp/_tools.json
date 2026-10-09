@@ -316,7 +316,7 @@
     },
     {
       "name": "make_calendar",
-      "description": "Create a new calendar collection on the CalDAV server with optional color, description, and component types. A timezone is accepted but not applied yet (the result says so). The URL is derived from display_name. If a calendar already exists at that URL, nothing is created and the error names the existing calendar — use it instead of creating another. If the URL is only held by something else (e.g. a deleted calendar in the trash bin), a numeric suffix is added (-2, -3, ...). Always use the URL returned in the response.",
+      "description": "Create a new calendar collection on the CalDAV server with optional color, description, time zone and component types. The time zone is the one events without a zone of their own (floating times, all-day dates) are read in. The URL is derived from display_name. If a calendar already exists at that URL, nothing is created and the error names the existing calendar — use it instead of creating another. If the URL is only held by something else (e.g. a deleted calendar in the trash bin), a numeric suffix is added (-2, -3, ...). Always use the URL returned in the response.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -334,7 +334,7 @@
           },
           "timezone": {
             "type": "string",
-            "description": "Currently NOT applied: the calendar is created with the server's default timezone and the result says so (issue #78). Timezone ID (e.g., Europe/Berlin)."
+            "description": "Optional: the calendar's time zone, an IANA name (e.g., Europe/Berlin, America/New_York, UTC). Sent as the VTIMEZONE CalDAV asks for."
           },
           "components": {
             "type": "array",
@@ -363,7 +363,7 @@
     },
     {
       "name": "update_calendar",
-      "description": "Update an existing calendar's properties (display name, description, color, timezone). Use this when user asks to \"rename calendar\", \"change calendar color\", or \"update calendar properties\"",
+      "description": "Update an existing calendar's properties (display name, description, color, time zone). The time zone is the one events without a zone of their own (floating times, all-day dates) are read in. Use this when user asks to \"rename calendar\", \"change calendar color\", or \"update calendar properties\"",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -385,7 +385,7 @@
           },
           "timezone": {
             "type": "string",
-            "description": "Optional: New timezone ID (e.g., Europe/Berlin). Sent to the server as a bare timezone ID, not as the VTIMEZONE the CalDAV standard asks for, so a server may reject or ignore it (issue #78)."
+            "description": "Optional: New time zone, an IANA name (e.g., Europe/Berlin, America/New_York, UTC). Sent as the VTIMEZONE CalDAV asks for; the result says which zone the server holds afterwards."
           }
         },
         "required": [

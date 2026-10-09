@@ -2,6 +2,7 @@ import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, updateCalendarSchema } from '../../validation.js';
 import { formatCalendarUpdateSuccess } from '../../formatters.js';
 import { assertDavSuccess } from '../shared/helpers.js';
+import { calendarTimezoneValue, readCalendarTimezone } from '../../calendar-zone.js';
 
 /**
  * Update an existing calendar's properties
@@ -15,7 +16,7 @@ export const updateCalendar = {
     idempotentHint: true,
     openWorldHint: true,
   },
-  description: 'Update an existing calendar\'s properties (display name, description, color, timezone). Use this when user asks to "rename calendar", "change calendar color", or "update calendar properties"',
+  description: 'Update an existing calendar\'s properties (display name, description, color, time zone). The time zone is the one events without a zone of their own (floating times, all-day dates) are read in. Use this when user asks to "rename calendar", "change calendar color", or "update calendar properties"',
   inputSchema: {
     type: 'object',
     properties: {
@@ -37,13 +38,15 @@ export const updateCalendar = {
       },
       timezone: {
         type: 'string',
-        description: 'Optional: New timezone ID (e.g., Europe/Berlin). Sent to the server as a bare timezone ID, not as the VTIMEZONE the CalDAV standard asks for, so a server may reject or ignore it (issue #78).',
+        description: 'Optional: New time zone, an IANA name (e.g., Europe/Berlin, America/New_York, UTC). Sent as the VTIMEZONE CalDAV asks for; the result says which zone the server holds afterwards.',
       },
     },
     required: ['calendar_url'],
   },
   handler: async (args) => {
     const validated = validateInput(updateCalendarSchema, args);
+    // refused before anything is sent
+    const timezone = validated.timezone !== undefined ? calendarTimezoneValue(validated.timezone) : null;
     const client = tsdavManager.getCalDavClient();
 
     // Only the properties the caller asked to change. Prefixed keys keep their
@@ -59,12 +62,10 @@ export const updateCalendar = {
     if (validated.color) {
       prop['x:calendar-color'] = validated.color;
     }
-    if (validated.timezone) {
-      // Validate timezone format (basic check)
-      if (!validated.timezone.includes('/')) {
-        throw new Error(`Invalid timezone format: ${validated.timezone}. Expected format: "Europe/Berlin", "America/New_York", etc.`);
-      }
-      prop['c:calendar-timezone'] = validated.timezone;
+    // RFC 4791 §5.2.2: an iCalendar object holding the zone's VTIMEZONE, not
+    // the bare TZID sent before 5.0.0 (#78)
+    if (timezone) {
+      prop['c:calendar-timezone'] = timezone.text;
     }
 
     // Through tsdav, not a bare fetch: the client adds its own auth headers and
@@ -102,7 +103,11 @@ export const updateCalendar = {
       display_name: validated.display_name,
       description: validated.description,
       color: validated.color,
-      timezone: validated.timezone,
+      // what the server holds now: a server may keep, drop or rewrite it
+      ...(timezone && {
+        timezone: timezone.tzid,
+        timezoneReadBack: readCalendarTimezone(updatedCalendar.timezone)?.tzid ?? null,
+      }),
     });
   },
 };
