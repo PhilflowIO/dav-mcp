@@ -251,6 +251,8 @@ describe.each(kinds)('an etag without its quotes still matches: $kind', ({ creat
       () => updateRaw(url, 'rev 1', store.get(url).data),
       () => updateFields(url, '"rev-1'),
       () => remove(url, '   '),
+      () => updateFields(url, 'W/"rev-1"'),
+      () => remove(url, 'W/rev-1'),
     ]) {
       const error = await call().catch(e => e);
       expect(error).toBeInstanceOf(ValidationError);
@@ -266,8 +268,6 @@ describe('entityTag', () => {
     ['"abc"', '"abc"'],
     ['  "abc"\n', '"abc"'],
     [' 65b1bf42b308512c3095273949174631 ', '"65b1bf42b308512c3095273949174631"'],
-    ['W/"abc"', 'W/"abc"'],
-    ['W/abc', 'W/"abc"'],
     ['""', '""'],
     ['1234-5678:x/y', '"1234-5678:x/y"'],
   ])('%j becomes %j', (input, expected) => {
@@ -288,6 +288,20 @@ describe('entityTag', () => {
     expect(entityTag.safeParse(input).success).toBe(false);
   });
 });
+
+  // If-Match compares strongly (RFC 9110 13.1.1): a weak ETag never matches,
+  // so sending one can only end in a 412 that reads like a conflict
+  test.each([
+    ['a quoted weak ETag', 'W/"abc"'],
+    ['a weak ETag without its quotes', 'W/abc'],
+    ['a weak ETag with whitespace around it', '  W/"abc" '],
+  ])('refuses %s, saying to fetch the object first', (_, input) => {
+    const result = entityTag.safeParse(input);
+    expect(result.success).toBe(false);
+    const { message } = result.error.issues[0];
+    expect(message).toContain('weak ETag');
+    expect(message).toContain('fetch the object');
+  });
 
 describe('etagAfterWrite', () => {
   const responseWith = (etag) => new Response(null, { status: 204, headers: etag === undefined ? {} : { etag } });

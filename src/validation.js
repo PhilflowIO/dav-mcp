@@ -234,30 +234,32 @@ export const davUrl = (message) =>
 // etagc = %x21 / %x23-7E / obs-text): no whitespace, no control characters,
 // no double quote.
 const ETAGC = '[\\x21\\x23-\\x7E\\x80-\\xFF]';
-const QUOTED_ETAG = new RegExp(`^(?:W/)?"${ETAGC}*"$`);
-const BARE_ETAG = new RegExp(`^(W/)?(${ETAGC}+)$`);
+const QUOTED_ETAG = new RegExp(`^"${ETAGC}*"$`);
+const BARE_ETAG = new RegExp(`^${ETAGC}+$`);
 
 /**
  * An etag parameter of a write or delete tool, normalised to the entity-tag
  * form the server compares If-Match against (RFC 9110 13.1.1). The server
  * sends `"abc"`; a caller sometimes passes it back as `abc`, and sent like
  * that it never matches, so the write fails with 412 although the object did
- * not change (#124). A bare opaque-tag therefore gets its quotes, a quoted or
- * weak (`W/"…"`) one is kept as it is, surrounding whitespace is dropped, and
- * anything that cannot be an entity-tag is refused here, before a request.
- * Every etag parameter uses this, so tsdav always receives a valid If-Match.
+ * not change (#124). A bare opaque-tag therefore gets its quotes, a quoted one
+ * is kept as it is, surrounding whitespace is dropped, and anything that
+ * cannot be an entity-tag is refused here, before a request. So is a weak one
+ * (`W/"…"`, or `W/…` without the quotes): If-Match compares strongly, so it
+ * can never match, and the 412 it ends in would read like a conflict. Every
+ * etag parameter uses this, so tsdav always receives a usable If-Match.
  */
 export const entityTag = z.string({ required_error: 'ETag is required' }).transform((value, ctx) => {
   const etag = value.trim();
   if (QUOTED_ETAG.test(etag)) return etag;
-  const bare = BARE_ETAG.exec(etag);
-  if (bare) return `${bare[1] ?? ''}"${bare[2]}"`;
-  ctx.addIssue({
-    code: z.ZodIssueCode.custom,
-    message: etag
-      ? 'not an ETag; pass the etag exactly as the list, query or get tool returned it, e.g. "abc123"'
-      : 'ETag is required',
-  });
+  if (BARE_ETAG.test(etag) && !etag.startsWith('W/')) return `"${etag}"`;
+  let message = 'ETag is required';
+  if (etag.startsWith('W/')) {
+    message = 'a weak ETag cannot be used for an update or delete — fetch the object before the next update';
+  } else if (etag) {
+    message = 'not an ETag; pass the etag exactly as the list, query or get tool returned it, e.g. "abc123"';
+  }
+  ctx.addIssue({ code: z.ZodIssueCode.custom, message });
   return z.NEVER;
 });
 
