@@ -1,4 +1,5 @@
 import ICAL from 'ical.js';
+import { parseICal } from './ical-parse.js';
 import { resolveZone, expandOccurrences, createRecurrenceBudget } from 'tsdav-utils';
 
 /**
@@ -292,7 +293,7 @@ export function listedDates(master, overrides = []) {
  */
 export function wholeDayExclusions(data, type) {
   try {
-    const calendar = new ICAL.Component(ICAL.parse(data));
+    const calendar = new ICAL.Component(parseICal(data));
     const all = calendar.getAllSubcomponents(type);
     const master = all.find((c) => !c.hasProperty('recurrence-id'));
     const names = master && seriesNames(master, [], null);
@@ -311,7 +312,7 @@ export function wholeDayExclusions(data, type) {
 /** the exclusions of a calendar object's series, by name; empty if none */
 function exclusionTexts(data, type) {
   try {
-    const calendar = new ICAL.Component(ICAL.parse(data));
+    const calendar = new ICAL.Component(parseICal(data));
     const all = calendar.getAllSubcomponents(type);
     const master = all.find((c) => !c.hasProperty('recurrence-id'));
     if (!master) return { exclusions: [], overrides: [] };

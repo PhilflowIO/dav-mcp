@@ -1,12 +1,12 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, calendarQuerySchema } from '../../validation.js';
-import { formatEventList } from '../../formatters.js';
+import { formatEventList, withUnsearched } from '../../formatters.js';
 import { buildTimeRangeOptions, limitResults, DEFAULT_RESULT_LIMIT } from '../shared/helpers.js';
 import ICAL from 'ical.js';
 import { shownEvent } from '../../ical-components.js';
 import { ZONE_SLACK_MS, budgetPool } from '../../occurrences.js';
 import { instantOf, hasAbsoluteInstant } from '../shared/ical-dates.js';
-import { parseObjects, textValues, containsText, dateKey, orNull } from '../shared/query-objects.js';
+import { parseObjects, unsearchedObjects, textValues, containsText, dateKey, orNull } from '../shared/query-objects.js';
 
 /**
  * Search and filter calendar events efficiently
@@ -83,7 +83,8 @@ export const calendarQuery = {
     }
 
     // Client-side filtering on parsed values; see query-objects.js
-    let parsed = parseObjects(allEvents, 'vevent');
+    const all = parseObjects(allEvents, 'vevent');
+    let parsed = all;
     const { timeRange } = timeRangeOptions;
     const matches = searchOf(validated);
     // one expansion budget for this query (one tool call), shared fairly by
@@ -117,7 +118,8 @@ export const calendarQuery = {
       if (listed) shown.set(p.object, listed);
     }
 
-    return formatEventList(items.map(({ object }) => object), calendarName, timeRange, total, matches, shown, budget);
+    const result = formatEventList(items.map(({ object }) => object), calendarName, timeRange, total, matches, shown, budget);
+    return withUnsearched(result, unsearchedObjects(all, parsed), 'events', 'list_events');
   },
 };
 

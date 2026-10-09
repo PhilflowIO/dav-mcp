@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import ICAL from 'ical.js';
+import { parseICal, assertParseBounded } from '../../ical-parse.js';
 import {
   cancelOccurrences, restoreOccurrences, isUpdateFieldsError, expandOccurrences, createRecurrenceBudget,
 } from 'tsdav-utils';
@@ -100,7 +101,7 @@ const SOURCES = {
 /** the master of an object and what it excludes, named; null if unreadable */
 function seriesOf(data, type) {
   try {
-    const calendar = new ICAL.Component(ICAL.parse(data));
+    const calendar = new ICAL.Component(parseICal(data));
     const all = calendar.getAllSubcomponents(type);
     const master = all.find((c) => !c.hasProperty('recurrence-id'));
     if (!master) return null;
@@ -232,6 +233,9 @@ function sameOccurrences(cancel, restore, naming) {
  */
 export function editOccurrences(data, { cancel = [], restore = [] }, type) {
   if (!cancel.length && !restore.length) return { data, change: null };
+  // refused here, not read as "does not recur" by seriesOf, and before
+  // tsdav-utils parses it again; see ical-parse.js
+  assertParseBounded(data);
   const series = seriesOf(data, type);
   if (!series) {
     // the library would take the start of a single event as its one

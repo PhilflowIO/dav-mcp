@@ -1,4 +1,5 @@
 import ICAL from 'ical.js';
+import { parseICal } from './ical-parse.js';
 import { seriesMaster, isUpdateFieldsError } from 'tsdav-utils';
 import { ValidationError, CalDAVError, CardDAVError, MCP_ERROR_CODES } from './error-handler.js';
 import { listedDates, wholeDayExclusions } from './occurrence-names.js';
@@ -200,7 +201,7 @@ const KINDS = {
 export function assertFieldUpdatable(object, type) {
   let calendar;
   try {
-    calendar = new ICAL.Component(ICAL.parse(typeof object === 'string' ? object : object.data));
+    calendar = new ICAL.Component(parseICal(typeof object === 'string' ? object : object.data));
   } catch {
     return;
   }
@@ -417,7 +418,7 @@ export function explainWriteRefusal(error, type, object = null) {
 export function describeSeriesChange(before, after, type) {
   const read = (object) => {
     try {
-      const calendar = new ICAL.Component(ICAL.parse(typeof object === 'string' ? object : object.data));
+      const calendar = new ICAL.Component(parseICal(typeof object === 'string' ? object : object.data));
       return readSeries(calendar, type);
     } catch {
       return null;
