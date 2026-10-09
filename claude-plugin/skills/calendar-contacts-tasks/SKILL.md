@@ -21,8 +21,10 @@ claude.ai chat and Cowork load only this guide.
   `calendar_url` it searches every calendar; no `list_calendars` first.
   Never `list_events` to look something up: it returns a whole calendar.
 - "When am I free", "am I available", finding a slot: `freebusy_query`,
-  not `calendar_query`. It expands recurring events. It prints times in UTC:
-  convert them to the user's time zone before answering.
+  not `calendar_query`. It expands recurring events. It prints times in the
+  calendar's time zone and names that zone on its **Time zone** line: pass
+  the times on as they are, and convert only when the user said they are in
+  another zone.
 - Contacts: `addressbook_query` by name, email or organization, never
   `list_contacts`. To-dos: `todo_query`, never `list_todos`.
 
@@ -30,13 +32,21 @@ claude.ai chat and Cowork load only this guide.
 
 - Resolve relative dates ("morgen", "next Friday") from today's date.
 - A time the user gives ("3 pm", "um 10") is wall-clock time. Send it
-  without a zone (`2026-10-15T15:00:00`). On an update this keeps the
-  event's own time zone; on a new event dav-mcp reads it in the zone of the
-  computer it runs on, which is the user's when dav-mcp runs there (the
-  plugin, the Desktop bundle). On a new event, add an offset only when the
-  user names another zone. Never `Z` or an offset on an update of an existing event: it pins the
-  event to UTC, and a recurring one shifts by an hour after the next
-  daylight-saving change.
+  without a zone (`2026-10-15T15:00:00`). dav-mcp reads it in the
+  calendar's time zone (`list_calendars` shows it); for a calendar without
+  one, in the zone dav-mcp runs in, which is the user's when dav-mcp runs on
+  their computer (the plugin, the Desktop bundle). On an update the event
+  keeps its own time zone, and an event stored without one stays so. On a
+  new event, add an offset only when the user names another zone.
+- Never `Z` or an offset on an update of an existing event. The user means
+  a local time, and a UTC time or offset worked out by hand is easily an
+  hour off around a daylight-saving change; without a zone, dav-mcp places
+  it in the event's own zone.
+- A time the clocks skip or show twice at a daylight-saving change is
+  refused for some events. The error says what to give instead; ask the
+  user which time they mean if it is not clear.
+- `make_calendar` and `update_calendar` take an IANA zone name such as
+  `Europe/Berlin`, not an abbreviation like `CEST`.
 - All-day events take bare dates and the end is exclusive: vacation from 19
   to 23 October is one event, start `2026-10-19`, end `2026-10-24`.
 
