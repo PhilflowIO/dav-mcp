@@ -225,12 +225,7 @@ export const davFieldMapSchema = z.record(z.string(), z.string())
 export const davUrl = (message) =>
   z.string().url(message).superRefine((url, ctx) => {
     // not a URL at all: .url() has said so already, in the caller's words
-    // (no URL.canParse: engines allows Node.js 18.0)
-    try {
-      new URL(url);
-    } catch {
-      return;
-    }
+    if (!URL.canParse(url)) return;
     const problem = requestUrlProblem(url);
     if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem });
   });

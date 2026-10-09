@@ -10,7 +10,6 @@
  *     after the first request has carried the password Basic-encoded.
  *   - Digest: username + password, answered only as Digest (RFC 7616); the
  *     password itself never goes over the wire.
- *     Needs WebCrypto (Node.js 20 or newer).
  *   - OAuth (alias OAuth2): Google Calendar and other OAuth2 CalDAV servers.
  */
 

@@ -1,7 +1,6 @@
-import { DAVClient, isDigestUnsupportedError } from 'tsdav';
+import { DAVClient } from 'tsdav';
 import { logger } from './logger.js';
 import { CalDAVError, CardDAVError } from './error-handler.js';
-import { ConfigurationError } from './auth-config.js';
 import { RequestOrigins, activateRequestOrigins } from './request-origins.js';
 
 const DEFAULT_OAUTH_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -62,7 +61,7 @@ class OriginCheckedDAVClient extends DAVClient {
  * - Basic Auth: Standard CalDAV servers (Radicale, Baikal, Nextcloud). tsdav
  *   switches to Digest by itself when a server's 401 offers only Digest.
  * - Digest Auth: Servers that only accept Digest (RFC 7616); the password is
- *   never sent, not even once. Needs WebCrypto (Node.js 20 or newer).
+ *   never sent, not even once.
  * - OAuth2: Google Calendar and other OAuth2-enabled CalDAV servers
  */
 class TsdavClientManager {
@@ -141,16 +140,7 @@ class TsdavClientManager {
         configuredAuthMethod: this.authMethod,
         ...(this.authMethod === 'Basic' && { note: 'Digest is used instead if the server only offers Digest' }),
       }, 'tsdav clients initialized and logged in');
-    } catch (cause) {
-      // The server wants Digest and this runtime cannot compute it (no
-      // WebCrypto, i.e. Node.js 18). Waiting does not help, so this is a
-      // configuration error — and it says what to do, not just what is missing.
-      const error = isDigestUnsupportedError(cause)
-        ? new ConfigurationError(
-          `${config.serverUrl} only accepts Digest authentication, which dav-mcp supports on Node.js 20 or newer ` +
-          `(this is Node.js ${process.versions.node}). Upgrade Node.js, or enable Basic authentication on the server. ` +
-          `Cause: ${cause.message}`)
-        : cause;
+    } catch (error) {
       logger.error({
         error: error.message,
         serverUrl: config.serverUrl,
