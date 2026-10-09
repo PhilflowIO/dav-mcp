@@ -1,5 +1,5 @@
 import { tsdavManager } from '../../tsdav-client.js';
-import { validateInput, deleteTodoSchema } from '../../validation.js';
+import { validateInput, deleteTodoSchema, etagQuotedByUs } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
 import { assertDeleted } from '../shared/helpers.js';
 
@@ -40,7 +40,9 @@ export const deleteTodo = {
         etag: validated.todo_etag,
       },
     });
-    await assertDeleted(response, 'todo', validated.todo_url);
+    await assertDeleted(response, 'todo', validated.todo_url, {
+      quotedEtag: etagQuotedByUs(args.todo_etag, validated.todo_etag),
+    });
 
     return formatSuccess('Todo deleted successfully');
   },

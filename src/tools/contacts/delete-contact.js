@@ -1,5 +1,5 @@
 import { tsdavManager } from '../../tsdav-client.js';
-import { validateInput, deleteContactSchema } from '../../validation.js';
+import { validateInput, deleteContactSchema, etagQuotedByUs } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
 import { assertDeleted } from '../shared/helpers.js';
 
@@ -40,7 +40,9 @@ export const deleteContact = {
         etag: validated.vcard_etag,
       },
     });
-    await assertDeleted(response, 'contact', validated.vcard_url);
+    await assertDeleted(response, 'contact', validated.vcard_url, {
+      quotedEtag: etagQuotedByUs(args.vcard_etag, validated.vcard_etag),
+    });
 
     return formatSuccess('Contact deleted successfully');
   },
