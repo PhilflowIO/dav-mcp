@@ -115,6 +115,23 @@ describe('the parameter bound', () => {
     expect(() => parseICal(ics('UID:quote', line))).toThrow(ValidationError);
   });
 
+  // review of #133: the first guard copied ical.js's tokenizer and lost
+  // track where the copy differs — a lone CR, a quoted multi-value going on
+  // through `","` — and let 200 000 parameters through (6-8 s in ical.js)
+  const PARAMS = ';X-P=1'.repeat(200_000);
+  test.each([
+    ['iCalendar, plain', () => parseICal(ics('UID:p', `ATTENDEE${PARAMS}:mailto:a@b`))],
+    ['iCalendar, a lone CR before a quote', () => parseICal(ics('UID:cr', `ATTENDEE;A=\r"${PARAMS}:mailto:a@b`))],
+    ['iCalendar, a quoted multi-value going on through ","', () => parseICal(ics('UID:m', `ATTENDEE;MEMBER="mailto:a","b:c"${PARAMS}:mailto:a@b`))],
+    ['vCard, a quoted multi-value going on through ","', () => readVCard(vcard('FN:T', `TEL;TYPE="cell","b:c"${PARAMS}:123`))],
+    ['vCard, a lone CR before a quote', () => readVCard(vcard('FN:C', `TEL;A=\r"${PARAMS}:123`))],
+  ])('%s is refused in well under a second', async (_, read) => {
+    const [error, ms] = await timed(read);
+    expect(ms).toBeLessThan(500);
+    expect(error).toBeInstanceOf(ValidationError);
+    expect(error.details).toMatchObject({ code: 'TOO_MANY_PARAMETERS' });
+  });
+
   test('a large real card is read: many typed numbers and addresses, a 1 MB photo', async () => {
     const photo = 'QUJD'.repeat(262_144).match(/.{1,74}/g).join('\r\n ');
     const lines = ['FN:Big Card', 'N:Card;Big;;;'];

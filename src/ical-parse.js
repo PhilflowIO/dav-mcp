@@ -45,12 +45,15 @@ export function parseICal(text) {
  * in the text. For text handed to a parser outside dav-mcp (tsdav-utils'
  * updateFields and occurrence edits), which runs ical.js on it as well.
  *
- * The parameter list is read the way ical.js reads it, so nothing it would
- * iterate over goes uncounted: the line is unfolded (a line break followed
- * by a space or tab continues it), the list ends at the first colon outside
- * a quoted value, a quoted value starts only right after `=` (anywhere else
- * a quote is text to ical.js) and runs to the next quote. Each `;` before
- * that colon is a parameter. Semicolons in the value are not counted.
+ * What is counted is an upper bound on the passes ical.js makes over a line,
+ * not a copy of its tokenizer (quotes, multi-values and line endings are
+ * where a copy drifts from the original and lets a line through). ical.js
+ * reads parameters only when the line's first `;` comes before its first
+ * `:`, or the line has no `:`. Then each pass of its parameter loop consumes
+ * a `=` it has not used yet, and each pass after the first a `;` it has not
+ * used yet, so it makes at most min(`=` count, `;` count + 1) passes over
+ * the rest of the line — whatever is quoted. Counted on the unfolded line,
+ * from that first `;` to the end of the line.
  *
  * @param {string|{data: string}} object - the text, or an object holding it
  * @throws {ValidationError} TOO_MANY_PARAMETERS
@@ -58,54 +61,55 @@ export function parseICal(text) {
 export function assertParseBounded(object) {
   const text = typeof object === 'string' ? object : object?.data;
   if (typeof text !== 'string') return;
-  let lineStart = 0;
-  while (lineStart < text.length) {
-    const end = scanParameters(text, lineStart);
-    lineStart = endOfLine(text, end);
-  }
+  let start = 0;
+  while (start < text.length) start = checkLine(text, start);
 }
 
-/** whether text[i] is a line break that the next line continues (a fold) */
+const LF = 10;
+const SPACE = 32;
+const TAB = 9;
+const COLON = 58;
+const SEMICOLON = 59;
+const EQUALS = 61;
+
+/** whether the line break at `i` is a fold: the next line continues it */
 function foldAt(text, i) {
-  const next = text[i + 1];
-  return next === ' ' || next === '\t';
+  const next = text.charCodeAt(i + 1);
+  return next === SPACE || next === TAB;
 }
 
 /**
- * Count the parameters of the content line at `start`; throws when over the
- * bound. Returns where the scan stopped: the colon that ended the parameter
- * list, or the end of the line.
+ * Check the content line at `start`; throws when ical.js would pass over it
+ * more than MAX_PARAMETERS times. Returns where the next line starts.
  */
-function scanParameters(text, start) {
-  let count = 0;
-  let nameEnd = -1;
-  let quoted = false;
-  let previous = '';
+function checkLine(text, start) {
+  let parametersAt = -1; // the first ";", when it comes before any ":"
+  let equals = 0;
+  let semicolons = 0;
   for (let i = start; i < text.length; i++) {
-    const char = text[i];
-    if (char === '\n') {
-      if (!foldAt(text, i)) return i;
+    const char = text.charCodeAt(i);
+    if (char === LF) {
+      if (!foldAt(text, i)) return i + 1;
       i++; // the space or tab that marks the fold
-      continue;
+    } else if (parametersAt === -1) {
+      if (char === COLON) return nextLine(text, i);
+      if (char === SEMICOLON) {
+        parametersAt = i;
+        semicolons = 1;
+      }
+    } else if (char === SEMICOLON || char === EQUALS) {
+      if (char === SEMICOLON) semicolons++;
+      else equals++;
+      if (Math.min(equals, semicolons + 1) > MAX_PARAMETERS) {
+        throw tooManyParameters(propertyName(text, start, parametersAt));
+      }
     }
-    if (char === '\r') continue;
-    if (quoted) {
-      if (char === '"') quoted = false;
-    } else if (char === '"' && previous === '=') {
-      quoted = true;
-    } else if (char === ':') {
-      return i;
-    } else if (char === ';') {
-      if (nameEnd === -1) nameEnd = i;
-      if (++count > MAX_PARAMETERS) throw tooManyParameters(text, start, nameEnd);
-    }
-    previous = char;
   }
   return text.length;
 }
 
 /** the start of the content line after the one `from` lies in */
-function endOfLine(text, from) {
+function nextLine(text, from) {
   let i = from;
   for (;;) {
     const lineBreak = text.indexOf('\n', i);
@@ -115,9 +119,19 @@ function endOfLine(text, from) {
   }
 }
 
-function tooManyParameters(text, start, nameEnd) {
-  // the name as written, unfolded, cut short: no value, no personal data
-  const property = text.slice(start, Math.min(nameEnd, start + 200)).replace(/\r?\n[ \t]/g, '').slice(0, 64);
+/** the name as written, unfolded, cut short: no value, no personal data */
+function propertyName(text, start, end) {
+  return text.slice(start, Math.min(end, start + 200)).replace(/\r?\n[ \t]/g, '').slice(0, 64);
+}
+
+/**
+ * The refusal of a property over the bound — here, and in the vCard
+ * normalizer, which counts the same parameters on its own way to ical.js.
+ *
+ * @param {string} property - its name as written
+ * @returns {ValidationError}
+ */
+export function tooManyParameters(property) {
   return new ValidationError(
     `The ${property} property has more than ${MAX_PARAMETERS} parameters. dav-mcp does not read a vCard or ` +
     `calendar object like that: no real one has more than a few dozen, and parsing one takes time that grows ` +
@@ -125,4 +139,20 @@ function tooManyParameters(text, start, nameEnd) {
     `It can still be deleted, or replaced whole with update_contact_raw, update_event_raw or update_todo_raw.`,
     { code: 'TOO_MANY_PARAMETERS', property, limit: MAX_PARAMETERS },
   );
+}
+
+/**
+ * Why an object could not be parsed, for the caller: the bound, or that it
+ * is not valid at all. Never the parser's own message, which quotes the
+ * offending line (personal data).
+ *
+ * @param {unknown} error - what parsing threw
+ * @param {string} format - 'iCalendar' or 'vCard'
+ * @returns {string}
+ */
+export function unreadableReason(error, format) {
+  if (error?.details?.code === 'TOO_MANY_PARAMETERS') {
+    return `its ${error.details.property} property has more than ${error.details.limit} parameters`;
+  }
+  return `it is not valid ${format}`;
 }

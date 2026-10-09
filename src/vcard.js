@@ -1,5 +1,5 @@
 import ICAL from 'ical.js';
-import { parseICal, assertParseBounded } from './ical-parse.js';
+import { parseICal, MAX_PARAMETERS, tooManyParameters } from './ical-parse.js';
 import { writeFields } from './tools/shared/ical-dates.js';
 
 /**
@@ -59,17 +59,16 @@ export function writeVCardFields(vCard, fields) {
  * section 5.1); sabre/dav (Baïkal, Nextcloud) refuses 2.1 outright.
  *
  * A property with more parameters than dav-mcp reads (MAX_PARAMETERS in
- * ical-parse.js) is refused before any of this: normalizing half a million
- * of them costs a quarter second for a card parseICal refuses anyway.
- * Normalizing never adds a parameter, so the card it returns is within the
- * bound too.
+ * ical-parse.js) is refused as soon as its list runs past that, not after
+ * normalizing half a million of them (a quarter second) for a card that
+ * parseICal then refuses anyway. parseICal checks the result on its own
+ * terms; this is no substitute for that.
  *
  * @param {string} data - the vCard text
  * @returns {string} the card, CRLF line endings, unfolded
  * @throws {ValidationError} TOO_MANY_PARAMETERS
  */
 export function normalizeVCard(data) {
-  assertParseBounded(data);
   const lines = unfold(data);
   const versions = cardVersions(lines);
   let version = null;
@@ -180,11 +179,14 @@ function startsContentLine(physical) {
  * The head of a content line, `NAME;PARAM;…:`, read piece by piece: it ends
  * at the first colon outside a quoted parameter value. Each character is
  * read once, however many pieces the head arrives in.
+ *
+ * @throws {ValidationError} TOO_MANY_PARAMETERS past MAX_PARAMETERS
  */
 class HeaderScan {
   ended = false;
   nameLength = 0;
   parameters = [];
+  #name = '';
   #inName = true;
   #quoted = false;
   #current = '';
@@ -194,27 +196,36 @@ class HeaderScan {
    * @returns {number} where in `text` the head ended (its colon), or -1
    */
   read(text) {
+    // a parameter's text is taken in slices, not a character at a time:
+    // a parameter list running on for megabytes costs one pass, not one
+    // string copy per character
+    let from = this.#inName ? -1 : 0;
     for (let i = 0; i < text.length && !this.ended; i++) {
       const char = text[i];
       if (this.#inName) {
         if (char === ':') this.ended = true;
-        else if (char === ';') this.#inName = false;
-        else this.nameLength++;
+        else if (char === ';') {
+          this.#inName = false;
+          from = i + 1;
+        } else if (this.nameLength++ < 64) this.#name += char;
         if (this.ended) return i;
         continue;
       }
       if (char === '"') this.#quoted = !this.#quoted;
       if (!this.#quoted && (char === ';' || char === ':')) {
-        if (this.#current !== '') this.parameters.push(this.#current);
+        this.#current += text.slice(from, i);
+        from = i + 1;
+        if (this.#current !== '' && this.parameters.push(this.#current) > MAX_PARAMETERS) {
+          throw tooManyParameters(this.#name);
+        }
         this.#current = '';
         if (char === ':') {
           this.ended = true;
           return i;
         }
-      } else {
-        this.#current += char;
       }
     }
+    if (!this.#inName && !this.ended) this.#current += text.slice(from);
     return -1;
   }
 }
