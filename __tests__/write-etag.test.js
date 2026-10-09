@@ -289,6 +289,24 @@ describe('entityTag', () => {
   });
 });
 
+  // Real ETags are hashes or counters, a few dozen characters; something
+  // longer is another value pasted into the wrong parameter
+  test('takes an ETag of up to 1024 characters, quotes included', () => {
+    const longest = `"${'a'.repeat(1022)}"`;
+    expect(entityTag.parse(longest)).toBe(longest);
+    expect(entityTag.parse('a'.repeat(1022))).toBe(longest);
+    expect(entityTag.parse(`  ${longest}\n`)).toBe(longest);
+  });
+
+  test.each([
+    ['quoted', `"${'a'.repeat(1023)}"`],
+    ['bare, once quoted', 'a'.repeat(1023)],
+  ])('refuses a longer one (%s), saying why', (_, input) => {
+    const result = entityTag.safeParse(input);
+    expect(result.success).toBe(false);
+    expect(result.error.issues[0].message).toMatch(/longer than 1024 characters/);
+  });
+
   // If-Match compares strongly (RFC 9110 13.1.1): a weak ETag never matches,
   // so sending one can only end in a 412 that reads like a conflict
   test.each([

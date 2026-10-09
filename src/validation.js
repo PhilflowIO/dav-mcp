@@ -237,6 +237,15 @@ const ETAGC = '[\\x21\\x23-\\x7E\\x80-\\xFF]';
 const QUOTED_ETAG = new RegExp(`^"${ETAGC}*"$`);
 const BARE_ETAG = new RegExp(`^${ETAGC}+$`);
 
+// The longest etag a tool takes, quotes included. Servers make ETags from a
+// hash or a revision counter: SabreDAV (Baikal, Nextcloud) sends 34
+// characters, Google and iCloud well under 100. HTTP servers and proxies cap
+// a request header line at about 8 KB (Apache LimitRequestFieldSize 8190,
+// nginx large_client_header_buffers 8k), so 1 KiB leaves real ETags a wide
+// margin while a value pasted into the wrong parameter (a whole iCalendar
+// object, say) is named here instead of coming back as a 400 or 431.
+const MAX_ETAG_LENGTH = 1024;
+
 /**
  * An etag parameter of a write or delete tool, normalised to the entity-tag
  * form the server compares If-Match against (RFC 9110 13.1.1). The server
@@ -246,15 +255,20 @@ const BARE_ETAG = new RegExp(`^${ETAGC}+$`);
  * is kept as it is, surrounding whitespace is dropped, and anything that
  * cannot be an entity-tag is refused here, before a request. So is a weak one
  * (`W/"…"`, or `W/…` without the quotes): If-Match compares strongly, so it
- * can never match, and the 412 it ends in would read like a conflict. Every
+ * can never match, and the 412 it ends in would read like a conflict; and so
+ * is one longer than MAX_ETAG_LENGTH. Every
  * etag parameter uses this, so tsdav always receives a usable If-Match.
  */
 export const entityTag = z.string({ required_error: 'ETag is required' }).transform((value, ctx) => {
   const etag = value.trim();
-  if (QUOTED_ETAG.test(etag)) return etag;
-  if (BARE_ETAG.test(etag) && !etag.startsWith('W/')) return `"${etag}"`;
+  const quoted = QUOTED_ETAG.test(etag) ? etag
+    : BARE_ETAG.test(etag) && !etag.startsWith('W/') ? `"${etag}"`
+      : null;
+  if (quoted && quoted.length <= MAX_ETAG_LENGTH) return quoted;
   let message = 'ETag is required';
-  if (etag.startsWith('W/')) {
+  if (quoted) {
+    message = `not an ETag: longer than ${MAX_ETAG_LENGTH} characters; pass the etag exactly as the list, query or get tool returned it`;
+  } else if (etag.startsWith('W/')) {
     message = 'a weak ETag cannot be used for an update or delete — fetch the object before the next update';
   } else if (etag) {
     message = 'not an ETag; pass the etag exactly as the list, query or get tool returned it, e.g. "abc123"';
