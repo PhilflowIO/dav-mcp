@@ -92,11 +92,11 @@ class LoginAnswers {
  * login dav-mcp only asks the configured URL for its DAV account, so a 405
  * (no PROPFIND there), a 404 or another 4xx means the server URL does not
  * lead to a DAV server: dav-mcp's configuration, not a malformed request
- * (405 is INVALID_REQUEST for a tool call). 403, 408, 429 and 5xx keep their
- * meaning.
+ * (405 is INVALID_REQUEST for a tool call). 401 (refused), 403, 408, 429 and
+ * 5xx keep their meaning.
  */
 function loginStatusCode(status) {
-  if (status >= 400 && status < 500 && ![403, 408, 429].includes(status)) {
+  if (status >= 400 && status < 500 && ![401, 403, 408, 429].includes(status)) {
     return MCP_ERROR_CODES.CONFIGURATION_ERROR;
   }
   return codeForHttpStatus(status);
@@ -127,7 +127,7 @@ function loginError(cause, config, answers) {
     : status !== undefined ? loginStatusCode(status)
       : answers.answered ? MCP_ERROR_CODES.CONFIGURATION_ERROR
         : MCP_ERROR_CODES.NETWORK_ERROR;
-  const notDav = code === MCP_ERROR_CODES.CONFIGURATION_ERROR
+  const notDav = !refused && code === MCP_ERROR_CODES.CONFIGURATION_ERROR
     ? `The server URL does not lead to a CalDAV/CardDAV server. ` : '';
   const message = `Login to ${config.serverUrl} failed: ${String(cause.message).replace(/\.$/, '')}${answeredBy}. ${notDav}${hint}`;
 

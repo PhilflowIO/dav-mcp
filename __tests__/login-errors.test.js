@@ -73,6 +73,8 @@ describe('a login the server refuses', () => {
     expect(error.message).toContain('401 Unauthorized');
     expectPasswordSettingsNamed(error.message);
     expect(error.message).not.toContain('Verify server settings in .env file');
+    // the URL is fine; the credentials were refused
+    expect(error.message).not.toContain('does not lead to a CalDAV/CardDAV server');
   });
 
   // Baïkal: the configured /dav.php/ answers 401, tsdav then tries the server
