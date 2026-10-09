@@ -3,18 +3,62 @@ name: Docker Image
 on:
   push:
     branches: [main]
-    paths: ['Dockerfile', 'docker-compose.yml', 'src/**', 'package*.json', '.github/workflows/docker.yml', '.github/scripts/**']
+    paths: ['Dockerfile', 'docker-compose.yml', 'src/**', 'package*.json', '.github/workflows/docker.yml', '.github/workflows/mirror-ci-images.yml', '.github/ci-images.txt', '.github/scripts/**']
   pull_request:
     branches: [main, develop]
-    paths: ['Dockerfile', 'docker-compose.yml', 'src/**', 'package*.json', '.github/workflows/docker.yml', '.github/scripts/**']
+    paths: ['Dockerfile', 'docker-compose.yml', 'src/**', 'package*.json', '.github/workflows/docker.yml', '.github/workflows/mirror-ci-images.yml', '.github/ci-images.txt', '.github/scripts/**']
+
+permissions:
+  contents: read
 
 jobs:
+  # Every image the build pulls comes from our own registry (#142). This only
+  # checks that the mirror serves each listed digest: it runs the code of the
+  # pull request, so it gets no packages: write. A pull request that bumps a
+  # digest gets it copied by starting "Mirror CI images" by hand on its branch
+  # (CONTRIBUTING.md, "CI image mirror"); until then this job says so.
+  mirror:
+    name: Mirror has the CI images
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Public defaults match the manifest
+        run: .github/scripts/ci-images.sh check
+
+      - name: Log in to GitHub Container Registry
+        env:
+          ACTOR: ${{ github.actor }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$TOKEN" | skopeo login ghcr.io --username "$ACTOR" --password-stdin
+
+      - name: Verify every listed digest is mirrored
+        run: .github/scripts/mirror-ci-images.sh verify
+
+      - name: Mirror packages are private
+        run: .github/scripts/mirror-ci-images.sh visibility
+
   # One leg per published architecture, each on a runner of that architecture.
   # The arm64 leg builds and boots the image without emulation, so a pull
   # request shows the image working on real arm64 hardware before a release.
   build:
     name: build (${{ matrix.arch }})
+    needs: mirror
     runs-on: ${{ matrix.runner }}
+
+    # packages: read pulls the mirrored images. On a pull request from a fork
+    # the token is read-only, which is all this job needs.
+    permissions:
+      contents: read
+      packages: read
 
     strategy:
       fail-fast: false
@@ -30,6 +74,19 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Resolve mirrored CI images
+        id: images
+        run: .github/scripts/ci-images.sh refs | tee -a "$GITHUB_OUTPUT"
+
+      # Before QEMU and Buildx: both start containers from mirrored images,
+      # and BuildKit pulls the base images with these credentials too.
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       # The Dockerfile's deps stage runs npm ci on the build host
       # ($BUILDPLATFORM) and copies node_modules into every target platform.
@@ -59,18 +116,17 @@ jobs:
           [ "$machine" = "${{ matrix.machine }}" ] || { echo "::error::expected ${{ matrix.machine }} runner, got '${machine}'"; exit 1; }
 
       # Only the cross-build below needs emulation; the arm64 leg has none.
-      # QEMU and BuildKit come from ECR Public, not Docker Hub (#140), pinned to
-      # the same multi-arch index digests Docker Hub serves.
+      # QEMU and BuildKit come from the mirror (.github/ci-images.txt).
       - name: Set up QEMU
         if: matrix.arch == 'amd64'
         uses: docker/setup-qemu-action@v3
         with:
-          image: public.ecr.aws/vend/tonistiigi/binfmt:latest@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
+          image: ${{ steps.images.outputs.binfmt }}
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
         with:
-          driver-opts: image=public.ecr.aws/vend/moby/buildkit:buildx-stable-1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
+          driver-opts: image=${{ steps.images.outputs.buildkit }}
 
       # Builds every platform the way the release does: cross-built from one
       # amd64 host, with the deps stage on $BUILDPLATFORM. The native arm64 leg
@@ -86,6 +142,9 @@ jobs:
         with:
           context: .
           platforms: linux/amd64,linux/arm64
+          build-args: |
+            NODE_IMAGE=${{ steps.images.outputs.node }}
+            RUNTIME_IMAGE=${{ steps.images.outputs.distroless_nodejs22 }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -95,6 +154,9 @@ jobs:
           context: .
           load: true
           tags: dav-mcp:ci
+          build-args: |
+            NODE_IMAGE=${{ steps.images.outputs.node }}
+            RUNTIME_IMAGE=${{ steps.images.outputs.distroless_nodejs22 }}
           cache-from: type=gha
 
       - name: Assert image architecture matches the runner
@@ -106,6 +168,8 @@ jobs:
       # The server exits 1 when CalDAV initialization fails (src/server-http.js:166),
       # so the smoke test needs a real backend to prove anything.
       - name: Start CalDAV backend
+        env:
+          PYTHON_IMAGE: ${{ steps.images.outputs.python }}
         run: .github/scripts/start-radicale.sh
 
       # PORT is overridden so the env-aware HEALTHCHECK stays covered: a probe

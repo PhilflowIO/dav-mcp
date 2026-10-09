@@ -4,13 +4,18 @@
 #
 # Not from a Radicale image on Docker Hub: Docker Hub limits anonymous pulls per
 # IP, and GitHub runners share theirs, so CI failed with "toomanyrequests"
-# (#140). The official Python image comes from the Docker Official Images mirror
-# on ECR Public, pinned to its multi-arch index (the same digest Docker Hub
-# serves), and Radicale comes from PyPI, pinned with hashes in
-# radicale/requirements.txt. Settings are in radicale/config.
+# (#140). It runs the official Python image, pinned to its multi-arch index, and
+# Radicale from PyPI, pinned with hashes in radicale/requirements.txt. Settings
+# are in radicale/config.
+#
+# CI sets PYTHON_IMAGE to its copy on ghcr.io (.github/ci-images.txt): ECR
+# Public rate-limits anonymous pulls from shared runner IPs as well (#142).
+# Without it, the default is the Docker Official Images mirror on ECR Public,
+# with the same digest.
 set -eu
 
-PYTHON_IMAGE='public.ecr.aws/docker/library/python:3.13-alpine@sha256:2d9aefe2fef018a7eb2c13064c89c71929800fd2e5dccdbf52ea5da5bb8d929a'
+PYTHON_IMAGE=${PYTHON_IMAGE:-'public.ecr.aws/docker/library/python:3.13-alpine@sha256:2d9aefe2fef018a7eb2c13064c89c71929800fd2e5dccdbf52ea5da5bb8d929a'}
+echo "Python image: ${PYTHON_IMAGE}"
 dir=$(cd "$(dirname "$0")/radicale" && pwd)
 
 docker network inspect davci >/dev/null 2>&1 || docker network create davci
