@@ -22,9 +22,9 @@ claude.ai chat and Cowork load only this guide.
   Never `list_events` to look something up: it returns a whole calendar.
 - "When am I free", "am I available", finding a slot: `freebusy_query`,
   not `calendar_query`. It expands recurring events. It prints times in the
-  calendar's time zone and names that zone on its **Time zone** line: pass
-  the times on as they are, and convert only when the user said they are in
-  another zone.
+  zone named on its **Time zone** line (the calendar's; for calendars in
+  different zones, the zone dav-mcp runs in): pass the times on as they
+  are, and convert only when the user is in another zone.
 - Contacts: `addressbook_query` by name, email or organization, never
   `list_contacts`. To-dos: `todo_query`, never `list_todos`.
 
@@ -58,10 +58,12 @@ claude.ai chat and Cowork load only this guide.
   whole object: for one the user supplies, and for what the field tools
   cannot do, such as moving or retitling one occurrence of a series or
   editing extra dates (see Recurring events).
-- If the listing gives no etag but a note that the item cannot be updated or
-  deleted (`etag_note`), the server hands out only a weak or invalid ETag.
-  Tell the user their server has to be fixed for this; do not retry or read
-  the item again, the answer stays the same.
+- If a listing, query or get shows no etag but a note that the item cannot
+  be updated or deleted (`etag_note`), the server gives a weak, invalid or
+  no ETag for it. Tell the user their server has to be fixed for this; do
+  not retry or read the item again, the answer stays the same. After a
+  write, a note instead means only that the next update needs a fresh read
+  first.
 - If an update fails with `412 Precondition Failed`, the item changed since
   you read it. Do not retry with the same etag. Read it again, tell the user
   what changed, and ask before applying the change to the new version.
@@ -118,19 +120,20 @@ exceptions.
 ## When something fails
 
 Tell the user the cause in plain words and what to do, instead of repeating
-the call:
+the call. Go by the error's `code`, not its wording: every failed login
+starts with "Login to … failed", whatever the cause.
 
-- Login failed or `401 Unauthorized` (`-32003`): the server rejected the
-  username or password. The error names where the settings are; in Claude
-  Code they re-enter them in `/plugin` → Installed → dav-mcp → Configure
-  options. iCloud, and Nextcloud with two-factor login, need an app
-  password. A `403` means the account is known but not allowed.
-- The server URL does not lead to a CalDAV/CardDAV server (`-32008`): the
+- `-32003`: the server rejected the username or password (with a `403`:
+  the account is known but not allowed). The error names where the
+  settings are; in Claude Code they re-enter them in `/plugin` → Installed
+  → dav-mcp → Configure options. iCloud, and Nextcloud with two-factor
+  login, need an app password.
+- `-32008`: the server URL does not lead to a CalDAV/CardDAV server. The
   URL must be the DAV address (e.g. ending in `/remote.php/dav/` for
   Nextcloud), set in the same place.
-- Server not reachable (`-32004`): check the server URL and that the server
-  is up.
-- Not found (`-32006`): the URL is wrong or changed. For a calendar or
+- `-32004`: the server is unreachable or busy (no answer, or 429, 502,
+  503). Check the server URL and that the server is up, or try again later.
+- `-32006`, not found: the URL is wrong or changed. For a calendar or
   address book the error lists the ones that exist; otherwise search again.
 - `unknown parameter`: the tool does not take it and nothing was written.
   Check the tool's input schema; never tell the user it was applied.
