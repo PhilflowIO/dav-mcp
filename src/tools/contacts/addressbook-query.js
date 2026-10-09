@@ -1,8 +1,8 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, addressBookQuerySchema } from '../../validation.js';
-import { formatContactList } from '../../formatters.js';
+import { formatContactList, withUnsearched } from '../../formatters.js';
 import { limitResults, DEFAULT_RESULT_LIMIT, findAddressbookOrThrow } from '../shared/helpers.js';
-import { parseObjects, textValues, contactNames, organizations, containsText, textKey } from '../shared/query-objects.js';
+import { parseObjects, unsearchedObjects, textValues, contactNames, organizations, containsText, textKey } from '../shared/query-objects.js';
 
 /**
  * Search and filter contacts efficiently
@@ -65,7 +65,8 @@ export const addressbookQuery = {
     }
 
     // Client-side filtering on parsed values; see query-objects.js
-    let parsed = parseObjects(allVCards, 'vcard');
+    const all = parseObjects(allVCards, 'vcard');
+    let parsed = all;
 
     if (validated.name_filter) {
       parsed = parsed.filter(({ main }) => containsText(contactNames(main), validated.name_filter));
@@ -92,6 +93,7 @@ export const addressbookQuery = {
       (p) => textKey(p, 'fn')
     );
 
-    return formatContactList(items.map(({ object }) => object), addressBookName, total);
+    const result = formatContactList(items.map(({ object }) => object), addressBookName, total);
+    return withUnsearched(result, unsearchedObjects(all, parsed), 'contacts', 'list_contacts');
   },
 };

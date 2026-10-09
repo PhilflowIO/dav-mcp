@@ -1,4 +1,5 @@
 import ICAL from 'ical.js';
+import { parseICal, unreadableReason } from '../../ical-parse.js';
 import { instantOf, shareTimezones } from './ical-dates.js';
 import { readSeries } from '../../ical-components.js';
 import { readVCard, structuredText, nameComponents, organizationText } from '../../vcard.js';
@@ -21,6 +22,7 @@ import { readVCard, structuredText, nameComponents, organizationText } from '../
  * @property {Object} object - the DAV object as fetched ({ url, etag, data })
  * @property {ICAL.Component|null} root - VCALENDAR or VCARD, null if unparseable
  * @property {ICAL.Component|null} main - the VEVENT/VTODO master (readSeries), or the VCARD
+ * @property {string|null} unreadable - why it did not parse (unreadableReason), null if it did
  */
 
 /**
@@ -32,23 +34,39 @@ import { readVCard, structuredText, nameComponents, organizationText } from '../
  */
 export function parseObjects(objects, kind) {
   return objects.map((object) => {
-    const root = parseRoot(object.data, kind);
-    return { object, root, main: mainComponent(root, kind) };
+    const { root, unreadable } = parseRoot(object.data, kind);
+    return { object, root, main: mainComponent(root, kind), unreadable };
   });
 }
 
 function parseRoot(data, kind) {
-  if (typeof data !== 'string' || !data.trim()) return null;
+  const format = kind === 'vcard' ? 'vCard' : 'iCalendar';
+  if (typeof data !== 'string' || !data.trim()) return { root: null, unreadable: `it is empty, not ${format}` };
   try {
     // vCards go through the reader the display uses (see vcard.js)
-    if (kind === 'vcard') return readVCard(data);
-    const jcal = ICAL.parse(data);
+    if (kind === 'vcard') return { root: readVCard(data), unreadable: null };
+    const jcal = parseICal(data);
     // a body holding several documents parses to a list of them; a DAV
     // resource is one, so the first is the one
-    return shareTimezones(new ICAL.Component(Array.isArray(jcal[0]) ? jcal[0] : jcal));
-  } catch {
-    return null;
+    return { root: shareTimezones(new ICAL.Component(Array.isArray(jcal[0]) ? jcal[0] : jcal)), unreadable: null };
+  } catch (error) {
+    return { root: null, unreadable: unreadableReason(error, format) };
   }
+}
+
+/**
+ * The objects a filter dropped because they could not be read, not because
+ * they did not match: `all` as parsed, `kept` what the filters left.
+ *
+ * @param {ParsedObject[]} all
+ * @param {ParsedObject[]} kept
+ * @returns {Array<{object: Object, reason: string}>}
+ */
+export function unsearchedObjects(all, kept) {
+  const left = new Set(kept);
+  return all
+    .filter((p) => p.unreadable && !left.has(p))
+    .map((p) => ({ object: p.object, reason: p.unreadable }));
 }
 
 /**
