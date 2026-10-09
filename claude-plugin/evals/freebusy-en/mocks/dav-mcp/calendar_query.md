@@ -4,6 +4,7 @@ Found events: **1**
 
 - **When**: October 13, 2026, 02:00 PM GMT+2 to October 13, 2026, 03:30 PM GMT+2
 - **Recurring**: FREQ=WEEKLY;BYDAY=TU
+- **Occurrence ID**: 2026-10-13T14:00:00 (this occurrence)
 - **Calendar**: All Calendars (2)
 - **URL**: https://dav.example.com/calendars/alex/work/design-review.ics
 
