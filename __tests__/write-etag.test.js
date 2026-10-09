@@ -338,12 +338,15 @@ describe('entityTag', () => {
     ['a quoted weak ETag', 'W/"abc"'],
     ['a weak ETag without its quotes', 'W/abc'],
     ['a weak ETag with whitespace around it', '  W/"abc" '],
-  ])('refuses %s, saying to fetch the object first', (_, input) => {
+  ])('refuses %s, saying where a usable one comes from', (_, input) => {
     const result = entityTag.safeParse(input);
     expect(result.success).toBe(false);
     const { message } = result.error.issues[0];
     expect(message).toContain('weak ETag');
-    expect(message).toContain('fetch the object');
+    expect(message).toContain('list, query or get tool');
+    // the list tools show a weak one as such: "fetch it again" alone would be
+    // a loop on a server that only ever gives weak ones
+    expect(message).toContain('only a weak one');
   });
 
 describe('etagAfterWrite', () => {
@@ -362,8 +365,19 @@ describe('etagAfterWrite', () => {
     expect(result.etag_note).toContain('weak ETag');
     expect(result.etag_note).toContain('W/"abc"');
     expect(result.etag_note).toContain('fetch the object before the next update');
-    // the weak prefix is case-sensitive (RFC 9110 8.8.3): this is not one
-    expect(etagAfterWrite(responseWith('w/"abc"'))).toEqual({ etag: 'w/"abc"' });
+  });
+
+  // the write tools' own rule decides (entityTag): a header they would refuse
+  // is not handed out as the etag for the next update
+  test.each([
+    ['a lowercase weak prefix', 'w/"abc"'],
+    ['inner whitespace', '"a b"'],
+    ['a stray quote', '"a"b"'],
+  ])('does not hand out a malformed ETag (%s)', (_, header) => {
+    const result = etagAfterWrite(responseWith(header));
+    expect(result).not.toHaveProperty('etag');
+    expect(result.etag_note).toContain('not a valid ETag');
+    expect(result.etag_note).toContain('fetch the object before the next update');
   });
 
   test.each([
