@@ -130,7 +130,7 @@ describe('queries and display list occurrences by their effective time (#98)', (
   test('an occurrence moved out of the range is no longer reported in it', () => {
     const lastDay = object(vevent('SUMMARY:Standup', 'DTSTART:20261001T090000Z', 'DTEND:20261001T100000Z',
       'RRULE:FREQ=DAILY;UNTIL=20261013T090000Z'), override('20261013T090000Z', '20261103T090000Z', '20261103T100000Z'));
-    expect(formatEvent(lastDay, 'Work', isoRange('2026-10-13'))).toContain('no occurrence of this series falls inside');
+    expect(shownEvent(new ICAL.Component(ICAL.parse(lastDay.data)), isoRange('2026-10-13')).occurrence).toBeNull();
     expect(formatEvent(lastDay, 'Work', isoRange('2026-11-03'))).toContain('November 3, 2026');
   });
 

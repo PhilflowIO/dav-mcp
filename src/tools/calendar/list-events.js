@@ -2,7 +2,7 @@ import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, listEventsSchema } from '../../validation.js';
 import { formatEventList } from '../../formatters.js';
 import { findCalendarOrThrow, buildTimeRangeOptions } from '../shared/helpers.js';
-import { floatingZoneFor, withFloatingZone } from '../../calendar-zone.js';
+import { floatingZoneFor, withFloatingZone, withZoneNote } from '../../calendar-zone.js';
 import { shownEvent, shownTouchesRange } from '../../ical-components.js';
 import { budgetPool, serverTimeRange } from '../../occurrences.js';
 import { parseObjects } from '../shared/query-objects.js';
@@ -52,8 +52,9 @@ export const listEvents = {
     const options = { calendar, ...timeRangeOptions, timeRange: serverTimeRange(timeRange) };
 
     // floating times and dates are read in the calendar's zone
-    const events = withFloatingZone(await client.fetchCalendarObjects(options), floatingZoneFor(calendar));
-    if (!timeRange) return formatEventList(events, calendar, null);
+    const zone = floatingZoneFor(calendar);
+    const events = withFloatingZone(await client.fetchCalendarObjects(options), zone);
+    if (!timeRange) return withZoneNote(formatEventList(events, calendar, null), [zone]);
 
     // what touches the range as read in the calendar's zone, each resolved
     // once for the filter and the display (one expansion budget for the call)
@@ -73,6 +74,6 @@ export const listEvents = {
       return shownTouchesRange(view, timeRange);
     }).map(({ object }) => object);
 
-    return formatEventList(listed, calendar, timeRange, null, null, shown, budget);
+    return withZoneNote(formatEventList(listed, calendar, timeRange, null, null, shown, budget), [zone]);
   },
 };

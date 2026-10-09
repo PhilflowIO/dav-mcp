@@ -6,7 +6,7 @@ import ICAL from 'ical.js';
 import { shownEvent, shownTouchesRange } from '../../ical-components.js';
 import { ZONE_SLACK_MS, budgetPool, serverTimeRange } from '../../occurrences.js';
 import { instantOf, hasAbsoluteInstant } from '../shared/ical-dates.js';
-import { floatingZoneFor, withFloatingZone } from '../../calendar-zone.js';
+import { floatingZoneFor, withFloatingZone, withZoneNote } from '../../calendar-zone.js';
 import { parseObjects, unsearchedObjects, textValues, containsText, dateKey, orNull } from '../shared/query-objects.js';
 
 /**
@@ -77,11 +77,15 @@ export const calendarQuery = {
 
     // Search across all selected calendars
     let allEvents = [];
+    // each calendar's zone, for a note when one could not be read
+    const zones = [];
     for (const calendar of calendarsToSearch) {
       // wider than asked: the server reads floating times its own way
       const options = { calendar, ...timeRangeOptions, timeRange: serverTimeRange(timeRangeOptions.timeRange) };
       // floating times and dates are read in each calendar's own zone
-      const events = withFloatingZone(await client.fetchCalendarObjects(options), floatingZoneFor(calendar));
+      const zone = floatingZoneFor(calendar);
+      zones.push(zone);
+      const events = withFloatingZone(await client.fetchCalendarObjects(options), zone);
       allEvents = allEvents.concat(events);
     }
 
@@ -127,7 +131,7 @@ export const calendarQuery = {
     }
 
     const result = formatEventList(items.map(({ object }) => object), calendarName, timeRange, total, matches, shown, budget);
-    return withUnsearched(result, unsearchedObjects(all, parsed), 'events', 'list_events');
+    return withZoneNote(withUnsearched(result, unsearchedObjects(all, parsed), 'events', 'list_events'), zones);
   },
 };
 

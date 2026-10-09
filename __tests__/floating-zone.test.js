@@ -69,7 +69,7 @@ describe('floating times are read in their calendar\'s zone', () => {
       const text = (await calendarQuery.handler({ time_range_start: start, time_range_end: end })).content[0].text;
       return text.split(/^### \d+\. /m).slice(1).map((entry) => [
         entry.split('\n')[0],
-        /no occurrence of this series falls inside/.test(entry) ? 'none in range' : /- \*\*When\*\*: (.*?) to/.exec(entry)[1],
+        /- \*\*When\*\*: (.*?) to/.exec(entry)[1],
       ]).sort();
     };
     // a series with no occurrence in the range, as read here, is not listed

@@ -107,7 +107,6 @@ describe('listings name occurrences as the update tools take them (#126)', () =>
       'DTSTART;TZID=Europe/Berlin:20261126T150000', 'DTEND;TZID=Europe/Berlin:20261126T160000',
     ]) }, 'Work', { start: '2026-11-26T13:30:00Z', end: '2026-11-26T15:30:00Z' });
     expect(text).toContain('- **Occurrence ID**: 2026-11-26T10:00:00 (this occurrence, changed — now at November 26, 2026, 03:00 PM GMT+1)\n');
-    expect(text).not.toContain('no occurrence of this series falls inside');
   });
 
   test('an all-day series whose first date is off the rule\'s weekdays lists that first date', () => {

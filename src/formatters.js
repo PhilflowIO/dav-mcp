@@ -17,7 +17,7 @@ import { shareTimezones, toInstant } from './tools/shared/ical-dates.js';
 import { seriesNames, labelled } from './occurrence-names.js';
 import { budgetPool, zonedInstant } from './occurrences.js';
 import {
-  readCalendarTimezone, serverZone, floatingZoneOf, setFloatingZone, objectFloatingZone, zoneWall,
+  readCalendarTimezone, calendarTimezoneOf, serverZone, floatingZoneOf, setFloatingZone, objectFloatingZone, zoneWall,
 } from './calendar-zone.js';
 
 /**
@@ -35,7 +35,7 @@ function parseICalEvent(icalData, timeRange = null, matches = null, resolved = n
     if (!shown) {
       return {};
     }
-    const { vevent, event, occurrence, item, outsideRange, expansionTruncated } = shown;
+    const { vevent, event, occurrence, item, expansionTruncated } = shown;
 
     return {
       summary: item.summary || '',
@@ -47,7 +47,6 @@ function parseICalEvent(icalData, timeRange = null, matches = null, resolved = n
       uid: event.uid || '',
       dtstart: occurrence ? occurrence.startDate : event.startDate,
       dtend: occurrence ? occurrence.endDate : event.endDate,
-      outsideRange,
       expansionTruncated,
       expansionReason: shown.expansionReason ?? null,
       // the instants the expansion computed (exact at a DST change)
@@ -495,10 +494,10 @@ function eventEntry(event, calendar = 'Unknown Calendar', timeRange = null, matc
     });
   }
 
-  // Never let a series start date pass for an occurrence in the queried range
-  if (parsed.outsideRange) {
-    output += `- **Note**: no occurrence of this series falls inside the queried range; the date above is the series start\n`;
-  } else if (parsed.expansionTruncated && parsed.occurrenceShown) {
+  // Never let a series start date pass for an occurrence in the queried
+  // range. A series with no occurrence in it is not listed at all: the
+  // listing tools leave it out (shownTouchesRange).
+  if (parsed.expansionTruncated && parsed.occurrenceShown) {
     output += `- **Note**: incomplete — this series could not be expanded fully (too many occurrences); an earlier occurrence in the queried range may exist\n`;
   } else if (parsed.expansionReason) {
     output += `- **Note**: incomplete — this series cannot be read (${parsed.expansionReason}); the date above is the series start, not an occurrence in the queried range\n`;
@@ -779,7 +778,7 @@ export function formatCalendarList(calendars) {
       output += `- **Color**: ${color}\n`;
     }
 
-    const timezone = readCalendarTimezone(cal.timezone)?.tzid;
+    const timezone = readCalendarTimezone(calendarTimezoneOf(cal))?.tzid;
     if (timezone) {
       output += `- **Time zone**: ${timezone}\n`;
     }
@@ -794,7 +793,7 @@ export function formatCalendarList(calendars) {
     components: cal.components,
     calendarColor: extractPropertyValue(cal.calendarColor) || undefined,
     description: extractPropertyValue(cal.description) || undefined,
-    timezone: readCalendarTimezone(cal.timezone)?.tzid,
+    timezone: readCalendarTimezone(calendarTimezoneOf(cal))?.tzid,
   })), null, 2);
   output += '\n```\n</details>';
 

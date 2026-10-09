@@ -1,5 +1,7 @@
 import { describe, test, expect } from '@jest/globals';
+import ICAL from 'ical.js';
 import { formatEvent, formatEventList } from '../src/formatters.js';
+import { shownEvent, shownTouchesRange } from '../src/ical-components.js';
 
 const NEW_YORK_VTIMEZONE = [
   'BEGIN:VTIMEZONE',
@@ -154,7 +156,12 @@ describe('RECURRENCE-ID overrides', () => {
   });
 });
 
-describe('when nothing falls in the range, the output says so', () => {
+// The listing tools leave out what does not touch the queried range
+// (shownTouchesRange); the server's answer for the range is not trusted.
+const touches = (object, timeRange) =>
+  shownTouchesRange(shownEvent(new ICAL.Component(ICAL.parse(object.data)), timeRange), timeRange);
+
+describe('when nothing falls in the range, the event is not listed', () => {
   test('EXDATE removes the only occurrence in the range', () => {
     const withExdate = calendarObject([
       [
@@ -169,8 +176,8 @@ describe('when nothing falls in the range, the output says so', () => {
       ].join('\r\n'),
     ], NEW_YORK_VTIMEZONE);
 
-    const output = formatEvent(withExdate, 'Work', range('2026-08-03T00:00:00Z', '2026-08-09T00:00:00Z'));
-    expect(output).toContain('no occurrence of this series falls inside the queried range');
+    expect(touches(withExdate, range('2026-08-03T00:00:00Z', '2026-08-09T00:00:00Z'))).toBe(false);
+    expect(touches(withExdate, range('2026-08-10T00:00:00Z', '2026-08-16T00:00:00Z'))).toBe(true);
   });
 
   test('a series that ended before the range', () => {
@@ -186,11 +193,10 @@ describe('when nothing falls in the range, the output says so', () => {
       ].join('\r\n'),
     ], NEW_YORK_VTIMEZONE);
 
-    const output = formatEvent(ended, 'Work', range('2026-08-03T00:00:00Z', '2026-08-10T00:00:00Z'));
-    expect(output).toContain('no occurrence of this series falls inside the queried range');
+    expect(touches(ended, range('2026-08-03T00:00:00Z', '2026-08-10T00:00:00Z'))).toBe(false);
   });
 
-  test('a non-recurring event is never annotated', () => {
+  test('a non-recurring event is judged by its own time', () => {
     const single = calendarObject([
       [
         'BEGIN:VEVENT',
@@ -202,8 +208,8 @@ describe('when nothing falls in the range, the output says so', () => {
       ].join('\r\n'),
     ]);
 
-    const output = formatEvent(single, 'Work', range('2026-08-03T00:00:00Z', '2026-08-10T00:00:00Z'));
-    expect(output).not.toContain('no occurrence');
+    expect(touches(single, range('2026-08-03T00:00:00Z', '2026-08-10T00:00:00Z'))).toBe(false);
+    expect(touches(single, range('2026-05-25T10:30:00Z', '2026-05-25T12:00:00Z'))).toBe(true);
   });
 });
 
@@ -237,7 +243,5 @@ describe('expansion is bounded', () => {
     const { output, elapsedMs } = timed(minutely('FREQ=MINUTELY;BYDAY=MO,TU,WE,TH,FR;COUNT=99999999'));
     expect(elapsedMs).toBeLessThan(2000);
     expect(output).toContain('could not be expanded (too many occurrences');
-    // it must not claim there is no occurrence — it simply did not get there
-    expect(output).not.toContain('no occurrence of this series falls inside');
   });
 });

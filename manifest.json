@@ -117,7 +117,7 @@
     },
     {
       "name": "freebusy_query",
-      "description": "Find free and busy time in a date range — use for \"when am I free?\", \"am I available Tuesday afternoon?\" or finding a slot for a new meeting. Searches all calendars unless one is given. Events marked TRANSPARENT (does not block time) and cancelled events are ignored; recurring events are expanded, each occurrence at its own time and status, so a single cancelled occurrence is free and a moved one is busy where it moved to. A recurring event too dense to expand fully is named in a warning. Times are shown in the calendar's time zone, the one list_events shows them in; the answer names it (several calendars in different zones: the zone dav-mcp runs in)."
+      "description": "Find free and busy time in a date range — use for \"when am I free?\", \"am I available Tuesday afternoon?\" or finding a slot for a new meeting. Searches all calendars unless one is given. Events marked TRANSPARENT (does not block time) and cancelled events are ignored; recurring events are expanded, each occurrence at its own time and status, so a single cancelled occurrence is free and a moved one is busy where it moved to. A recurring event too dense to expand fully is named in a warning. Times are shown in the calendar's time zone (several calendars in different zones: the zone dav-mcp runs in), named in the answer; list_events shows an event that has a zone of its own in that zone instead."
     },
     {
       "name": "make_calendar",

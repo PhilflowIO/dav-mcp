@@ -2,7 +2,8 @@ import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, updateCalendarSchema } from '../../validation.js';
 import { formatCalendarUpdateSuccess } from '../../formatters.js';
 import { assertDavSuccess } from '../shared/helpers.js';
-import { calendarTimezoneValue, readCalendarTimezone } from '../../calendar-zone.js';
+import { calendarTimezoneValue, readCalendarTimezone, calendarTimezoneOf } from '../../calendar-zone.js';
+import { NotFoundError } from '../../error-handler.js';
 
 /**
  * Update an existing calendar's properties
@@ -92,10 +93,26 @@ export const updateCalendar = {
 
     // Fetch updated calendar to confirm
     const calendars = await client.fetchCalendars();
-    const updatedCalendar = calendars.find(c => c.url === validated.calendar_url);
+    // the same calendar under another spelling of its URL (an escaped
+    // character, a missing trailing slash) is still this one
+    const key = (url) => {
+      let path;
+      try {
+        path = decodeURIComponent(new URL(url).pathname);
+      } catch {
+        path = String(url);
+      }
+      return path.replace(/\/+$/, '');
+    };
+    const updatedCalendar = calendars.find(c => c.url === validated.calendar_url)
+      ?? calendars.find(c => key(c.url) === key(validated.calendar_url));
 
     if (!updatedCalendar) {
-      throw new Error(`Calendar not found after update: ${validated.calendar_url}`);
+      throw new NotFoundError(
+        `The server accepted the update, but ${validated.calendar_url} is not among the calendars it lists, ` +
+        'so the result cannot be confirmed. Check the URL with list_calendars.',
+        { calendarUrl: validated.calendar_url },
+      );
     }
 
     // Return formatted success
@@ -106,7 +123,7 @@ export const updateCalendar = {
       // what the server holds now: a server may keep, drop or rewrite it
       ...(timezone && {
         timezone: timezone.tzid,
-        timezoneReadBack: readCalendarTimezone(updatedCalendar.timezone)?.tzid ?? null,
+        timezoneReadBack: readCalendarTimezone(calendarTimezoneOf(updatedCalendar))?.tzid ?? null,
       }),
     });
   },

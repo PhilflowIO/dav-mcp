@@ -1,7 +1,7 @@
 import ICAL from 'ical.js';
 import { parseICal, assertParseBounded } from '../../ical-parse.js';
 import { updateFields, seriesMaster, resolveZone, parseDateValue } from 'tsdav-utils';
-import { serverZone, floatingZoneOf, zoneInstant, zoneWall } from '../../calendar-zone.js';
+import { serverZone, floatingZoneOf, zoneInstant, zoneWall, writableZone } from '../../calendar-zone.js';
 import { explainWriteRefusal } from '../../ical-components.js';
 import { ValidationError } from '../../error-handler.js';
 
@@ -90,7 +90,9 @@ const UTC_DATES = new Set(['COMPLETED', 'DTSTAMP', 'CREATED', 'LAST-MODIFIED']);
 function startFrame(object, type) {
   let master;
   try {
-    const root = new ICAL.Component(ICAL.parse(typeof object === 'string' ? object : object.data));
+    // bounded like every parse (src/ical-parse.js); a refusal is reported by
+    // the write itself, which runs the same guard
+    const root = new ICAL.Component(parseICal(typeof object === 'string' ? object : object.data));
     master = root.name === type ? root : seriesMaster(root, type);
   } catch {
     return { frame: 'none', ownZone: new Set() };
@@ -107,8 +109,14 @@ function startFrame(object, type) {
   return { frame, ownZone };
 }
 
-/** The fields with their date-times in the form the frame takes (see writeFields) */
+/**
+ * The fields with their date-times in the form the frame takes (see
+ * writeFields). Every conversion goes through the calendar's zone, which a
+ * write may only use when it could be read (writableZone); a value the
+ * zone's DST changes make impossible or ambiguous is refused (zoneRefusal).
+ */
 function zonedValues(fields, frame, ownZone, zone) {
+  const convert = { utc: (v) => asUtc(v, zone), floating: (v) => asFloating(v, zone) };
   const result = {};
   for (const [name, value] of Object.entries(fields)) {
     const key = name.toUpperCase();
@@ -116,14 +124,14 @@ function zonedValues(fields, frame, ownZone, zone) {
       // a property in a zone of its own: tsdav-utils writes it there
       result[name] = value;
     } else if (UTC_DATES.has(key)) {
-      result[name] = mapList(value, (v) => asUtc(v, zone));
+      result[name] = mapList(value, convert.utc);
     } else if (FRAMED_DATES.has(key) && frame === 'floating') {
-      result[name] = mapList(value, (v) => asFloating(v, zone));
+      result[name] = mapList(value, convert.floating);
     } else if (FRAMED_DATES.has(key) && frame !== 'tzid') {
-      result[name] = mapList(value, (v) => asUtc(v, zone));
+      result[name] = mapList(value, convert.utc);
     } else if (key === 'RRULE' && frame !== 'tzid') {
       result[name] = value.replace(/(UNTIL=)([0-9]{8}T[0-9]{6}Z?)/i, (_, part, until) =>
-        part + compact(frame === 'floating' ? asFloating(expand(until), zone) : asUtc(expand(until), zone)));
+        part + compact(frame === 'floating' ? convert.floating(expand(until)) : convert.utc(expand(until))));
     } else {
       result[name] = value;
     }
@@ -147,11 +155,19 @@ export function writesDates(fields) {
 
 const mapList = (value, map) => value.split(',').map((v) => map(v.trim())).join(',');
 
-/** A date-time without a zone, read in `zone`, as UTC; anything else as it is */
+/**
+ * A date-time without a zone, read in `zone`, as UTC; anything else as it
+ * is. A local time the zone skips (spring) or shows twice (autumn) names no
+ * single instant: refused rather than guessed.
+ */
 function asUtc(value, zone) {
   const parsed = orNull(() => parseDateValue(value));
   if (parsed?.kind !== 'floating') return value;
-  return `${new Date(zoneInstant(zone, wallOf(parsed.jcal))).toISOString().slice(0, 19)}Z`;
+  const usable = writableZone(zone);
+  const wall = wallOf(parsed.jcal);
+  const ambiguity = usable.converter.ambiguity(wallText(wall));
+  if (ambiguity) throw zoneRefusal(ambiguity, wall, usable);
+  return `${new Date(zoneInstant(usable, wall)).toISOString().slice(0, 19)}Z`;
 }
 
 /** "2026-10-26T10:00:60" as ms of its digits read as UTC (a leap second rolls over) */
@@ -160,11 +176,62 @@ function wallOf(jcal) {
   return Date.UTC(y, mo - 1, d, h, mi, sec);
 }
 
-/** A date-time with Z or an offset as its wall-clock time in `zone`; anything else as it is */
+const wallText = (wall) => new Date(wall).toISOString().slice(0, 19);
+
+/**
+ * For an object without a zone (floating): a date-time with Z or an offset
+ * as its wall-clock time in `zone`; one without a zone as it is. Refused
+ * where the stored local time would read back as another instant: an
+ * instant in the second pass of an autumn hour (stored as 02:30 it reads as
+ * the first 02:30), or a local time the spring change skips.
+ */
 function asFloating(value, zone) {
   const parsed = orNull(() => parseDateValue(value));
+  if (parsed?.kind === 'floating') {
+    // stored as given; only a time that does not exist is refused, where
+    // the zone is known at all
+    if (zone && !zone.failure && zone.converter.ambiguity(parsed.jcal) === 'gap') {
+      throw zoneRefusal('gap', wallOf(parsed.jcal), zone);
+    }
+    return value;
+  }
   if (parsed?.kind !== 'utc' || !/T/.test(parsed.jcal)) return value;
-  return new Date(zoneWall(zone, Date.parse(parsed.jcal))).toISOString().slice(0, 19);
+  const usable = writableZone(zone);
+  const instant = Date.parse(parsed.jcal);
+  const wall = zoneWall(usable, instant);
+  if (zoneInstant(usable, wall) !== instant) throw zoneRefusal('fold', wall, usable);
+  return wallText(wall);
+}
+
+/**
+ * Why a local time cannot be written, and what to give instead.
+ *
+ * @param {'gap'|'overlap'|'fold'} kind - skipped; shown twice (a time
+ *   without a zone); the second pass of a time shown twice (an instant)
+ * @param {number} wall - the local time, as ms of its digits read as UTC
+ * @param {Object} zone
+ */
+function zoneRefusal(kind, wall, zone) {
+  const text = wallText(wall);
+  const at = `${text.slice(11, 16)} on ${text.slice(0, 10)}`;
+  if (kind === 'gap') {
+    return new ValidationError(
+      `${at} does not exist in ${zone.tzid}: the clocks skip it at the change to summer time, so the event ` +
+      'would start at another time than given. Give a time before or after the skipped hour.'
+    );
+  }
+  if (kind === 'overlap') {
+    return new ValidationError(
+      `${at} occurs twice in ${zone.tzid} (the clocks go back), so a time without a zone does not say which ` +
+      'is meant. Give it with an offset (or Z) for the one you mean.'
+    );
+  }
+  return new ValidationError(
+    `${at} occurs twice in ${zone.tzid} (the clocks go back), and this event is stored without a time zone, ` +
+    `as a local time: written so, the time given would read back as the first ${text.slice(11, 16)}, ` +
+    'an hour off, or the event would come back shorter. Give a start and end outside that hour, or move the ' +
+    'event with update_event_raw and a TZID.'
+  );
 }
 
 /** "20261020T090000Z" <-> "2026-10-20T09:00:00Z" for RRULE's UNTIL */

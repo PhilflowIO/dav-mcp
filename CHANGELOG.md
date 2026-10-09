@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Breaking changes
+- **`make_calendar` refuses a time zone that is no IANA name** (#78). It used
+  to accept any `timezone` and not apply it; a name such as `CEST`, `Berlin`
+  or `+02:00` is now invalid input, and nothing is created.
 - **`freebusy_query` prints local times, no longer UTC** (#125). Free and
   busy slots and the window were printed in UTC (`01:30 PM UTC`) while
   `list_events` and `calendar_query` print local times (`03:30 PM GMT+2`), so
@@ -46,6 +49,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is refused (#107).
 
 ### Changed
+- **One more request for a calendar's time zone** (#117). Tools that know a
+  calendar only by its URL ask the server for its time zone once per call:
+  `calendar_multi_get`, `list_todos`, `todo_multi_get` (once per task list),
+  `create_todo` with a due date, and `update_event` / `update_todo` when they
+  write a date. Time-range searches (`list_events`, `calendar_query`,
+  `freebusy_query`) ask the server for 26 hours more on each side and filter
+  the extra events out themselves, which costs some transfer on busy
+  calendars.
+- **A calendar time zone that cannot be read is reported** (#117). A read
+  goes ahead in the zone dav-mcp runs in and says so in a note; a write that
+  would need the zone (a time without a zone, a move of an event stored
+  without one) is refused, so nothing lands an hour off unsaid. A local time
+  the clock change skips or shows twice is refused as well where it would
+  otherwise be stored shifted or shortened, with what to give instead.
 - **Moving a series without a time zone keeps it without one** (#128). An
   event stored with a "floating" time (`DTSTART:20270402T113000`) was written
   back in UTC when moved with `update_event`, so it stopped following the

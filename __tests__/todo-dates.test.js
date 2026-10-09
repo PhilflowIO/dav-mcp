@@ -31,6 +31,8 @@ let storedCard = '';
 jest.unstable_mockModule('../src/tsdav-client.js', () => ({
   tsdavManager: {
     getCalDavClient: () => ({
+      // a calendar without a time zone of its own: dav-mcp's applies
+      propfind: async () => [{ ok: true, status: 207, props: {} }],
       fetchCalendars: async () => [{ url: CALENDAR_URL, displayName: 'Tasks', components: ['VTODO'] }],
       fetchTodos: async ({ objectUrls } = {}) => objectUrls
         ? [{ url: TODO_URL, etag: '"1"', data: storedTodo }]
@@ -339,16 +341,17 @@ describe('the other field tools get the same encoding', () => {
     expect(createCalendarObject).not.toHaveBeenCalled();
   });
 
-  test('create_event: a pair across a spring-forward gap is checked as written', async () => {
-    // 02:30 does not exist where clocks jump 02:00 -> 03:00; written on such a
-    // host it lands after 03:10. Only meaningful on a host with that gap.
+  test('create_event: a start the spring-forward gap skips is refused, not moved', async () => {
+    // 02:30 does not exist where clocks jump 02:00 -> 03:00 (this calendar has
+    // no zone, so the host's applies); written anyway it would start after
+    // 03:10. Only meaningful on a host with that gap.
     const gap = new Date(2026, 2, 29, 2, 30).getHours() !== 2;
     const attempt = createEvent.handler({
       calendar_url: CALENDAR_URL, summary: 'Standup',
       start_date: '2026-03-29T02:30:00', end_date: '2026-03-29T03:10:00',
     });
     if (gap) {
-      await expect(attempt).rejects.toThrow(/End date must be after start date/);
+      await expect(attempt).rejects.toThrow(/02:30 on 2026-03-29 does not exist/);
     } else {
       await expect(attempt).resolves.toBeDefined();
     }

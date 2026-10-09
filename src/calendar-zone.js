@@ -1,6 +1,7 @@
 import ICAL from 'ical.js';
 import { generateVtimezone, resolveZone, isUpdateFieldsError } from 'tsdav-utils';
-import { ValidationError } from './error-handler.js';
+import { ValidationError, CalDAVError } from './error-handler.js';
+import { parseICal, unreadableReason } from './ical-parse.js';
 
 /**
  * A calendar's time zone: the CALDAV:calendar-timezone property (RFC 4791
@@ -24,85 +25,167 @@ const VTIMEZONE_FROM = 1970;
  * The CALDAV:calendar-timezone value for an IANA zone name: a VCALENDAR with
  * the zone's VTIMEZONE, for MKCALENDAR and PROPPATCH.
  *
+ * A zone that was on local mean time after 1970 (Africa/Monrovia until
+ * 1972) has offsets in seconds before then, which iCalendar cannot express;
+ * its VTIMEZONE starts at the first year tsdav-utils can write, so every
+ * zone Intl knows can be set.
+ *
  * @param {string} name - an IANA zone ("Europe/Berlin"); case-insensitive
  * @returns {{tzid: string, text: string}} tzid spelled as IANA does
  * @throws {ValidationError} for a name that is no IANA zone ("CEST", "+02:00")
  */
 export function calendarTimezoneValue(name) {
   const tzid = ianaZoneName(name);
-  const vtimezone = generateVtimezone(tzid, { from: VTIMEZONE_FROM, to: new Date().getUTCFullYear() });
   const text = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
     'PRODID:-//dav-mcp//EN',
     'CALSCALE:GREGORIAN',
-    vtimezone,
+    vtimezoneFor(tzid, name),
     'END:VCALENDAR',
     '',
   ].join('\r\n');
   return { tzid, text };
 }
 
+function vtimezoneFor(tzid, name) {
+  const to = new Date().getUTCFullYear();
+  for (let from = VTIMEZONE_FROM; from <= to; from++) {
+    try {
+      return generateVtimezone(tzid, { from, to });
+    } catch (error) {
+      if (isUpdateFieldsError(error, 'UNSUPPORTED_VTIMEZONE')) continue;
+      if (isUpdateFieldsError(error, 'UNKNOWN_TZID')) throw invalidZone(name);
+      throw error;
+    }
+  }
+  throw invalidZone(name);
+}
+
+const invalidZone = (name) => new ValidationError(
+  `Invalid timezone "${name}": expected an IANA time zone name such as "Europe/Berlin", ` +
+  '"America/New_York" or "UTC"'
+);
+
 /**
  * The IANA name of a zone, as IANA spells it; a ValidationError naming what
- * is expected otherwise. A name has to be one Intl knows and tsdav-utils can
- * build a VTIMEZONE for: offsets ("+02:00") and abbreviations ("CEST") are
- * refused, since a calendar zone is a place with rules, not an offset.
+ * is expected otherwise. A name has to be one Intl knows: offsets ("+02:00")
+ * and abbreviations ("CEST") are refused, since a calendar zone is a place
+ * with rules, not an offset.
  */
 function ianaZoneName(name) {
-  const refuse = () => new ValidationError(
-    `Invalid timezone "${name}": expected an IANA time zone name such as "Europe/Berlin", ` +
-    '"America/New_York" or "UTC"'
-  );
   const trimmed = typeof name === 'string' ? name.trim() : '';
-  if (!trimmed || /^[+-]/.test(trimmed)) throw refuse();
+  if (!trimmed || /^[+-]/.test(trimmed)) throw invalidZone(name);
   try {
     new Intl.DateTimeFormat('en-US', { timeZone: trimmed });
   } catch {
-    throw refuse();
+    throw invalidZone(name);
   }
   let zone;
   try {
     zone = resolveZone(trimmed);
   } catch (error) {
-    if (isUpdateFieldsError(error)) throw refuse();
+    if (isUpdateFieldsError(error)) throw invalidZone(name);
     throw error;
   }
-  if (!zone) throw refuse();
-  try {
-    generateVtimezone(zone.tzid, { from: VTIMEZONE_FROM });
-  } catch (error) {
-    if (isUpdateFieldsError(error, 'UNKNOWN_TZID')) throw refuse();
-    throw error;
-  }
+  if (!zone) throw invalidZone(name);
   return zone.tzid;
 }
 
 /**
- * What a calendar's CALDAV:calendar-timezone property says: its TZID and,
- * when it is the VCALENDAR the RFC asks for, the VTIMEZONE defining it. A
- * bare TZID (written by dav-mcp before 5.0.0, kept by Nextcloud) is read as
- * that name. null when the property is empty or holds neither.
+ * The longest calendar-timezone value read. A VTIMEZONE is a few KB (the one
+ * dav-mcp writes for Moscow since 1970: 2 KB; Outlook's: under 1 KB); the
+ * value is read for every calendar on every call, and parsing 4.5 MB of
+ * RDATE lines took 4.5 s.
+ */
+export const MAX_TIMEZONE_LENGTH = 64 * 1024;
+
+/**
+ * The text of a calendar-timezone property as tsdav hands it over: a string,
+ * or a CDATA or text node ({ _cdata } / { _text }) — tsdav up to 2.4 keeps
+ * the property in `timezone` only when it is a plain string.
+ */
+export function timezoneText(value) {
+  if (typeof value === 'string') return value;
+  const text = value?._cdata ?? value?._text;
+  return typeof text === 'string' ? text : '';
+}
+
+/**
+ * A calendar's calendar-timezone property, whatever form tsdav handed it in:
+ * the raw property (projectedProps, which src/tsdav-client.js asks for on
+ * every fetchCalendars) before the parsed `timezone`. The one way dav-mcp
+ * reads a calendar's zone.
  *
- * @param {unknown} value - the property's text, as tsdav's fetchCalendars gives it
+ * @param {{timezone?: unknown, projectedProps?: Object}|null|undefined} calendar
+ * @returns {string}
+ */
+export function calendarTimezoneOf(calendar) {
+  return timezoneText(calendar?.projectedProps?.calendarTimezone) || timezoneText(calendar?.timezone);
+}
+
+const readCache = new Map();
+const MAX_CACHED_READS = 64;
+
+/**
+ * What a calendar-timezone property says, cached by its text:
+ *  - { status: 'none' }: empty — the calendar has no zone of its own;
+ *  - { status: 'zone', tzid, vtimezone }: the VCALENDAR the RFC asks for,
+ *    with its VTIMEZONE (null when it holds no rules, which says nothing a
+ *    reader can use), or a bare TZID as dav-mcp wrote it before 5.0.0;
+ *  - { status: 'unreadable', reason }: too long (MAX_TIMEZONE_LENGTH),
+ *    refused by the parse guard (src/ical-parse.js), not iCalendar, or no
+ *    VTIMEZONE with a TZID.
+ *
+ * @param {unknown} value - the property: text, or a CDATA/text node
+ */
+export function readTimezoneProperty(value) {
+  const text = timezoneText(value).trim();
+  if (!text) return NONE;
+  if (readCache.has(text)) return readCache.get(text);
+  const read = parseTimezoneProperty(text);
+  if (readCache.size >= MAX_CACHED_READS) readCache.clear();
+  readCache.set(text, read);
+  return read;
+}
+
+const NONE = Object.freeze({ status: 'none' });
+const unreadable = (reason) => ({ status: 'unreadable', reason });
+
+function parseTimezoneProperty(text) {
+  if (text.length > MAX_TIMEZONE_LENGTH) {
+    return unreadable(`its value is larger than ${MAX_TIMEZONE_LENGTH / 1024} KB`);
+  }
+  if (!/^BEGIN:/i.test(text)) {
+    // a bare TZID: one short line
+    return !/[\r\n]/.test(text) && text.length <= 100
+      ? { status: 'zone', tzid: text, vtimezone: null }
+      : unreadable('it is neither iCalendar nor a time zone name');
+  }
+  let root;
+  try {
+    const jcal = parseICal(/^BEGIN:VCALENDAR/i.test(text) ? text : `BEGIN:VCALENDAR\r\n${text}\r\nEND:VCALENDAR`);
+    root = new ICAL.Component(Array.isArray(jcal[0]) ? jcal[0] : jcal);
+  } catch (error) {
+    return unreadable(unreadableReason(error, 'iCalendar'));
+  }
+  const vtimezone = root.name === 'vtimezone' ? root : root.getFirstSubcomponent('vtimezone');
+  const tzid = vtimezone?.getFirstPropertyValue('tzid');
+  if (!tzid) return unreadable('it holds no VTIMEZONE with a TZID');
+  const rules = vtimezone.getAllSubcomponents().some((c) => c.name === 'standard' || c.name === 'daylight');
+  return { status: 'zone', tzid: String(tzid), vtimezone: rules ? vtimezone : null };
+}
+
+/**
+ * The TZID a calendar-timezone property names, for display; null when it
+ * has none or cannot be read.
+ *
+ * @param {unknown} value - the property: text, or a CDATA/text node
  * @returns {{tzid: string, vtimezone: ICAL.Component|null}|null}
  */
 export function readCalendarTimezone(value) {
-  const text = typeof value === 'string' ? value.trim() : '';
-  if (!text) return null;
-  if (/^BEGIN:/i.test(text)) {
-    try {
-      const jcal = ICAL.parse(/^BEGIN:VCALENDAR/i.test(text) ? text : `BEGIN:VCALENDAR\r\n${text}\r\nEND:VCALENDAR`);
-      const root = new ICAL.Component(Array.isArray(jcal[0]) ? jcal[0] : jcal);
-      const vtimezone = root.name === 'vtimezone' ? root : root.getFirstSubcomponent('vtimezone');
-      const tzid = vtimezone?.getFirstPropertyValue('tzid');
-      return tzid ? { tzid: String(tzid), vtimezone } : null;
-    } catch {
-      return null;
-    }
-  }
-  // a bare TZID: one short line
-  return !/[\r\n]/.test(text) && text.length <= 100 ? { tzid: text, vtimezone: null } : null;
+  const read = readTimezoneProperty(value);
+  return read.status === 'zone' ? { tzid: read.tzid, vtimezone: read.vtimezone } : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -190,49 +273,117 @@ export function serverZone() {
 }
 
 /**
- * The calendar's own zone, from its calendar-timezone (tsdav's
- * fetchCalendars gives it as `timezone`); null when it has none dav-mcp can
- * read.
+ * The calendar's own zone, from its calendar-timezone (calendarTimezoneOf);
+ * null when it has none dav-mcp can read.
  *
- * @param {{timezone?: unknown}|null|undefined} calendar
+ * @param {{timezone?: unknown, projectedProps?: Object}|null|undefined} calendar
  */
 export function calendarZone(calendar) {
-  const read = readCalendarTimezone(calendar?.timezone);
-  return read ? makeZone(read.tzid, read.vtimezone, 'calendar') : null;
+  const zone = floatingZoneFor(calendar);
+  return zone.source === 'calendar' ? zone : null;
 }
 
-/** The zone floating values of a calendar are read in: its own, else the server's */
+/**
+ * The zone floating values of a calendar are read in: its own, else the
+ * server's. When the calendar has a zone that cannot be read, the server's
+ * zone carries `failure` (why): a read goes ahead and says so
+ * (zoneFailureNote), a write refuses (writableZone).
+ *
+ * @param {{timezone?: unknown, projectedProps?: Object, url?: string}|null|undefined} calendar
+ */
 export function floatingZoneFor(calendar) {
-  return calendarZone(calendar) ?? serverZone();
+  const read = readTimezoneProperty(calendarTimezoneOf(calendar));
+  if (read.status === 'none') return serverZone();
+  if (read.status === 'unreadable') return failedZone(calendar?.url, `its calendar-timezone cannot be read: ${read.reason}`);
+  return makeZone(read.tzid, read.vtimezone, 'calendar')
+    ?? failedZone(calendar?.url, `"${read.tzid}" is not a time zone dav-mcp knows`);
+}
+
+/** The server's zone, standing in for a calendar's that could not be read */
+function failedZone(calendarUrl, failure) {
+  return { ...serverZone(), failure, calendarUrl: calendarUrl ?? null };
 }
 
 /**
  * floatingZoneFor a calendar known only by its URL: one PROPFIND (Depth 0)
- * for its calendar-timezone. A calendar the server will not describe is read
- * in the server's zone, as one without a zone is: the tool asked about its
- * objects, not about this property.
+ * for its calendar-timezone. A calendar without the property (or a 404) has
+ * no zone of its own: the server's applies. A request that fails — no
+ * answer, an error status — is a failure, as for an unreadable value.
  *
  * @param {Object} client - tsdav DAVClient
  * @param {string} calendarUrl
  */
 export async function fetchFloatingZone(client, calendarUrl) {
+  let responses;
   try {
-    const responses = await client.propfind({
+    responses = await client.propfind({
       url: calendarUrl,
       props: { 'c:calendar-timezone': {} },
       depth: '0',
     });
-    const response = (Array.isArray(responses) ? responses : []).find((r) => r?.ok !== false) ?? null;
-    return floatingZoneFor({ timezone: davText(response?.props?.calendarTimezone) });
-  } catch {
-    return serverZone();
+  } catch (error) {
+    return failedZone(calendarUrl, `the request for it failed: ${error?.message || error}`);
   }
+  const list = Array.isArray(responses) ? responses : [];
+  const answer = list.find((r) => r?.ok !== false) ?? null;
+  if (!answer) {
+    const failed = list.find((r) => typeof r?.status === 'number');
+    if (!failed || failed.status === 404) return serverZone();
+    return failedZone(calendarUrl, `the server answered ${failed.status}${failed.statusText ? ` ${failed.statusText}` : ''}`);
+  }
+  return floatingZoneFor({ url: calendarUrl, timezone: answer.props?.calendarTimezone });
 }
 
-function davText(value) {
-  if (typeof value === 'string') return value;
-  const text = value?._cdata ?? value?._text;
-  return typeof text === 'string' ? text : '';
+/**
+ * The zone a write may place times in. A calendar whose zone could not be
+ * read must not have a time placed on dav-mcp's clock instead: a start with
+ * Z on a floating series, or a time without a zone, would land shifted by
+ * the difference, unsaid.
+ *
+ * @param {Object} zone - floatingZoneFor / fetchFloatingZone
+ * @returns {Object} the zone
+ * @throws {CalDAVError} when it stands in for one that could not be read
+ */
+export function writableZone(zone) {
+  if (!zone?.failure) return zone;
+  throw new CalDAVError(
+    `The time zone of the calendar ${zone.calendarUrl ?? ''} could not be read (${zone.failure}), ` +
+    'so nothing was written: a time without a zone, or one for an event stored without a zone, ' +
+    `would have been placed on dav-mcp's clock (${zone.tzid}) instead. Retry; if it persists, set the ` +
+    'calendar\'s time zone with update_calendar.',
+    { calendarUrl: zone.calendarUrl, reason: zone.failure },
+  );
+}
+
+/**
+ * What a read says about zones that could not be read, or '' when none.
+ *
+ * @param {Iterable<Object>} zones
+ * @returns {string}
+ */
+export function zoneFailureNote(zones) {
+  const byCalendar = new Map();
+  for (const zone of zones) {
+    if (zone?.failure) byCalendar.set(`${zone.calendarUrl}\n${zone.failure}`, zone);
+  }
+  const failed = [...byCalendar.values()];
+  if (failed.length === 0) return '';
+  return failed.map((zone) =>
+    `\n\n**Note**: the time zone of the calendar ${zone.calendarUrl ?? ''} could not be read (${zone.failure}); ` +
+    `times without a zone and all-day dates in it are read in ${zone.tzid}, the zone dav-mcp runs in.`).join('');
+}
+
+/**
+ * A tool result with zoneFailureNote added to its text.
+ *
+ * @param {{content: Array<{type: string, text: string}>}} result
+ * @param {Iterable<Object>} zones
+ */
+export function withZoneNote(result, zones) {
+  const note = zoneFailureNote(zones);
+  if (!note) return result;
+  const [first, ...rest] = result.content;
+  return { ...result, content: [{ ...first, text: first.text + note }, ...rest] };
 }
 
 /**
