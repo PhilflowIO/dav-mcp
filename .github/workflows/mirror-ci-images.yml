@@ -59,6 +59,9 @@ jobs:
       # any copy that would change a digest. The source is pulled by digest,
       # so a moved tag upstream cannot change what lands here. The mirror is
       # then read back by digest and hashed, independent of what skopeo said.
+      # A failed copy is tried again from scratch: skopeo's --retry-times does
+      # not cover the token request, and Docker Hub's token endpoint answered
+      # 504 to the first run of this workflow.
       - name: Copy missing images and verify digests
         run: |
           status=0
@@ -69,7 +72,16 @@ jobs:
               echo "${name}: ${mirror} already mirrored"
             else
               echo "${name}: copying ${source} to ${target}"
-              if ! skopeo copy --all --preserve-digests --retry-times 5 "docker://${source}" "docker://${target}" < /dev/null; then
+              copied=false
+              for attempt in 1 2 3 4; do
+                if skopeo copy --all --preserve-digests --retry-times 5 "docker://${source}" "docker://${target}" < /dev/null; then
+                  copied=true
+                  break
+                fi
+                echo "${name}: attempt ${attempt} failed"
+                sleep $((attempt * 20))
+              done
+              if [ "$copied" != true ]; then
                 echo "::error::${name}: could not copy ${source} to ${target}. On a pull request from a fork the token cannot write packages: a maintainer copies the image by running this workflow from a branch of this repository that carries the new digest."
                 status=1
                 continue
