@@ -400,9 +400,9 @@ const WINDOWS_1252_HIGH = [
 
 /**
  * windows-1252, which WHATWG also uses for the ISO-8859-1 and Latin-1
- * labels. Decoded here rather than by TextDecoder: Node 20's windows-1252
- * is plain Latin-1 and turns 0x80 into a control character
- * instead of "€".
+ * labels. Decoded here rather than by TextDecoder: in older Node.js
+ * releases its windows-1252 is plain Latin-1 and turns 0x80 into a control
+ * character instead of "€".
  */
 function windows1252(bytes) {
   return Array.from(bytes, (byte) =>
