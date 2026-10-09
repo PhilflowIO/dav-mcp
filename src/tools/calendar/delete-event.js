@@ -1,5 +1,5 @@
 import { tsdavManager } from '../../tsdav-client.js';
-import { validateInput, deleteEventSchema } from '../../validation.js';
+import { validateInput, deleteEventSchema, etagQuotedByUs } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
 import { assertDeleted } from '../shared/helpers.js';
 
@@ -40,7 +40,9 @@ export const deleteEvent = {
         etag: validated.event_etag,
       },
     });
-    await assertDeleted(response, 'event', validated.event_url);
+    await assertDeleted(response, 'event', validated.event_url, {
+      quotedEtag: etagQuotedByUs(args.event_etag, validated.event_etag),
+    });
 
     return formatSuccess('Event deleted successfully');
   },

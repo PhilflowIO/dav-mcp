@@ -1,5 +1,5 @@
 import { tsdavManager } from '../../tsdav-client.js';
-import { validateInput, updateEventSchema } from '../../validation.js';
+import { validateInput, updateEventSchema, etagQuotedByUs } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
 import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
 
@@ -45,7 +45,9 @@ export const updateEventRaw = {
         etag: validated.event_etag,
       },
     });
-    await assertDavSuccess(response, `update event ${validated.event_url}`);
+    await assertDavSuccess(response, `update event ${validated.event_url}`, {
+      quotedEtag: etagQuotedByUs(args.event_etag, validated.event_etag),
+    });
 
     return formatSuccess('Event updated successfully', {
       ...etagAfterWrite(response),

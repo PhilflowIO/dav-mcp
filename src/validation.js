@@ -277,6 +277,19 @@ export const entityTag = z.string({ required_error: 'ETag is required' }).transf
   return z.NEVER;
 });
 
+/**
+ * The etag as sent, if entityTag put the quotes around it — the caller passed
+ * a bare tag — and undefined if it was sent as given. A 412 after added quotes
+ * can mean the server does not quote its ETags, and the error says so.
+ *
+ * @param {unknown} given - the etag parameter as the caller passed it
+ * @param {string} sent - the same parameter after validateInput
+ * @returns {string|undefined}
+ */
+export function etagQuotedByUs(given, sent) {
+  return typeof given === 'string' && given.trim() !== sent ? sent : undefined;
+}
+
 // Helper: Optional URL that gracefully handles LLM placeholder values
 // Transforms common LLM-generated placeholders ("", "unknown", "default", etc.) to undefined
 const optionalUrl = (message) =>

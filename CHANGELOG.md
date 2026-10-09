@@ -112,7 +112,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   quote, more than 1024 characters) is a validation error before any request. A weak etag (`W/"…"`)
   is refused the same way, saying to fetch the object first: If-Match
   compares strongly, so it could only end in a 412. A stale etag is still
-  refused with 412, quoted or not.
+  refused with 412, quoted or not; when dav-mcp added the quotes, the error
+  says so, since a server that does not quote its ETags fails the same way.
 - **Cancelling one occurrence no longer brings back the ones cancelled
   before** (#126). `update_event` wrote `fields.EXDATE` as the complete list of
   exclusions, so a model that wrote one date to cancel one more occurrence

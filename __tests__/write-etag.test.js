@@ -244,6 +244,31 @@ describe.each(kinds)('an etag without its quotes still matches: $kind', ({ creat
     }
   });
 
+  // A 412 after dav-mcp added the quotes has a second possible cause besides
+  // a changed object: a server that does not quote its ETags. The error says
+  // so; a 412 on an etag passed as returned reads exactly as before.
+  test('a 412 after the quotes were added says so; one on an etag passed as returned does not', async () => {
+    const { url, etag: first } = rawData(await create());
+    await updateRaw(url, first, edit(store.get(url).data));
+
+    const HINT = 'The etag was passed without quotes, so it was sent as "rev-1". ' +
+      'Fetch the object and pass its etag exactly as the server returns it';
+    for (const write of [
+      (etag) => updateRaw(url, etag, store.get(url).data),
+      (etag) => updateFields(url, etag),
+      (etag) => remove(url, etag),
+    ]) {
+      const quotedByUs = await write(` ${bare(first)} `).catch(e => e);
+      expect(quotedByUs.httpStatus).toBe(412);
+      expect(quotedByUs.message).toContain(HINT);
+
+      const asReturned = await write(first).catch(e => e);
+      expect(asReturned.httpStatus).toBe(412);
+      expect(asReturned.message).not.toContain('without quotes');
+      expect(asReturned.message).toBe(quotedByUs.message.slice(0, asReturned.message.length));
+    }
+  });
+
   test('an etag that is no entity-tag at all is refused before any request', async () => {
     const { url } = rawData(await create());
     requests.length = 0;

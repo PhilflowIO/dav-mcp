@@ -1,5 +1,5 @@
 import { tsdavManager } from '../../tsdav-client.js';
-import { validateInput, davFieldMapSchema, dateOrDateTime, refineDateRange, davUrl, entityTag } from '../../validation.js';
+import { validateInput, davFieldMapSchema, dateOrDateTime, refineDateRange, davUrl, entityTag, etagQuotedByUs } from '../../validation.js';
 import { formatSuccess } from '../../formatters.js';
 import { assertDavSuccess, etagAfterWrite } from '../shared/helpers.js';
 import { z } from 'zod';
@@ -217,7 +217,9 @@ export const updateEventFields = {
         etag: validated.event_etag
       }
     });
-    await assertDavSuccess(updateResponse, `update event ${validated.event_url}`);
+    await assertDavSuccess(updateResponse, `update event ${validated.event_url}`, {
+      quotedEtag: etagQuotedByUs(args.event_etag, validated.event_etag),
+    });
 
     return formatSuccess('Event updated successfully', {
       ...etagAfterWrite(updateResponse),

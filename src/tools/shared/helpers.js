@@ -312,10 +312,28 @@ export function davFailureError(failure, prefix, suffix = '') {
  *
  * @param {Response|Array|undefined} result - what tsdav handed back
  * @param {string} action - what was attempted, e.g. "create event", for the error message
+ * @param {object} [options]
+ * @param {string} [options.quotedEtag] - the If-Match sent, if dav-mcp added its quotes (etagQuotedByUs)
  */
-export async function assertDavSuccess(result, action) {
+export async function assertDavSuccess(result, action, { quotedEtag } = {}) {
   const failure = await davFailure(result);
-  if (failure) throw davFailureError(failure, `Failed to ${action}`);
+  if (!failure) return;
+  const hint = failure.status === 412 ? quotedEtagHint(quotedEtag) : '';
+  throw davFailureError(failure, `Failed to ${action}`, hint && `. ${hint}`);
+}
+
+/**
+ * What a 412 adds when the caller passed the etag without quotes and dav-mcp
+ * sent it quoted (validation.js entityTag): besides a changed object, the
+ * cause can be a server that does not quote its ETags. Nothing when the etag
+ * went out as given, so that 412 reads as before.
+ */
+function quotedEtagHint(quotedEtag) {
+  if (!quotedEtag) return '';
+  return `The etag was passed without quotes, so it was sent as ${quotedEtag}. ` +
+    'Fetch the object and pass its etag exactly as the server returns it; if the server ' +
+    'returns it without quotes too, it does not quote its ETags as HTTP requires, and an ' +
+    'update or delete checked against one cannot succeed.';
 }
 
 /**
@@ -369,8 +387,9 @@ export function etagAfterWrite(response) {
  * @param {string} url - its URL
  * @param {object} [options]
  * @param {boolean} [options.existedBefore] - the target was seen right before the DELETE
+ * @param {string} [options.quotedEtag] - the If-Match sent, if dav-mcp added its quotes (etagQuotedByUs)
  */
-export async function assertDeleted(response, kind, url, { existedBefore = false } = {}) {
+export async function assertDeleted(response, kind, url, { existedBefore = false, quotedEtag } = {}) {
   const failure = await davFailure(response);
   if (!failure) return;
   if (failure.status === 404) {
@@ -385,7 +404,7 @@ export async function assertDeleted(response, kind, url, { existedBefore = false
   // object and for one that is not there at all. Saying "still exists" for
   // the latter would be as wrong as "deleted" was for a 404.
   const suffix = failure.status === 412
-    ? '. Nothing was deleted: the ETag does not match — the object was changed since it was read, or it does not exist (any more).'
+    ? `. Nothing was deleted: the ETag does not match — the object was changed since it was read, or it does not exist (any more).${quotedEtag ? ` ${quotedEtagHint(quotedEtag)}` : ''}`
     : '. The object still exists on the server.';
   throw davFailureError(failure, `Failed to delete ${kind} ${url}`, suffix);
 }
