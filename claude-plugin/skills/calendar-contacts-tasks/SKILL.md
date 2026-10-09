@@ -108,12 +108,17 @@ exceptions.
 Tell the user the cause in plain words and what to do, instead of repeating
 the call:
 
-- `Invalid credentials` / `401 Unauthorized`: the server rejected the
-  username or password. In Claude Code they re-enter it in `/plugin` →
-  Installed → dav-mcp → Configure options; iCloud, and Nextcloud with
-  two-factor login, need an app password.
-- `404` / not found: the URL changed; search again.
+- Login failed or `401 Unauthorized` (`-32003`): the server rejected the
+  username or password. The error names where the settings are; in Claude
+  Code they re-enter them in `/plugin` → Installed → dav-mcp → Configure
+  options. iCloud, and Nextcloud with two-factor login, need an app
+  password. A `403` means the account is known but not allowed.
+- The server URL does not lead to a CalDAV/CardDAV server (`-32008`): the
+  URL must be the DAV address (e.g. ending in `/remote.php/dav/` for
+  Nextcloud), set in the same place.
+- Server not reachable (`-32004`): check the server URL and that the server
+  is up.
+- Not found (`-32006`): the URL is wrong or changed. For a calendar or
+  address book the error lists the ones that exist; otherwise search again.
 - `unknown parameter`: the tool does not take it and nothing was written.
   Check the tool's input schema; never tell the user it was applied.
-- Server not reachable or no calendars: the server URL must be the DAV
-  address (e.g. ending in `/remote.php/dav/` for Nextcloud).
