@@ -60,8 +60,11 @@ jobs:
       # so a moved tag upstream cannot change what lands here. The mirror is
       # then read back by digest and hashed, independent of what skopeo said.
       # A failed copy is tried again from scratch: skopeo's --retry-times does
-      # not cover the token request, and Docker Hub's token endpoint answered
-      # 504 to the first run of this workflow.
+      # not cover the token request. For Docker Hub images the copy also tries
+      # mirror.gcr.io, Google's cache of Docker Hub: in the first runs of this
+      # workflow Docker Hub's token endpoint answered every request for
+      # tonistiigi/binfmt with 504. The digest is the same index, and
+      # --preserve-digests plus the read-back below hold any source to it.
       - name: Copy missing images and verify digests
         run: |
           status=0
@@ -72,13 +75,20 @@ jobs:
               echo "${name}: ${mirror} already mirrored"
             else
               echo "${name}: copying ${source} to ${target}"
+              candidates="$source"
+              case "$source" in
+                docker.io/*) candidates="$source mirror.gcr.io/${source#docker.io/}" ;;
+              esac
               copied=false
-              for attempt in 1 2 3 4; do
-                if skopeo copy --all --preserve-digests --retry-times 5 "docker://${source}" "docker://${target}" < /dev/null; then
-                  copied=true
-                  break
-                fi
-                echo "${name}: attempt ${attempt} failed"
+              for attempt in 1 2 3; do
+                for from in $candidates; do
+                  if skopeo copy --all --preserve-digests --retry-times 5 "docker://${from}" "docker://${target}" < /dev/null; then
+                    echo "${name}: copied from ${from}"
+                    copied=true
+                    break 2
+                  fi
+                  echo "${name}: attempt ${attempt} from ${from} failed"
+                done
                 sleep $((attempt * 20))
               done
               if [ "$copied" != true ]; then
