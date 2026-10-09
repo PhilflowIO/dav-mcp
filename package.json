@@ -74,7 +74,7 @@
     "express": "^5.2.1",
     "express-rate-limit": "^8.7.0",
     "ical.js": "^2.2.1",
-    "tsdav": "npm:@philflow/tsdav@2.4.0",
+    "tsdav": "npm:@philflow/tsdav@2.5.0",
     "tsdav-utils": "npm:@philflow/tsdav-utils@0.7.0",
     "xml-js": "1.6.11",
     "zod": "^3.25.76"
