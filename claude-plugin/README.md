@@ -31,7 +31,7 @@ When you enable the plugin, Claude Code asks for:
 | Server URL | Your server's DAV address, e.g. `https://cloud.example.com/remote.php/dav/` for Nextcloud, `https://caldav.icloud.com/` for iCloud, `https://dav.example.com/dav.php/` for Baikal |
 | Username | Your username on that server |
 | Password | Your password, or an app-specific password (required for iCloud, recommended for Nextcloud) |
-| Authentication method | `Basic` works almost everywhere. Choose `Digest` if your server only accepts Digest and the connection isn't HTTPS |
+| Authentication method | `Basic` (the default) works almost everywhere. Type `Digest` if your server only accepts Digest and the connection isn't HTTPS |
 
 The password is kept in your system's secure credential store, not in a
 settings file. Change any value later in `/plugin`: **Installed** tab →

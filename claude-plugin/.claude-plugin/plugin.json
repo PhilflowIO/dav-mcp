@@ -49,11 +49,7 @@
     "auth_method": {
       "type": "string",
       "title": "Authentication method",
-      "description": "Basic works for almost every server and switches to Digest by itself when the server only offers Digest. Digest never sends the password.",
-      "options": [
-        "Basic",
-        "Digest"
-      ],
+      "description": "Basic or Digest. Basic works for almost every server and switches to Digest by itself when the server only offers Digest. Digest never sends the password.",
       "default": "Basic"
     }
   }
