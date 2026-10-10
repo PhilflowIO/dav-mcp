@@ -109,6 +109,14 @@ describe('Claude plugin configuration', () => {
     expect(Object.keys(plugin.userConfig).sort()).toEqual([...used].sort());
   });
 
+  // The Claude directory blocks a submission whose settings offer a choice
+  // list: it cannot screen the listed values. Settings stay free text, and the
+  // server rejects values it does not know (see auth-config.js).
+  test('offers no choice lists, which the Claude directory blocks', () => {
+    const withOptions = Object.keys(plugin.userConfig).filter(key => 'options' in plugin.userConfig[key]);
+    expect(withOptions).toEqual([]);
+  });
+
   test('links listing pages over https', () => {
     for (const field of ['homepage', 'documentationUrl', 'supportUrl', 'privacyPolicyUrl']) {
       expect({ field, url: plugin[field] }).toEqual({ field, url: expect.stringMatching(/^https:\/\//) });
