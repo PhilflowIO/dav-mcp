@@ -234,7 +234,10 @@ function occurrenceValues(master, exclusions, type) {
   if (!days.length) return null;
   const at = (ms) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
   try {
-    const root = new ICAL.Component(rootOf(master).toJSON());
+    // a copy: toJSON() is the stored jCal itself, and taking the EXDATEs out
+    // of that would take them out of the series being shown and leave its
+    // hydrated properties at their old indexes (the organizer read as an EXDATE)
+    const root = new ICAL.Component(structuredClone(rootOf(master).toJSON()));
     for (const component of root.getAllSubcomponents(type)) {
       if (!component.hasProperty('recurrence-id')) component.removeAllProperties('exdate');
     }
