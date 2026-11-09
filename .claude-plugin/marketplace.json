@@ -1,0 +1,20 @@
+{
+  "name": "philflow",
+  "owner": {
+    "name": "Philflow",
+    "email": "hello@philflow.io",
+    "url": "https://github.com/PhilflowIO"
+  },
+  "metadata": {
+    "description": "Claude Code plugins by Philflow"
+  },
+  "plugins": [
+    {
+      "name": "dav-mcp",
+      "source": "./claude-plugin",
+      "description": "Let Claude read and organize the calendars, contacts and tasks on your own CalDAV/CardDAV server: Nextcloud, iCloud, Baikal, Radicale and more.",
+      "category": "productivity",
+      "homepage": "https://github.com/PhilflowIO/dav-mcp/tree/main/claude-plugin#readme"
+    }
+  ]
+}
