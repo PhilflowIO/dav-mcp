@@ -216,6 +216,64 @@ describe('the policy', () => {
       .toThrow(expect.objectContaining({ name: 'ConfigurationError' }));
   });
 
+  describe('a separate CardDAV endpoint', () => {
+    const both = () => {
+      const origins = new RequestOrigins({
+        serverUrl: 'https://cal.example.com/dav/',
+        cardDavServerUrl: 'https://contacts.example.com/',
+      });
+      origins.endDiscovery();
+      return origins;
+    };
+
+    test('both configured endpoints and everything below them are allowed', () => {
+      expect(both().problem('https://cal.example.com/dav/calendars/user/work/x.ics')).toBeNull();
+      expect(both().problem('https://contacts.example.com/addressbooks/user/contacts/c.vcf')).toBeNull();
+      // the CardDAV URL is a host root, so its whole host is the account, as
+      // a root CalDAV URL always was; a third host stays refused
+      expect(both().problem('https://attacker.example/steal')).toMatch(/outside/);
+    });
+
+    test('https stays required when both endpoints are https', () => {
+      expect(both().secure).toBe(true);
+      expect(both().problem('http://cal.example.com/dav/')).toMatch(/plain http/);
+    });
+
+    test('an http endpoint is reachable and lifts the https-only rule', () => {
+      const origins = new RequestOrigins({
+        serverUrl: 'http://cal.local/dav/',
+        cardDavServerUrl: 'https://contacts.example.com/',
+      });
+      origins.endDiscovery();
+      expect(origins.secure).toBe(false);
+      expect(origins.problem('http://cal.local/dav/calendars/user/x.ics')).toBeNull();
+      expect(origins.problem('https://contacts.example.com/addressbooks/user/')).toBeNull();
+    });
+
+    test('a CardDAV URL equal to the CalDAV one is counted once', () => {
+      const origins = new RequestOrigins({
+        serverUrl: 'https://dav.example.com/dav/',
+        cardDavServerUrl: 'https://dav.example.com/dav/',
+      });
+      expect(origins.allowedPrefixes()).toEqual(['https://dav.example.com/dav/']);
+    });
+
+    test('a bad CardDAV URL is reported under CARDDAV_SERVER_URL, the CalDAV one under its own name', () => {
+      expect(() => new RequestOrigins({
+        serverUrl: 'https://dav.example.com/',
+        cardDavServerUrl: 'https://u:p@contacts.example.com/',
+      })).toThrow(/CARDDAV_SERVER_URL.*CARDDAV_USERNAME and CARDDAV_PASSWORD/);
+      expect(() => new RequestOrigins({
+        serverUrl: 'https://dav.example.com/',
+        cardDavServerUrl: 'ftp://contacts.example.com/',
+      })).toThrow(/CARDDAV_SERVER_URL.*not an http\(s\) URL/);
+      expect(() => new RequestOrigins({
+        serverUrl: 'https://u:p@dav.example.com/',
+        cardDavServerUrl: 'https://contacts.example.com/',
+      })).toThrow(/CALDAV_SERVER_URL.*CALDAV_USERNAME and CALDAV_PASSWORD/);
+    });
+  });
+
   test('its fetch refuses before calling the network', async () => {
     let calls = 0;
     const guarded = policy().fetch(async () => { calls += 1; return new Response(''); });
@@ -748,5 +806,50 @@ describe('OAuth', () => {
       .then(() => null, e => e);
     expect(error).toBeInstanceOf(RequestOriginError);
     expect(token.hits.length).toBe(before);
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe('a separate CardDAV endpoint (CARDDAV_*)', () => {
+  let cal;
+  let card;
+
+  beforeAll(async () => {
+    cal = await davServer().start();
+    card = await davServer().start();
+    await tsdavManager.initialize({
+      serverUrl: `${cal.origin}/`,
+      authMethod: 'Basic',
+      username: 'user',
+      password: 'secret',
+      cardDav: { serverUrl: `${card.origin}/`, username: 'user', password: 'secret' },
+    });
+  });
+
+  afterAll(async () => {
+    await cal.stop();
+    await card.stop();
+  });
+
+  test('calendars come from the CalDAV endpoint, contacts from the CardDAV one', async () => {
+    const cardBefore = card.hits.length;
+    await tools.find(t => t.name === 'list_calendars').handler({});
+    expect(card.hits.length).toBe(cardBefore);
+
+    const calBefore = cal.hits.length;
+    await tools.find(t => t.name === 'list_addressbooks').handler({});
+    expect(cal.hits.length).toBe(calBefore);
+    expect(card.hits.length).toBeGreaterThan(cardBefore);
+  });
+
+  test('each client discovered its own account, and both hosts are inside the account', () => {
+    expect(tsdavManager.getCalDavClient().account.homeUrl).toBe(`${cal.origin}/calendars/user/`);
+    expect(tsdavManager.getCardDavClient().account.homeUrl).toBe(`${card.origin}/addressbooks/user/`);
+    expect(requestUrlProblem(`${cal.origin}/calendars/user/work/`)).toBeNull();
+    expect(requestUrlProblem(`${card.origin}/addressbooks/user/contacts/`)).toBeNull();
+    // both endpoints are host roots, so each whole host is the account; a
+    // host that is configured nowhere stays refused
+    expect(requestUrlProblem('https://attacker.example/steal')).toMatch(/outside/);
   });
 });

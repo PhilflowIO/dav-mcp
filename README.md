@@ -191,6 +191,7 @@ Works with any CalDAV/CardDAV server that follows RFC 4791 and RFC 6352:
 - **Nextcloud** - Full support
 - **Baikal** - Full support
 - **Radicale** - Full support
+- **Fastmail** - Full support, with separate CalDAV and CardDAV endpoints (see below)
 - **iCloud** - Works with app-specific password
 - **Any RFC-compliant server** - Standard protocol support
 
@@ -209,6 +210,27 @@ Works with any CalDAV/CardDAV server that follows RFC 4791 and RFC 6352:
 dav-mcp needs Node.js 22 or newer. A wrong configuration — an unknown
 `AUTH_METHOD` value, or missing credentials for the chosen method — stops the
 server at startup instead of falling back to Basic.
+
+### Separate CalDAV and CardDAV endpoints (Fastmail and similar)
+
+Some providers serve calendars and contacts on two different hosts: Fastmail,
+for example, uses `https://caldav.fastmail.com/dav/` and
+`https://carddav.fastmail.com/`. Point dav-mcp at both with the optional
+`CARDDAV_*` variables:
+
+```bash
+CALDAV_SERVER_URL=https://caldav.fastmail.com/dav/
+CALDAV_USERNAME=your_username
+CALDAV_PASSWORD=your_app_password
+CARDDAV_SERVER_URL=https://carddav.fastmail.com/
+```
+
+Each of `CARDDAV_SERVER_URL`, `CARDDAV_USERNAME` and `CARDDAV_PASSWORD` falls
+back to its `CALDAV_*` counterpart when unset or empty, so you only set the
+variables that differ (often the URL alone). The variables apply to Basic and
+Digest authentication only: OAuth has a single Google server and ignores them.
+If either endpoint refuses the login, startup fails with an error naming the
+endpoint that failed.
 
 ---
 

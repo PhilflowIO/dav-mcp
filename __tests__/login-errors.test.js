@@ -181,6 +181,94 @@ describe('a login that fails for another reason', () => {
   });
 });
 
+// CARDDAV_* points the contacts client at its own host (Fastmail serves
+// calendars and contacts on two). Each client then has its own endpoint,
+// credentials and login answers, and a failure names the half that failed.
+describe('a split CardDAV endpoint', () => {
+  const CAL_HOST = 'https://cal.example.com';
+  const CARD_HOST = 'https://contacts.example.com';
+
+  const splitEnv = {
+    CALDAV_SERVER_URL: `${CAL_HOST}/`,
+    CALDAV_USERNAME: 'alex',
+    CALDAV_PASSWORD: 'wrong',
+    CARDDAV_SERVER_URL: `${CARD_HOST}/`,
+    CARDDAV_USERNAME: 'alex',
+    CARDDAV_PASSWORD: 'also-wrong',
+  };
+
+  // A DAV host that accepts Basic and completes discovery: the well-known
+  // probes 404, and every PROPFIND is answered with the property it asked for.
+  const davResponse = (url, init = {}) => {
+    const { pathname } = new URL(url);
+    if (pathname.startsWith('/.well-known/')) return new Response('', { status: 404, statusText: 'Not Found' });
+    const body = String(init.body);
+    const prop = body.includes('calendar-home-set')
+      ? '<cal:calendar-home-set><d:href>/calendars/user/</d:href></cal:calendar-home-set>'
+      : body.includes('addressbook-home-set')
+        ? '<card:addressbook-home-set><d:href>/addressbooks/user/</d:href></card:addressbook-home-set>'
+        : '<d:current-user-principal><d:href>/principals/user/</d:href></d:current-user-principal>';
+    return new Response(
+      '<?xml version="1.0"?>\n<d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav" ' +
+      'xmlns:card="urn:ietf:params:xml:ns:carddav">' +
+      `<d:response><d:href>${pathname}</d:href><d:propstat><d:prop>${prop}</d:prop>` +
+      '<d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>',
+      { status: 207, statusText: 'Multi-Status', headers: { 'content-type': 'application/xml; charset=utf-8' } },
+    );
+  };
+
+  const refused = () => new Response('Unauthorized', {
+    status: 401, statusText: 'Unauthorized', headers: { 'www-authenticate': 'Basic realm="dav"' },
+  });
+
+  test('both clients complete discovery on their own hosts', async () => {
+    respond = davResponse;
+    await tsdavManager.initialize(buildTsdavConfig(splitEnv));
+
+    expect(tsdavManager.getCalDavClient().account.homeUrl).toBe(`${CAL_HOST}/calendars/user/`);
+    expect(tsdavManager.getCardDavClient().account.homeUrl).toBe(`${CARD_HOST}/addressbooks/user/`);
+  });
+
+  test('a CardDAV host that refuses names the CardDAV endpoint, client and settings', async () => {
+    respond = async (url, init) => (url.startsWith(CARD_HOST) ? refused() : davResponse(url, init));
+
+    const error = await loginError(splitEnv);
+
+    expect(error.name).toBe('AuthenticationError');
+    expect(formatMCPError(error).code).toBe(MCP_ERROR_CODES.AUTH_ERROR);
+    expect(error.message).toContain(CARD_HOST);
+    expect(error.message).toContain('(CardDAV client)');
+    expect(error.message).toContain('CARDDAV_SERVER_URL');
+    expectPasswordSettingsNamed(error.message);
+  });
+
+  // The CalDAV host answered, so shared login answers would read the silent
+  // CardDAV host as "not a DAV server". Its own answers say: never reached.
+  test('an unreachable CardDAV host is a network error, not a wrong-URL error', async () => {
+    respond = async (url, init) => {
+      if (url.startsWith(CARD_HOST)) throw new TypeError('fetch failed');
+      return davResponse(url, init);
+    };
+
+    const error = await loginError(splitEnv);
+
+    expect(formatMCPError(error).code).toBe(MCP_ERROR_CODES.NETWORK_ERROR);
+    expect(error.message).toContain(CARD_HOST);
+    expect(error.message).not.toContain('does not lead to a CalDAV/CardDAV server');
+  });
+
+  test('a CalDAV failure on a split setup names the CalDAV client', async () => {
+    respond = async (url, init) => (url.startsWith(CAL_HOST) ? refused() : davResponse(url, init));
+
+    const error = await loginError(splitEnv);
+
+    expect(error.name).toBe('AuthenticationError');
+    expect(error.message).toContain(CAL_HOST);
+    expect(error.message).toContain('(CalDAV client)');
+    expect(error.message).not.toContain('(CardDAV client)');
+  });
+});
+
 // Over stdio the login happens again on the first tool call when it failed
 // at startup. Its failure used to escape the tool call as a JSON-RPC
 // internal error (-32603) carrying only tsdav's message.
@@ -200,6 +288,11 @@ describe('stdio: the first tool call after a refused login', () => {
         CALDAV_SERVER_URL: url,
         CALDAV_USERNAME: 'alex',
         CALDAV_PASSWORD: 'wrong',
+        // pinned empty so the checkout's own .env (if any) cannot add a second
+        // endpoint the server would try to log onto
+        CARDDAV_SERVER_URL: '',
+        CARDDAV_USERNAME: '',
+        CARDDAV_PASSWORD: '',
         LOG_LEVEL: 'silent',
       },
       stdio: ['pipe', 'pipe', 'pipe'],

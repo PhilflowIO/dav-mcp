@@ -34,7 +34,8 @@ RUN --mount=type=cache,target=/root/.npm \
 FROM ${RUNTIME_IMAGE} AS runtime
 # Runtime config via env vars; NODE_ENV selects Express production mode.
 # Overridable at runtime: PORT (default 3000), BEARER_TOKEN, CALDAV_SERVER_URL,
-# CALDAV_USERNAME, CALDAV_PASSWORD, CORS_ALLOWED_ORIGINS.
+# CALDAV_USERNAME, CALDAV_PASSWORD, CARDDAV_SERVER_URL, CARDDAV_USERNAME,
+# CARDDAV_PASSWORD, CORS_ALLOWED_ORIGINS.
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules

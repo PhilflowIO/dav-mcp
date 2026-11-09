@@ -50,7 +50,9 @@ export function settingsHint(authMethod) {
     'Claude Code plugin: /plugin → Installed → dav-mcp → Configure options; ' +
     'Claude Desktop extension: Settings → Extensions → dav-mcp: Calendars, Contacts & Tasks; ' +
     'npx, Docker or a checkout: CALDAV_SERVER_URL, CALDAV_USERNAME and CALDAV_PASSWORD ' +
-    '(the MCP client\'s config, docker -e, or .env).';
+    '(the MCP client\'s config, docker -e, or .env). ' +
+    'A separate CardDAV endpoint (e.g. Fastmail) is set with CARDDAV_SERVER_URL, ' +
+    'CARDDAV_USERNAME and CARDDAV_PASSWORD; unset, each falls back to its CALDAV_* value.';
 }
 
 /**
@@ -112,6 +114,12 @@ export function parseAuthMethod(value) {
 /**
  * Build the configuration for tsdavManager.initialize() from the environment.
  *
+ * Under Basic and Digest the optional CARDDAV_SERVER_URL, CARDDAV_USERNAME and
+ * CARDDAV_PASSWORD point the contacts client at a separate CardDAV endpoint
+ * (Fastmail serves calendars and contacts on two hosts). Unset or empty, each
+ * falls back to its CALDAV_* value, so an empty user-config field behaves like
+ * a missing one. OAuth ignores them: it has one Google server.
+ *
  * @param {Object} env - Environment variables (usually process.env)
  * @returns {Object} tsdav client configuration
  */
@@ -141,5 +149,10 @@ export function buildTsdavConfig(env) {
     authMethod,
     username: env.CALDAV_USERNAME,
     password: env.CALDAV_PASSWORD,
+    cardDav: {
+      serverUrl: env.CARDDAV_SERVER_URL || env.CALDAV_SERVER_URL,
+      username: env.CARDDAV_USERNAME || env.CALDAV_USERNAME,
+      password: env.CARDDAV_PASSWORD || env.CALDAV_PASSWORD,
+    },
   };
 }

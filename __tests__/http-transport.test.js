@@ -77,6 +77,11 @@ beforeAll(async () => {
       CALDAV_SERVER_URL: `http://127.0.0.1:${davPort}/`,
       CALDAV_USERNAME: 'user',
       CALDAV_PASSWORD: 'pass',
+      // pinned empty so the checkout's own .env (if any) cannot add a second
+      // endpoint the server would try to log onto
+      CARDDAV_SERVER_URL: '',
+      CARDDAV_USERNAME: '',
+      CARDDAV_PASSWORD: '',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
