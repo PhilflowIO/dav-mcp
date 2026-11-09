@@ -52,7 +52,8 @@ version for chat is tracked in
 
 ## Requirements
 
-- Claude Code 2.1.271 or newer (the plugin's server runs on your computer)
+- Claude Code 2.1.319 or newer (it installs the server's dependencies when it
+  installs or updates the plugin)
 - Node.js 22 or newer, with `node` and `npm` on your `PATH`
 
 ## If it doesn't work

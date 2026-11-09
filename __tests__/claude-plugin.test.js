@@ -122,7 +122,7 @@ describe('Claude plugin server', () => {
     expect(bundled).toContain('server-stdio.js');
     for (const file of bundled.filter(f => f.endsWith('.js'))) {
       const source = readFileSync(join(pluginSrcDir, file), 'utf8');
-      for (const [, specifier] of source.matchAll(/(?:from|import\()\s*['"](\.{1,2}\/[^'"]+)['"]/g)) {
+      for (const [, specifier] of source.matchAll(/(?:\bfrom|\bimport\(?)\s*['"](\.{1,2}\/[^'"]+)['"]/g)) {
         const target = relative(pluginSrcDir, join(pluginSrcDir, file, '..', specifier));
         expect({ file, specifier, bundled: bundled.includes(target) }).toEqual({ file, specifier, bundled: true });
       }
