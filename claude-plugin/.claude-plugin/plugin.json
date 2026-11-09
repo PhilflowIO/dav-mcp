@@ -46,6 +46,25 @@
       "sensitive": true,
       "required": true
     },
+    "carddav_server_url": {
+      "type": "string",
+      "title": "CardDAV server URL (optional)",
+      "description": "Separate CardDAV endpoint for contacts, e.g. https://carddav.fastmail.com/. Leave empty to use the Server URL for contacts too.",
+      "required": false
+    },
+    "carddav_username": {
+      "type": "string",
+      "title": "CardDAV username (optional)",
+      "description": "Username for the CardDAV endpoint. Leave empty to use the Username above.",
+      "required": false
+    },
+    "carddav_password": {
+      "type": "string",
+      "title": "CardDAV password (optional)",
+      "description": "Password or app-specific password for the CardDAV endpoint. Leave empty to use the Password above. Stored in your system's secure credential store.",
+      "sensitive": true,
+      "required": false
+    },
     "auth_method": {
       "type": "string",
       "title": "Authentication method",

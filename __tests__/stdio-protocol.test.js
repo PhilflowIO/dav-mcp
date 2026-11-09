@@ -15,6 +15,11 @@ const speak = (messages) => new Promise((resolve, reject) => {
       CALDAV_SERVER_URL: 'https://example.invalid',
       CALDAV_USERNAME: 'x',
       CALDAV_PASSWORD: 'y',
+      // pinned empty so the checkout's own .env (if any) cannot add a second
+      // endpoint the server would try to log onto
+      CARDDAV_SERVER_URL: '',
+      CARDDAV_USERNAME: '',
+      CARDDAV_PASSWORD: '',
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
@@ -74,6 +79,11 @@ const start = (script, env) => new Promise((resolve, reject) => {
       CALDAV_SERVER_URL: 'https://example.invalid',
       CALDAV_USERNAME: 'x',
       CALDAV_PASSWORD: 'y',
+      // pinned empty so the checkout's own .env (if any) cannot add a second
+      // endpoint the server would try to log onto
+      CARDDAV_SERVER_URL: '',
+      CARDDAV_USERNAME: '',
+      CARDDAV_PASSWORD: '',
       ...env,
     },
     stdio: ['pipe', 'pipe', 'pipe'],

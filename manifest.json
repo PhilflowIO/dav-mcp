@@ -44,6 +44,9 @@
         "CALDAV_SERVER_URL": "${user_config.server_url}",
         "CALDAV_USERNAME": "${user_config.username}",
         "CALDAV_PASSWORD": "${user_config.password}",
+        "CARDDAV_SERVER_URL": "${user_config.carddav_server_url}",
+        "CARDDAV_USERNAME": "${user_config.carddav_username}",
+        "CARDDAV_PASSWORD": "${user_config.carddav_password}",
         "AUTH_METHOD": "${user_config.auth_method}"
       }
     }
@@ -67,6 +70,25 @@
       "description": "Password or app-specific password for your DAV server",
       "sensitive": true,
       "required": true
+    },
+    "carddav_server_url": {
+      "type": "string",
+      "title": "CardDAV server URL (optional)",
+      "description": "Separate CardDAV endpoint for contacts, e.g. https://carddav.fastmail.com/. Leave empty to use the Server URL for contacts too.",
+      "required": false
+    },
+    "carddav_username": {
+      "type": "string",
+      "title": "CardDAV username (optional)",
+      "description": "Username for the CardDAV endpoint. Leave empty to use the Username above.",
+      "required": false
+    },
+    "carddav_password": {
+      "type": "string",
+      "title": "CardDAV password (optional)",
+      "description": "Password or app-specific password for the CardDAV endpoint. Leave empty to use the Password above.",
+      "sensitive": true,
+      "required": false
     },
     "auth_method": {
       "type": "string",
