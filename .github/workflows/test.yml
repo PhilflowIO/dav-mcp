@@ -107,12 +107,14 @@ jobs:
       - name: Verify bundle contents and boot
         run: node scripts/verify-mcpb.js "${RUNNER_TEMP}/bundle"
 
-  # The Claude plugin starts `npx -y dav-mcp@<version>`. The Claude directory
-  # follows main and users of the plugin get whatever npm serves under that
-  # version, so the pin may only move to a version release.yml has published
-  # (CONTRIBUTING.md, Releases); a pull request that pins an unpublished
-  # version fails here.
-  plugin-pin:
+  # The Claude plugin carries a released dav-mcp as source plus a lockfile
+  # (scripts/sync-claude-plugin.js). The Claude directory follows main, so the
+  # plugin there must be exactly what npm published for its version: a pull
+  # request with an unpublished version, or with source edited by hand, fails
+  # here. Then the plugin is installed the way Claude Code installs it, from a
+  # copy of the folder with `npm ci --ignore-scripts` under the 60 s limit
+  # Claude Code sets, and started from its .mcp.json.
+  claude-plugin:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
 
@@ -122,10 +124,43 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: The pinned version is on npm
+      # 22 is the oldest Node.js the plugin's README asks for.
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.x'
+
+      - name: The plugin carries the published release
         run: |
-          pinned=$(node -p 'require("./claude-plugin/.mcp.json").mcpServers["dav-mcp"].args.at(-1)')
-          npm view "$pinned" version >/dev/null || { echo "::error::$pinned is not on npm; publish it before this reaches main"; exit 1; }
+          VERSION=$(node -p 'require("./claude-plugin/.claude-plugin/plugin.json").version')
+          cd "$RUNNER_TEMP"
+          TARBALL=$(npm pack "dav-mcp@$VERSION" --registry=https://registry.npmjs.org/ --ignore-scripts 2>/dev/null | tail -1) \
+            || { echo "::error::dav-mcp@$VERSION is not on npm; publish it before the plugin carries it"; exit 1; }
+          tar -xzf "$TARBALL"
+          cd "$GITHUB_WORKSPACE"
+          diff -r "$RUNNER_TEMP/package/src" claude-plugin/src \
+            || { echo "::error::claude-plugin/src differs from dav-mcp@$VERSION on npm; run npm run plugin:sync"; exit 1; }
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const published = JSON.parse(readFileSync(process.argv[1], "utf8")).dependencies;
+            const plugin = JSON.parse(readFileSync("claude-plugin/package.json", "utf8")).dependencies;
+            if (JSON.stringify(published) !== JSON.stringify(plugin)) {
+              console.log("::error::claude-plugin/package.json dependencies differ from the published release; run npm run plugin:sync");
+              process.exit(1);
+            }
+          ' "$RUNNER_TEMP/package/package.json"
+          echo "claude-plugin carries dav-mcp@$VERSION as published"
+
+      - name: Install the plugin as Claude Code does
+        run: |
+          git archive HEAD claude-plugin | tar -x -C "$RUNNER_TEMP"
+          cd "$RUNNER_TEMP/claude-plugin"
+          START=$(date +%s)
+          timeout 60 npm ci --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org/
+          echo "dependency install took $(( $(date +%s) - START )) s (Claude Code stops at 60 s)"
+
+      - name: Start the server from .mcp.json
+        run: node scripts/verify-claude-plugin.js "$RUNNER_TEMP/claude-plugin"
 
   # npm 12 refuses git and remote-tarball dependencies by default
   # (allow-git=none, allow-remote=none). dav-mcp 4.1.2 depended on both and
