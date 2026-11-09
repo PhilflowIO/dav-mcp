@@ -27,7 +27,7 @@
  */
 
 import { execFileSync } from 'child_process';
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
@@ -134,10 +134,11 @@ export function serializeJson(value) {
   return JSON.stringify(value, null, 2) + '\n';
 }
 
-// npm with the public registry and nothing from the user's npm config that
-// could change what gets locked or run.
-const npm = (args, cwd) => execFileSync('npm', [
-  ...args, `--registry=${REGISTRY}`, '--ignore-scripts', '--no-audit', '--no-fund',
+// npm with the public registry and none of the user's npm config: a scoped
+// registry or auth line in ~/.npmrc (which --registry does not override)
+// would otherwise change where packages are locked from.
+const npm = (args, cwd, emptyConfig) => execFileSync('npm', [
+  ...args, `--registry=${REGISTRY}`, `--userconfig=${emptyConfig}`, '--ignore-scripts', '--no-audit', '--no-fund',
 ], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] });
 
 /**
@@ -146,29 +147,45 @@ const npm = (args, cwd) => execFileSync('npm', [
  *
  * @param {string} version
  * @param {string} workDir
+ * @param {string} emptyConfig - an empty npmrc, see `npm` above
  * @returns {string} the unpacked package directory
  */
-export function fetchRelease(version, workDir) {
-  const [{ filename }] = JSON.parse(npm(['pack', `dav-mcp@${version}`, '--json', '--pack-destination', workDir], workDir));
+export function fetchRelease(version, workDir, emptyConfig) {
+  const [{ filename }] = JSON.parse(npm(['pack', `dav-mcp@${version}`, '--json', '--pack-destination', workDir], workDir, emptyConfig));
   execFileSync('tar', ['-xzf', join(workDir, filename), '-C', workDir]);
   return join(workDir, 'package');
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const version = packageVersion();
+  // A prerelease goes to the dist-tag `next`; the plugin carries only what
+  // `latest` serves (CONTRIBUTING.md, Releases).
+  if (!/^\d+\.\d+\.\d+$/.test(version)) {
+    console.error(`package.json has ${version}; the plugin carries stable releases only`);
+    process.exit(1);
+  }
+
+  // Everything is built in a work directory and only moved into
+  // claude-plugin/ once npm has succeeded, so a failed run leaves the plugin
+  // as it was.
   const work = mkdtempSync(join(tmpdir(), 'dav-mcp-plugin-sync-'));
   try {
-    const release = fetchRelease(version, work);
+    const emptyConfig = join(work, 'npmrc');
+    writeFileSync(emptyConfig, '');
+    const release = fetchRelease(version, work, emptyConfig);
     const published = JSON.parse(readFileSync(join(release, 'package.json'), 'utf8'));
+
+    const staged = join(work, 'staged');
+    mkdirSync(staged);
+    writeFileSync(join(staged, 'package.json'), serializeJson(pluginPackageJson(published)));
+    npm(['install', '--package-lock-only'], staged, emptyConfig);
+
+    const plugin = syncedPlugin(JSON.parse(readFileSync(pluginJsonPath, 'utf8')), version);
 
     rmSync(pluginSrcDir, { recursive: true, force: true });
     cpSync(join(release, 'src'), pluginSrcDir, { recursive: true });
-
-    writeFileSync(pluginPackagePath, serializeJson(pluginPackageJson(published)));
-    rmSync(pluginLockPath, { force: true });
-    npm(['install', '--package-lock-only'], pluginDir);
-
-    const plugin = syncedPlugin(JSON.parse(readFileSync(pluginJsonPath, 'utf8')), version);
+    cpSync(join(staged, 'package.json'), pluginPackagePath);
+    cpSync(join(staged, 'package-lock.json'), pluginLockPath);
     writeFileSync(pluginJsonPath, serializeJson(plugin));
 
     const locked = Object.keys(JSON.parse(readFileSync(pluginLockPath, 'utf8')).packages).length - 1;
