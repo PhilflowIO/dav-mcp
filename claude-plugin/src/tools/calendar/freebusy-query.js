@@ -1,0 +1,104 @@
+import { tsdavManager } from '../../tsdav-client.js';
+import { validateInput, freeBusyQuerySchema } from '../../validation.js';
+import { formatFreeBusy } from '../../formatters.js';
+import { buildTimeRangeOptions, findCalendarOrThrow } from '../shared/helpers.js';
+import { calculateFreeBusy } from '../shared/freebusy.js';
+import { serverTimeRange } from '../../occurrences.js';
+import { floatingZoneFor, withFloatingZone, displayZoneFor, withZoneNote } from '../../calendar-zone.js';
+
+/**
+ * Answer "when am I free?" from the events themselves.
+ *
+ * Deliberately not the native CalDAV free-busy-query REPORT: Google and iCloud
+ * do not answer it, Radicale never implemented it, and Nextcloud and Baikal
+ * have open bugs, so it fails on most of the servers people actually run.
+ * Deriving the answer from the events works everywhere at the cost of needing
+ * read access to the calendar.
+ */
+export const freeBusyQuery = {
+  name: 'freebusy_query',
+  annotations: {
+    title: 'Check free/busy',
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
+  description: 'Find free and busy time in a date range — use for "when am I free?", "am I available Tuesday afternoon?" or finding a slot for a new meeting. Searches all calendars unless one is given. Events marked TRANSPARENT (does not block time) and cancelled events are ignored; recurring events are expanded, each occurrence at its own time and status, so a single cancelled occurrence is free and a moved one is busy where it moved to. A recurring event too dense to expand fully is named in a warning. Times are shown in the calendar\'s time zone (several calendars in different zones: the zone dav-mcp runs in), named in the answer; list_events shows an event that has a zone of its own in that zone instead.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      time_range_start: {
+        type: 'string',
+        description: 'Start of the window to examine (ISO 8601, e.g. 2026-05-25T00:00:00Z). Required.',
+      },
+      time_range_end: {
+        type: 'string',
+        description: 'End of the window to examine (ISO 8601). Required.',
+      },
+      calendar_url: {
+        type: 'string',
+        description: 'Optional: restrict to one calendar. Omit to consider every calendar, which is usually what "am I free" means.',
+      },
+      include_event_details: {
+        type: 'boolean',
+        description: 'Optional: also list the events behind the busy blocks, with titles (a recurring one as its occurrence in the range). Off by default — the answer to "when am I free" is the slots, not the meetings.',
+      },
+    },
+    required: ['time_range_start', 'time_range_end'],
+  },
+  handler: async (args) => {
+    const validated = validateInput(freeBusyQuerySchema, args);
+    const client = tsdavManager.getCalDavClient();
+    const calendars = await client.fetchCalendars();
+
+    let calendarsToSearch = calendars;
+    if (validated.calendar_url) {
+      calendarsToSearch = [findCalendarOrThrow(calendars, validated.calendar_url, { omit: 'to consider all calendars' })];
+    }
+
+    const timeRangeOptions = buildTimeRangeOptions(
+      validated.time_range_start,
+      validated.time_range_end
+    );
+
+    let events = [];
+    // each calendar's zone, for a note when one could not be read
+    const zones = [];
+    for (const calendar of calendarsToSearch) {
+      // floating times and dates are read in each calendar's own zone
+      const zone = floatingZoneFor(calendar);
+      zones.push(zone);
+      const found = withFloatingZone(
+        await client.fetchCalendarObjects({
+          calendar,
+          ...timeRangeOptions,
+          // wider than asked: the server reads floating times its own way;
+          // calculateFreeBusy keeps what touches the window
+          timeRange: serverTimeRange(timeRangeOptions.timeRange),
+        }), zone);
+      events = events.concat(found);
+    }
+
+    const range = {
+      start: new Date(validated.time_range_start),
+      end: new Date(validated.time_range_end),
+    };
+
+    const { busy, free, blocking, incomplete } = calculateFreeBusy(events, range);
+
+    // shown in the zone the listings read these calendars in (#125)
+    const { zone, why } = displayZoneFor(calendarsToSearch);
+
+    return withZoneNote(formatFreeBusy({
+      busy,
+      free,
+      range,
+      zone,
+      zoneNote: why,
+      calendarCount: calendarsToSearch.length,
+      events: validated.include_event_details ? blocking : null,
+      incomplete,
+    }), zones);
+  },
+};

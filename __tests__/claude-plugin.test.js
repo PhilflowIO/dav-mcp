@@ -2,10 +2,14 @@
  * The Claude plugin (claude-plugin/) as the Claude directory checks it.
  *
  * `claude plugin validate` covers the manifest schema; these tests cover what
- * it does not: the launcher is pinned to an exact release no newer than
- * package.json (it trails package.json until that version is on npm),
- * the credentials the server needs are asked for with the right flags, and
- * the folder holds only what the directory accepts without a hold.
+ * it does not: the plugin carries one release (no newer than package.json; it
+ * trails package.json until that version is on npm) consistently in every
+ * file, its lockfile installs the way Claude Code installs it, the
+ * credentials the server needs are asked for with the right flags, and the
+ * folder holds only what the directory can read.
+ *
+ * That claude-plugin/src/ is the published tarball's src/ needs the network;
+ * the `claude-plugin` job in test.yml checks it.
  */
 
 import { describe, test, expect } from '@jest/globals';
@@ -13,7 +17,8 @@ import { readFileSync, readdirSync, statSync } from 'fs';
 import { join, relative } from 'path';
 import { fileURLToPath } from 'url';
 import {
-  pluginJsonPath, mcpJsonPath, syncedPlugin, syncedMcpConfig, serializeJson, compareVersions,
+  pluginJsonPath, mcpJsonPath, pluginPackagePath, pluginLockPath, pluginSrcDir,
+  REGISTRY, SERVER_ENTRY, syncedPlugin, pluginPackageJson, serializeJson, compareVersions,
 } from '../scripts/sync-claude-plugin.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -25,6 +30,10 @@ const mcpText = readFileSync(mcpJsonPath, 'utf8');
 const plugin = JSON.parse(pluginText);
 const server = JSON.parse(mcpText).mcpServers['dav-mcp'];
 const packageJson = JSON.parse(read('package.json'));
+const pluginPackageText = readFileSync(pluginPackagePath, 'utf8');
+const pluginPackage = JSON.parse(pluginPackageText);
+const lock = JSON.parse(readFileSync(pluginLockPath, 'utf8'));
+const lockedPackages = Object.entries(lock.packages).filter(([path]) => path !== '');
 const [npmPackage] = JSON.parse(read('server.json')).packages;
 const declaredEnv = new Map(npmPackage.environmentVariables.map(v => [v.name, v]));
 
@@ -36,33 +45,88 @@ const filesIn = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap(entry
   return entry.isDirectory() ? filesIn(path) : [path];
 });
 // evals/results/ is what `claude plugin eval` writes on a local run (HTML
-// report, JSON); it is gitignored and never part of the plugin. The eval
-// cases and mocks themselves are checked like every other plugin file.
+// report, JSON), node_modules/ what a local `npm ci` in the folder writes;
+// both are gitignored and never part of the plugin. The eval cases and mocks
+// themselves are checked like every other plugin file.
 const pluginFiles = filesIn(pluginDir)
   .map(path => relative(pluginDir, path))
-  .filter(file => !file.startsWith('evals/results/'));
+  .filter(file => !file.startsWith('evals/results/') && !file.startsWith('node_modules/'));
 
 describe('Claude plugin version', () => {
-  test('plugin.json and .mcp.json are formatted the way scripts/sync-claude-plugin.js writes them', () => {
+  test('plugin.json, .mcp.json and package.json are formatted the way scripts/sync-claude-plugin.js writes them', () => {
     // On failure run `npm run plugin:sync` once the version is on npm.
     expect(pluginText).toBe(serializeJson(plugin));
     expect(mcpText).toBe(serializeJson(JSON.parse(mcpText)));
+    expect(pluginPackageText).toBe(serializeJson(pluginPackageJson(pluginPackage)));
   });
 
-  test('scripts/sync-claude-plugin.js pins both files to the package.json version', () => {
-    const synced = syncedMcpConfig(JSON.parse(mcpText)).mcpServers['dav-mcp'];
+  test('scripts/sync-claude-plugin.js writes the package.json version by default', () => {
     expect(syncedPlugin(plugin).version).toBe(packageJson.version);
-    expect(synced.args).toEqual(['-y', `${packageJson.name}@${packageJson.version}`]);
+    expect(syncedPlugin(plugin, '1.2.3').version).toBe('1.2.3');
   });
 
-  // The pin trails package.json between a release pull request and the
-  // publish (CONTRIBUTING.md, Releases); `plugin-pin` in CI checks that the
-  // pinned version is on npm.
-  test('starts the npm package pinned to an exact release no newer than package.json', () => {
-    expect(server.command).toBe('npx');
-    expect(server.args).toEqual(['-y', `${packageJson.name}@${plugin.version}`]);
+  // The plugin trails package.json between a release pull request and the
+  // publish (CONTRIBUTING.md, Releases).
+  test('carries one exact release, no newer than package.json, in plugin.json, package.json and the lockfile', () => {
     expect(plugin.version).toMatch(/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/);
     expect(compareVersions(plugin.version, packageJson.version)).toBeLessThanOrEqual(0);
+    expect({ name: pluginPackage.name, version: pluginPackage.version })
+      .toEqual({ name: packageJson.name, version: plugin.version });
+    expect({ name: lock.name, version: lock.version, root: lock.packages[''].version })
+      .toEqual({ name: packageJson.name, version: plugin.version, root: plugin.version });
+  });
+});
+
+describe('Claude plugin server', () => {
+  // A file in the plugin started with plain arguments: the directory reads
+  // that form, and a package launcher (npx) is held as unreadable.
+  test('starts the bundled source with node', () => {
+    expect(server.command).toBe('node');
+    expect(server.args).toEqual([SERVER_ENTRY]);
+    const entry = SERVER_ENTRY.replace('${CLAUDE_PLUGIN_ROOT}', pluginDir);
+    expect(statSync(entry).isFile()).toBe(true);
+  });
+
+  test('declares the runtime dependencies of the release and nothing that runs at install', () => {
+    expect(pluginPackage.private).toBe(true);
+    expect(pluginPackage.type).toBe('module');
+    // Claude Code installs nothing for a package.json with overrides.
+    for (const field of ['scripts', 'overrides', 'bin', 'bundleDependencies', 'devDependencies']) {
+      expect({ field, present: field in pluginPackage }).toEqual({ field, present: false });
+    }
+  });
+
+  // What Claude Code accepts for its automatic `npm ci --ignore-scripts`
+  // (code.claude.com/docs/en/plugins/loading, Node.js package dependencies).
+  test('locks every dependency to an exact registry download with a hash', () => {
+    expect([2, 3]).toContain(lock.lockfileVersion);
+    expect(lock.packages[''].dependencies).toEqual(pluginPackage.dependencies);
+    expect(lockedPackages.length).toBeGreaterThan(0);
+    for (const [path, meta] of lockedPackages) {
+      expect({ path, link: meta.link === true }).toEqual({ path, link: false });
+      expect({ path, version: meta.version }).toEqual({ path, version: expect.stringMatching(/^\d+\.\d+\.\d+/) });
+      expect({ path, resolved: meta.resolved }).toEqual({ path, resolved: expect.stringMatching(new RegExp(`^${REGISTRY}`)) });
+      expect({ path, integrity: meta.integrity }).toEqual({ path, integrity: expect.stringMatching(/^sha512-/) });
+    }
+  });
+
+  // --ignore-scripts skips install scripts; a dependency that needs one would
+  // install but not work.
+  test('needs no install scripts and no dev dependencies', () => {
+    expect(lockedPackages.filter(([, meta]) => meta.hasInstallScript).map(([path]) => path)).toEqual([]);
+    expect(lockedPackages.filter(([, meta]) => meta.dev).map(([path]) => path)).toEqual([]);
+  });
+
+  test('bundles the source of every module the server imports', () => {
+    const bundled = filesIn(pluginSrcDir).map(path => relative(pluginSrcDir, path));
+    expect(bundled).toContain('server-stdio.js');
+    for (const file of bundled.filter(f => f.endsWith('.js'))) {
+      const source = readFileSync(join(pluginSrcDir, file), 'utf8');
+      for (const [, specifier] of source.matchAll(/(?:\bfrom|\bimport\(?)\s*['"](\.{1,2}\/[^'"]+)['"]/g)) {
+        const target = relative(pluginSrcDir, join(pluginSrcDir, file, '..', specifier));
+        expect({ file, specifier, bundled: bundled.includes(target) }).toEqual({ file, specifier, bundled: true });
+      }
+    }
   });
 });
 
@@ -131,14 +195,23 @@ describe('Claude plugin folder', () => {
     expect(readFileSync(join(pluginDir, 'LICENSE'), 'utf8')).toBe(read('LICENSE'));
   });
 
-  test('holds only text and images under 256 KiB, no package-manager files', () => {
+  // Past either limit the directory does not read the files and holds the
+  // version (pre-submission checklist, Files in the plugin folder).
+  test('holds at most 512 files, only readable text and images under 256 KiB', () => {
+    expect(pluginFiles.length).toBeLessThanOrEqual(512);
     for (const file of pluginFiles) {
-      expect({ file, ok: /\.(md|json|png|svg)$|(^|\/)LICENSE$/.test(file) }).toEqual({ file, ok: true });
+      expect({ file, ok: /\.(md|json|js|png|svg)$|(^|\/)LICENSE$/.test(file) }).toEqual({ file, ok: true });
       expect({ file, ok: statSync(join(pluginDir, file)).size < 256 * 1024 }).toEqual({ file, ok: true });
     }
-    // a launcher next to a registry config or lockfile blocks the submission
-    const forbidden = pluginFiles.filter(f => /(^|\/)(\.npmrc|package(-lock)?\.json|npm-shrinkwrap\.json|bun\.lockb?|\.DS_Store)$/.test(f));
-    expect(forbidden).toEqual([]);
+  });
+
+  // One npm lockfile at the plugin root and nothing that could change where
+  // packages come from: a registry config next to an install is held, and
+  // Claude Code picks bun.lock or npm-shrinkwrap.json over package-lock.json.
+  test('installs only from package.json and package-lock.json at its root', () => {
+    const packageFiles = pluginFiles.filter(f => /(^|\/)(package(-lock)?\.json|npm-shrinkwrap\.json|bun\.lockb?|yarn\.lock|pnpm-lock\.yaml|\.npmrc|\.yarnrc(\.yml)?|bunfig\.toml)$/.test(f));
+    expect(packageFiles.sort()).toEqual(['package-lock.json', 'package.json']);
+    expect(pluginFiles.filter(f => /(^|\/)\.DS_Store$/.test(f))).toEqual([]);
   });
 
   test('every skill has front matter with a name and a one-line description', () => {

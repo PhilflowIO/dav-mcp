@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- The Claude plugin carries the dav-mcp server's source and a lockfile instead
+  of starting `npx -y dav-mcp@<version>` (#149). The Claude directory could not
+  read a package that npm downloads on the user's machine and held the
+  plugin as "not fully checked". `claude-plugin/src/` is the published
+  release's `src/`, Claude Code installs the dependencies from
+  `claude-plugin/package-lock.json` (registry only, exact versions, hashes,
+  no install scripts) and starts the server with `node`. `npm run
+  plugin:sync` copies a published release into the plugin; CI checks that the
+  copy matches npm and that the plugin installs and starts as Claude Code runs
+  it.
 - CI pulls its container images (Node, distroless, Python, BuildKit, QEMU)
   only from a private mirror on ghcr.io, logged in, instead of anonymously
   from rate-limited public registries; the Dockerfile still builds from the

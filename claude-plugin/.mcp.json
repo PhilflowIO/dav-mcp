@@ -1,10 +1,9 @@
 {
   "mcpServers": {
     "dav-mcp": {
-      "command": "npx",
+      "command": "node",
       "args": [
-        "-y",
-        "dav-mcp@5.0.0"
+        "${CLAUDE_PLUGIN_ROOT}/src/server-stdio.js"
       ],
       "env": {
         "CALDAV_SERVER_URL": "${user_config.server_url}",

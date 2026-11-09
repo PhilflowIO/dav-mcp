@@ -25,11 +25,13 @@ logs/
 .DS_Store
 Thumbs.db
 
-# Test files (optional - behalte Testscripts wenn du willst)
-test-*.js
-debug-*.js
-cleanup.js
-full-test.js
+# Scratch scripts in the repository root. Anchored with "/": unanchored,
+# create-*.js also ignored src/tools/*/create-*.js wherever src/ is copied,
+# and the Claude plugin's copy lost three tools.
+/test-*.js
+/debug-*.js
+/cleanup.js
+/full-test.js
 
 # tsdav library (npm dependency)
 tsdav/
@@ -48,8 +50,8 @@ tests/integration/test-results-*.json
 tests/integration/test-report-*.html
 tests/integration/*-test-cases.json
 tests/integration/run-*.js
-comprehensive-test-fixed.js
-create-*.js
+/comprehensive-test-fixed.js
+/create-*.js
 known_bugs.md
 start-with-logging.sh
 

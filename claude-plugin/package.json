@@ -1,0 +1,23 @@
+{
+  "name": "dav-mcp",
+  "version": "5.0.0",
+  "private": true,
+  "description": "Dependencies of the dav-mcp server inside the Claude plugin. Written by `npm run plugin:sync`; do not edit.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.7.0",
+    "ical.js": "^2.2.1",
+    "tsdav": "npm:@philflow/tsdav@2.5.0",
+    "tsdav-utils": "npm:@philflow/tsdav-utils@0.7.0",
+    "xml-js": "1.6.11",
+    "zod": "^3.25.76"
+  }
+}

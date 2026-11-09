@@ -1,57 +1,88 @@
 #!/usr/bin/env node
 /**
- * Write the version of the Claude plugin (claude-plugin/).
+ * Put a published dav-mcp release into the Claude plugin (claude-plugin/).
  *
- * The plugin starts the published npm package pinned to an exact version
- * (`npx -y dav-mcp@<version>`): the Claude directory refuses an unpinned
- * launcher. That version, and the plugin's own `version`, are taken from
- * package.json, so this script writes both from it.
+ * The plugin carries the server's readable source and a lockfile instead of
+ * downloading the package at start (`npx -y dav-mcp@<version>`): the Claude
+ * directory's scan cannot read a package that npm fetches on the user's
+ * machine, and held every version as "not fully checked" (#149). Now:
  *
- * Run it after the release workflow has published that version to npm, not
- * in the release pull request. The Claude directory follows `main`, and the
- * release workflow only publishes a version that is already on `main`, so
- * the plugin on `main` keeps the previous published version until then
- * (CONTRIBUTING.md, Releases). __tests__/claude-plugin.test.js checks that
- * the pin is consistent and no newer than package.json; the `plugin-pin` CI
- * job checks that it is on npm.
+ *   - claude-plugin/src/ is the `src/` of the dav-mcp tarball that npm serves
+ *     for the version, byte for byte, so the plugin runs exactly what was
+ *     published with provenance, and the directory can read all of it.
+ *   - claude-plugin/package.json declares that release's runtime
+ *     dependencies, and claude-plugin/package-lock.json pins them with
+ *     registry URLs and hashes. Claude Code installs them itself, with
+ *     `npm ci --ignore-scripts`, when it copies the plugin into its cache.
+ *   - claude-plugin/.mcp.json starts `node ${CLAUDE_PLUGIN_ROOT}/src/server-stdio.js`.
+ *
+ * The version is taken from package.json. Run this after the release workflow
+ * has published that version to npm, not in the release pull request
+ * (CONTRIBUTING.md, Releases): it reads the published tarball, so it fails for
+ * a version that is not on npm yet. __tests__/claude-plugin.test.js checks the
+ * files are consistent; the `claude-plugin` CI job checks that src/ equals the
+ * published tarball and that the plugin installs and starts.
  *
  * Usage: npm run plugin:sync
  */
 
-import { readFileSync, writeFileSync } from 'fs';
+import { execFileSync } from 'child_process';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { fileURLToPath } from 'url';
 
 const root = new URL('../', import.meta.url);
-export const pluginJsonPath = fileURLToPath(new URL('claude-plugin/.claude-plugin/plugin.json', root));
-export const mcpJsonPath = fileURLToPath(new URL('claude-plugin/.mcp.json', root));
+export const pluginDir = fileURLToPath(new URL('claude-plugin/', root));
+export const pluginJsonPath = join(pluginDir, '.claude-plugin', 'plugin.json');
+export const mcpJsonPath = join(pluginDir, '.mcp.json');
+export const pluginPackagePath = join(pluginDir, 'package.json');
+export const pluginLockPath = join(pluginDir, 'package-lock.json');
+export const pluginSrcDir = join(pluginDir, 'src');
+
+/** The registry every locked package must come from. */
+export const REGISTRY = 'https://registry.npmjs.org/';
+
+/** How .mcp.json starts the server, relative to the plugin's install directory. */
+export const SERVER_ENTRY = '${CLAUDE_PLUGIN_ROOT}/src/server-stdio.js';
 
 const packageVersion = () =>
   JSON.parse(readFileSync(new URL('package.json', root), 'utf8')).version;
 
 /**
- * plugin.json with its version taken from package.json.
+ * plugin.json with its version set.
  *
  * @param {Object} plugin - Parsed plugin.json
+ * @param {string} [version] - Defaults to the package.json version
  * @returns {Object}
  */
-export function syncedPlugin(plugin) {
-  return { ...plugin, version: packageVersion() };
+export function syncedPlugin(plugin, version = packageVersion()) {
+  return { ...plugin, version };
 }
 
 /**
- * .mcp.json with the dav-mcp server pinned to the package.json version.
+ * The plugin's package.json, derived from the published package.json of the
+ * release it carries.
  *
- * @param {Object} mcp - Parsed .mcp.json
+ * Only what Node and the dependency install read: `name` and `version`
+ * (src/server-info.js reports them to MCP clients), `type` (src/ is ES
+ * modules), `engines` and the runtime `dependencies`. No scripts, no `bin`, no
+ * `overrides`: Claude Code installs nothing from a package.json that sets
+ * overrides.
+ *
+ * @param {Object} published - package.json from the dav-mcp tarball
  * @returns {Object}
  */
-export function syncedMcpConfig(mcp) {
-  const server = mcp.mcpServers['dav-mcp'];
+export function pluginPackageJson(published) {
   return {
-    ...mcp,
-    mcpServers: {
-      ...mcp.mcpServers,
-      'dav-mcp': { ...server, args: ['-y', `dav-mcp@${packageVersion()}`] },
-    },
+    name: published.name,
+    version: published.version,
+    private: true,
+    description: 'Dependencies of the dav-mcp server inside the Claude plugin. Written by `npm run plugin:sync`; do not edit.',
+    license: published.license,
+    type: published.type,
+    engines: published.engines,
+    dependencies: published.dependencies,
   };
 }
 
@@ -103,10 +134,63 @@ export function serializeJson(value) {
   return JSON.stringify(value, null, 2) + '\n';
 }
 
+// npm with the public registry and none of the user's npm config: a scoped
+// registry or auth line in ~/.npmrc (which --registry does not override)
+// would otherwise change where packages are locked from.
+const npm = (args, cwd, emptyConfig) => execFileSync('npm', [
+  ...args, `--registry=${REGISTRY}`, `--userconfig=${emptyConfig}`, '--ignore-scripts', '--no-audit', '--no-fund',
+], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] });
+
+/**
+ * Download and unpack the published tarball of dav-mcp@<version>.
+ * npm checks it against the registry's integrity hash.
+ *
+ * @param {string} version
+ * @param {string} workDir
+ * @param {string} emptyConfig - an empty npmrc, see `npm` above
+ * @returns {string} the unpacked package directory
+ */
+export function fetchRelease(version, workDir, emptyConfig) {
+  const [{ filename }] = JSON.parse(npm(['pack', `dav-mcp@${version}`, '--json', '--pack-destination', workDir], workDir, emptyConfig));
+  execFileSync('tar', ['-xzf', join(workDir, filename), '-C', workDir]);
+  return join(workDir, 'package');
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const plugin = syncedPlugin(JSON.parse(readFileSync(pluginJsonPath, 'utf8')));
-  const mcp = syncedMcpConfig(JSON.parse(readFileSync(mcpJsonPath, 'utf8')));
-  writeFileSync(pluginJsonPath, serializeJson(plugin));
-  writeFileSync(mcpJsonPath, serializeJson(mcp));
-  console.log(`claude-plugin: version ${plugin.version}, server ${mcp.mcpServers['dav-mcp'].args.join(' ')}`);
+  const version = packageVersion();
+  // A prerelease goes to the dist-tag `next`; the plugin carries only what
+  // `latest` serves (CONTRIBUTING.md, Releases).
+  if (!/^\d+\.\d+\.\d+$/.test(version)) {
+    console.error(`package.json has ${version}; the plugin carries stable releases only`);
+    process.exit(1);
+  }
+
+  // Everything is built in a work directory and only moved into
+  // claude-plugin/ once npm has succeeded, so a failed run leaves the plugin
+  // as it was.
+  const work = mkdtempSync(join(tmpdir(), 'dav-mcp-plugin-sync-'));
+  try {
+    const emptyConfig = join(work, 'npmrc');
+    writeFileSync(emptyConfig, '');
+    const release = fetchRelease(version, work, emptyConfig);
+    const published = JSON.parse(readFileSync(join(release, 'package.json'), 'utf8'));
+
+    const staged = join(work, 'staged');
+    mkdirSync(staged);
+    writeFileSync(join(staged, 'package.json'), serializeJson(pluginPackageJson(published)));
+    npm(['install', '--package-lock-only'], staged, emptyConfig);
+
+    const plugin = syncedPlugin(JSON.parse(readFileSync(pluginJsonPath, 'utf8')), version);
+
+    rmSync(pluginSrcDir, { recursive: true, force: true });
+    cpSync(join(release, 'src'), pluginSrcDir, { recursive: true });
+    cpSync(join(staged, 'package.json'), pluginPackagePath);
+    cpSync(join(staged, 'package-lock.json'), pluginLockPath);
+    writeFileSync(pluginJsonPath, serializeJson(plugin));
+
+    const locked = Object.keys(JSON.parse(readFileSync(pluginLockPath, 'utf8')).packages).length - 1;
+    console.log(`claude-plugin: dav-mcp ${version} source, ${locked} locked packages`);
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
 }

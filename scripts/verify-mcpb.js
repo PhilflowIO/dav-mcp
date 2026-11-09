@@ -17,15 +17,13 @@
  * Usage: node scripts/verify-mcpb.js <unpacked-bundle-dir>
  */
 
-import { spawn } from 'child_process';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'fs';
-import { tmpdir } from 'os';
+import { readdirSync, readFileSync, statSync } from 'fs';
 import { join, relative, resolve, sep } from 'path';
+import { bootServer } from './mcp-boot.js';
 
 const ALLOWED_TOP_LEVEL = ['LICENSE', 'PRIVACY.md', 'README.md', 'manifest.json', 'node_modules', 'package.json', 'src'];
 const REQUIRED = ['manifest.json', 'package.json', 'LICENSE'];
 const SECRET_FILE = /(^|\/)(\.env($|\.)|\.mcpregistry_)/;
-const BOOT_TIMEOUT_MS = 15000;
 
 // Values for the boot check, by user_config key. Settings with a default use it.
 const DUMMY_USER_CONFIG = {
@@ -96,67 +94,11 @@ function substitute(value, bundleDir, manifest) {
 
 function boot(bundleDir, manifest) {
   const { command, args, env } = manifest.server.mcp_config;
-  const childEnv = { PATH: process.env.PATH };
-  for (const [name, value] of Object.entries(env)) {
-    childEnv[name] = substitute(value, bundleDir, manifest);
-  }
-  const cwd = mkdtempSync(join(tmpdir(), 'mcpb-verify-'));
-
-  // The manifest names `node`; run the node that runs this script.
-  const executable = command === 'node' ? process.execPath : command;
-  const child = spawn(executable, args.map(a => substitute(a, bundleDir, manifest)), {
-    cwd,
-    env: childEnv,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
-
-  return new Promise((resolvePromise, reject) => {
-    const responses = new Map();
-    let stdout = '';
-    let stderr = '';
-    let settled = false;
-
-    const finish = (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      child.kill();
-      rmSync(cwd, { recursive: true, force: true });
-      if (error) reject(Object.assign(error, { stderr }));
-      else resolvePromise(responses);
-    };
-    const timer = setTimeout(() => finish(new Error(`no tools/list answer within ${BOOT_TIMEOUT_MS} ms`)), BOOT_TIMEOUT_MS);
-
-    child.stderr.on('data', d => { stderr += d; });
-    child.on('error', finish);
-    child.on('exit', (code) => finish(new Error(`server exited with code ${code} before answering`)));
-    child.stdout.on('data', (data) => {
-      stdout += data;
-      const lines = stdout.split('\n');
-      stdout = lines.pop();
-      for (const line of lines.filter(Boolean)) {
-        let message;
-        try {
-          message = JSON.parse(line);
-        } catch {
-          finish(new Error(`non-JSON line on stdout: ${line.slice(0, 200)}`));
-          return;
-        }
-        responses.set(message.id, message);
-        if (message.id === 1) {
-          child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
-          child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }) + '\n');
-        }
-        if (message.id === 2) finish();
-      }
-    });
-
-    child.stdin.write(JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'initialize',
-      params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'verify-mcpb', version: '1' } },
-    }) + '\n');
+  return bootServer({
+    command,
+    args: args.map(a => substitute(a, bundleDir, manifest)),
+    env: Object.fromEntries(Object.entries(env).map(([name, value]) => [name, substitute(value, bundleDir, manifest)])),
+    clientName: 'verify-mcpb',
   });
 }
 

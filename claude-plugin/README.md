@@ -52,15 +52,18 @@ version for chat is tracked in
 
 ## Requirements
 
-- Claude Code 2.1.271 or newer (the plugin's server runs on your computer)
-- Node.js 22 or newer, with `npx` on your `PATH`
+- Claude Code 2.1.319 or newer (it installs the server's dependencies when it
+  installs or updates the plugin)
+- Node.js 22 or newer, with `node` and `npm` on your `PATH`
 
 ## If it doesn't work
 
 - **No dav-mcp tools appear**: Claude Code could not start the server. Check
-  that `node --version` prints 22 or newer and that `npx` runs in a terminal;
+  that `node --version` prints 22 or newer and that `npm` runs in a terminal;
   install Node.js from [nodejs.org](https://nodejs.org) if not, then restart
-  Claude Code. `/mcp` shows whether the dav-mcp server is connected.
+  Claude Code. `/mcp` shows whether the dav-mcp server is connected. If
+  `/plugin` notes that the plugin's packages are not installed, run
+  `claude plugin update dav-mcp` to retry the install.
 - **Login fails** (tool calls end in an authentication error):
   re-enter username and password in `/plugin` → **Installed** → dav-mcp →
   **Configure options**. iCloud accepts only an
@@ -75,9 +78,12 @@ version for chat is tracked in
 
 ## What runs and where data goes
 
-On first use, the plugin runs `npx -y dav-mcp@<version>`, which downloads that
-exact version of [dav-mcp](https://www.npmjs.com/package/dav-mcp) and its
-dependencies through npm and starts it on your computer. The server connects
+The plugin contains the source code of the dav-mcp server (`src/`), the same
+files as that version of [dav-mcp](https://www.npmjs.com/package/dav-mcp) on
+npm. When you install the plugin, Claude Code downloads the server's
+dependencies from the npm registry, exactly the versions and hashes listed in
+`package-lock.json`, without running any install scripts. Claude Code then
+starts the server on your computer with `node`. The server connects
 only to the DAV server you configured. Results of tool calls go back to Claude
 as part of your conversation. dav-mcp has no
 telemetry and sends nothing to its maintainers or anyone else.
