@@ -24,6 +24,16 @@ your approval.
 
 ## Setup
 
+Install the plugin from its marketplace in Claude Code:
+
+```
+/plugin install dav-mcp --marketplace PhilflowIO/dav-mcp
+```
+
+On Claude Code versions older than 2.1.275, run
+`/plugin marketplace add PhilflowIO/dav-mcp` first and then
+`/plugin install dav-mcp@philflow`.
+
 When you enable the plugin, Claude Code asks for:
 
 | Setting | What to enter |
