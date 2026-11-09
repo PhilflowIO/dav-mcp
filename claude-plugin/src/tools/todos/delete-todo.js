@@ -1,0 +1,49 @@
+import { tsdavManager } from '../../tsdav-client.js';
+import { validateInput, deleteTodoSchema, etagQuotedByUs } from '../../validation.js';
+import { formatSuccess } from '../../formatters.js';
+import { assertDeleted } from '../shared/helpers.js';
+
+/**
+ * Delete a todo/task permanently
+ */
+export const deleteTodo = {
+  name: 'delete_todo',
+  annotations: {
+    title: 'Delete to-do',
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
+  description: 'Permanently delete a todo/task from the calendar. WARNING: This action cannot be undone — the todo is removed from the server immediately. Use only when the user explicitly requests deletion. Obtain the todo URL and etag from list_todos or todo_query first. The etag ensures no conflicting changes occurred since the todo was last retrieved. If the listing shows an etag_note instead of an etag, this todo cannot be deleted with this tool: tell the user what the note says.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      todo_url: {
+        type: 'string',
+        description: 'Full URL of the todo to delete. Obtain from list_todos or todo_query response.',
+      },
+      todo_etag: {
+        type: 'string',
+        description: 'ETag of the todo for conflict detection. Obtain from the same response as the todo URL. Ensures no changes were made since retrieval.',
+      },
+    },
+    required: ['todo_url', 'todo_etag'],
+  },
+  handler: async (args) => {
+    const validated = validateInput(deleteTodoSchema, args);
+    const client = tsdavManager.getCalDavClient();
+
+    const response = await client.deleteTodo({
+      calendarObject: {
+        url: validated.todo_url,
+        etag: validated.todo_etag,
+      },
+    });
+    await assertDeleted(response, 'todo', validated.todo_url, {
+      quotedEtag: etagQuotedByUs(args.todo_etag, validated.todo_etag),
+    });
+
+    return formatSuccess('Todo deleted successfully');
+  },
+};

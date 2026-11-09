@@ -1,0 +1,142 @@
+import { tsdavManager } from '../../tsdav-client.js';
+import { validateInput, davFieldMapSchema, davUrl, entityTag, etagQuotedByUs } from '../../validation.js';
+import { formatSuccess } from '../../formatters.js';
+import { assertDavSuccess, etagAfterWrite, objectNotFoundError } from '../shared/helpers.js';
+import { z } from 'zod';
+import { writeVCardFields } from '../../vcard.js';
+
+/**
+ * Schema for field-based vCard updates
+ * Supports all RFC 6350 vCard properties via tsdav-utils
+ * Common fields: FN, N, EMAIL, TEL, ORG, TITLE, NOTE, URL, ADR
+ * Custom properties: Any X-* property
+ */
+const updateContactFieldsSchema = z.object({
+  vcard_url: davUrl('vCard URL must be a valid URL'),
+  vcard_etag: entityTag,
+  fields: davFieldMapSchema
+}).strict();
+
+/**
+ * Field-agnostic contact update tool powered by tsdav-utils
+ * Supports all RFC 6350 vCard properties without validation
+ *
+ * Features:
+ * - Any standard vCard property (FN, N, EMAIL, TEL, ORG, TITLE, ADR, etc.)
+ * - Custom X-* properties for extensions
+ * - Field-agnostic: no pre-defined field list required
+ */
+export const updateContactFields = {
+  name: 'update_contact',
+  annotations: {
+    title: 'Update contact fields',
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
+  description: 'PREFERRED: Update contact fields without vCard formatting. Supports: FN (full name), N (structured name), EMAIL, TEL (phone), ORG (organization), TITLE (job title), NOTE, URL, ADR (address), BDAY (birthday), and any RFC 6350 vCard property including custom X-* properties.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      vcard_url: {
+        type: 'string',
+        description: 'The URL of the vCard to update'
+      },
+      vcard_etag: {
+        type: 'string',
+        description: 'The etag of the vCard (required for conflict detection)'
+      },
+      fields: {
+        type: 'object',
+        description: 'Fields to update, keyed by bare UPPERCASE property name (e.g., FN, EMAIL, TEL). Any RFC 6350 vCard property or custom X-* property is supported. Property parameters such as "TEL;TYPE=CELL" are not accepted here, and values must not contain line breaks.',
+        additionalProperties: {
+          type: 'string'
+        },
+        properties: {
+          FN: {
+            type: 'string',
+            description: 'Full formatted name (e.g., "John Doe")'
+          },
+          N: {
+            type: 'string',
+            description: 'Structured name (format: "Family;Given;Additional;Prefix;Suffix")'
+          },
+          EMAIL: {
+            type: 'string',
+            description: 'Email address'
+          },
+          TEL: {
+            type: 'string',
+            description: 'Phone number'
+          },
+          ORG: {
+            type: 'string',
+            description: 'Organization/company name'
+          },
+          TITLE: {
+            type: 'string',
+            description: 'Job title'
+          },
+          NOTE: {
+            type: 'string',
+            description: 'Notes/comments'
+          },
+          URL: {
+            type: 'string',
+            description: 'Web URL'
+          },
+          ADR: {
+            type: 'string',
+            description: 'Address (format: "POBox;Extended;Street;City;Region;PostalCode;Country")'
+          },
+          BDAY: {
+            type: 'string',
+            description: 'Birthday (ISO 8601 format: 1990-01-01)'
+          }
+        }
+      }
+    },
+    required: ['vcard_url', 'vcard_etag']
+  },
+  handler: async (args) => {
+    const validated = validateInput(updateContactFieldsSchema, args);
+    const client = tsdavManager.getCardDavClient();
+
+    // Step 1: Fetch the current vCard from server
+    const addressBookUrl = validated.vcard_url.substring(0, validated.vcard_url.lastIndexOf('/') + 1);
+    const currentVCards = await client.fetchVCards({
+      addressBook: { url: addressBookUrl },
+      objectUrls: [validated.vcard_url]
+    });
+
+    if (!currentVCards || currentVCards.length === 0) {
+      throw objectNotFoundError('vcard_url', validated.vcard_url, 'contact', 'addressbook_query or list_contacts');
+    }
+
+    const vCardObject = currentVCards[0];
+
+    // Step 2: Update fields using tsdav-utils (field-agnostic), on the card
+    // as dav-mcp reads it. Accepts any RFC 6350 vCard property name (UPPERCASE)
+    const updatedData = writeVCardFields(vCardObject, validated.fields || {});
+
+    // Step 3: Send the updated vCard back to server
+    const updateResponse = await client.updateVCard({
+      vCard: {
+        url: validated.vcard_url,
+        data: updatedData,
+        etag: validated.vcard_etag
+      }
+    });
+    await assertDavSuccess(updateResponse, `update contact ${validated.vcard_url}`, {
+      quotedEtag: etagQuotedByUs(args.vcard_etag, validated.vcard_etag),
+      callerContent: { noun: 'contact', fix: 'Correct the values in fields and send them again.' },
+    });
+
+    return formatSuccess('Contact updated successfully', {
+      ...etagAfterWrite(updateResponse),
+      updated_fields: Object.keys(validated.fields || {}),
+      message: `Updated ${Object.keys(validated.fields || {}).length} field(s): ${Object.keys(validated.fields || {}).join(', ')}`
+    });
+  }
+};

@@ -139,9 +139,10 @@ The version lives in `package.json`; four other files repeat it.
    `npm run mcpb:sync` (writes it into `manifest.json`), and turn
    `## [Unreleased]` in `CHANGELOG.md` into `## [<version>] - <date>`; that
    section becomes the release notes. Do **not** run `npm run plugin:sync`
-   yet: the Claude directory follows `main` and the plugin there starts
-   `npx -y dav-mcp@<version>`, so it may only point at a version that is
-   already on npm. CI (`plugin-pin` in `test.yml`) fails while it doesn't.
+   yet: the Claude directory follows `main`, and the plugin there carries the
+   source of a published release, copied from npm. Before the publish there
+   is nothing to copy, and CI (`claude-plugin` in `test.yml`) fails for a
+   plugin whose source differs from what npm serves for its version.
 2. Merge the pull request, then tag the merge commit on `main` and push the
    tag:
 
@@ -157,11 +158,14 @@ The version lives in `package.json`; four other files repeat it.
    prerelease (`-rc.1`) goes to the npm dist-tag `next` and does not move the
    image's `latest`.
 3. Approve the `npm-publish` deployment when the run asks for it.
-4. Once the run is green, pin the Claude plugin to the new version in a
-   pull request: `npm run plugin:sync`, commit `claude-plugin/`. Until then
-   the daily `plugin-pin-current.yml` run fails, because the pin is older
-   than npm's `latest`. A prerelease does not move `latest` and needs no
-   pin. GitHub disables scheduled workflows in a public repository after
+4. Once the run is green, move the Claude plugin to the new version in a
+   pull request: `npm run plugin:sync`, commit `claude-plugin/`. The script
+   copies `src/` from the published tarball into `claude-plugin/src/`, writes
+   the release's dependencies into `claude-plugin/package.json` and locks
+   them in `claude-plugin/package-lock.json`; Claude Code installs from that
+   lockfile. Until then the daily `plugin-pin-current.yml` run fails, because
+   the plugin carries a version older than npm's `latest`. A prerelease does
+   not move `latest` and stays out of the plugin. GitHub disables scheduled workflows in a public repository after
    60 days without repository activity
    ([docs](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule));
    after a quiet stretch, check that it is still enabled under Actions, or
