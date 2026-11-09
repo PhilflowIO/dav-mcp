@@ -10,6 +10,12 @@ on:
   schedule:
     - cron: '23 5 * * 1'
 
+# `shell: bash` runs every step with -e and -o pipefail; the default runs
+# without pipefail, so `$(cmd | tail -1) || handler` never saw cmd fail.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   test:
     if: github.event_name != 'schedule'
@@ -134,7 +140,7 @@ jobs:
         run: |
           VERSION=$(node -p 'require("./claude-plugin/.claude-plugin/plugin.json").version')
           cd "$RUNNER_TEMP"
-          TARBALL=$(npm pack "dav-mcp@$VERSION" --registry=https://registry.npmjs.org/ --ignore-scripts 2>/dev/null | tail -1) \
+          TARBALL=$(npm pack "dav-mcp@$VERSION" --registry=https://registry.npmjs.org/ --ignore-scripts | tail -1) \
             || { echo "::error::dav-mcp@$VERSION is not on npm; publish it before the plugin carries it"; exit 1; }
           tar -xzf "$TARBALL"
           cd "$GITHUB_WORKSPACE"
