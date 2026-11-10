@@ -9,9 +9,6 @@
         "CALDAV_SERVER_URL": "${user_config.server_url}",
         "CALDAV_USERNAME": "${user_config.username}",
         "CALDAV_PASSWORD": "${user_config.password}",
-        "CARDDAV_SERVER_URL": "${user_config.carddav_server_url}",
-        "CARDDAV_USERNAME": "${user_config.carddav_username}",
-        "CARDDAV_PASSWORD": "${user_config.carddav_password}",
         "AUTH_METHOD": "${user_config.auth_method}"
       }
     }
