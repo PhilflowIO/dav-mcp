@@ -209,8 +209,8 @@ class TsdavClientManager {
       // The account the server described (root, principal, calendar and
       // address book home) is where its collections live, e.g. on a
       // per-account host.
-      origins.trustAccount(clients.calDavClient.account);
-      origins.trustAccount(clients.cardDavClient.account);
+      origins.trustAccount(clients.calDavClient?.account);
+      origins.trustAccount(clients.cardDavClient?.account);
       origins.endDiscovery();
 
       // Tools only see clients that have finished logging in; until then the
@@ -223,9 +223,14 @@ class TsdavClientManager {
       // "configured", not "used": under Basic tsdav switches to Digest when
       // the server offers nothing else, and does not expose which scheme it
       // ended up with. Logging authMethod: Basic there read as a wrong fact.
+      const availableAccountTypes = [
+        this.calDavClient ? 'caldav' : null,
+        this.cardDavClient ? 'carddav' : null,
+      ].filter(Boolean);
       logger.info({
         serverUrl: config.serverUrl,
         configuredAuthMethod: this.authMethod,
+        availableAccountTypes,
         ...(this.authMethod === 'Basic' && { note: 'Digest is used instead if the server only offers Digest' }),
       }, 'tsdav clients initialized and logged in');
     } catch (cause) {
@@ -246,7 +251,9 @@ class TsdavClientManager {
    * @param {'Basic'|'Digest'} authMethod - tsdav auth method
    * @param {RequestOrigins} origins - where the clients may send requests
    * @param {LoginAnswers} answers - records what the server answers
-   * @returns {Promise<{calDavClient: DAVClient, cardDavClient: DAVClient}>} logged-in clients
+   * @returns {Promise<{calDavClient: DAVClient|null, cardDavClient: DAVClient|null}>}
+   *   the halves that logged in; a half the server does not serve is null
+   *   (only when both fail does the login throw — see the method comment)
    */
   async _initializePasswordAuth(config, authMethod, origins, answers) {
     // Validate required fields
@@ -276,14 +283,35 @@ class TsdavClientManager {
       defaultAccountType: 'carddav',
     }, origins, answers);
 
-    // Login to both clients
-    await calDavClient.login();
-    logger.debug({ accountType: 'caldav' }, `CalDAV client logged in (${authMethod} Auth configured)`);
+    // Login to both clients. Either half may be the only one a server
+    // supports (iCloud keeps calendars on caldav.icloud.com and contacts
+    // on contacts.icloud.com, each with the other's home set empty), so a
+    // failed half is tolerated as long as the other logs in — mirroring
+    // _initializeOAuth's treatment of Google's missing CardDAV. The failed
+    // half comes back null; only when both fail is the first (CalDAV)
+    // error rethrown, preserving the previous error and ordering.
+    const loginAttempts = [
+      ['CalDAV', calDavClient],
+      ['CardDAV', cardDavClient],
+    ];
+    const failures = [];
+    for (const [accountType, client] of loginAttempts) {
+      try {
+        await client.login();
+        logger.debug({ accountType }, `${accountType} client logged in (${authMethod} Auth configured)`);
+      } catch (error) {
+        failures.push({ accountType, error });
+        logger.warn({ accountType, error: error.message }, `${accountType} login failed (server may not serve this account type)`);
+      }
+    }
+    if (failures.length === loginAttempts.length) {
+      throw failures[0].error;
+    }
 
-    await cardDavClient.login();
-    logger.debug({ accountType: 'carddav' }, `CardDAV client logged in (${authMethod} Auth configured)`);
-
-    return { calDavClient, cardDavClient };
+    return {
+      calDavClient: failures.some(f => f.accountType === 'CalDAV') ? null : calDavClient,
+      cardDavClient: failures.some(f => f.accountType === 'CardDAV') ? null : cardDavClient,
+    };
   }
 
   /**
