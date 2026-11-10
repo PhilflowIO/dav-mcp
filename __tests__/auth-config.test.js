@@ -151,6 +151,11 @@ describe('buildTsdavConfig', () => {
       expect(password).toBe('pass');
     });
 
+    test('a whitespace-only URL counts as unset, not as an endpoint of its own', () => {
+      const { serverUrl } = buildTsdavConfig({ ...PASSWORD_ENV, CARDDAV_SERVER_URL: '   ' }).cardDav;
+      expect(serverUrl).toBe('https://dav.example.com/');
+    });
+
     test('OAuth ignores CARDDAV_*: Google has one server', () => {
       const config = buildTsdavConfig({ ...OAUTH_ENV, ...splitEnv, AUTH_METHOD: 'OAuth' });
       expect(config).not.toHaveProperty('cardDav');
@@ -218,6 +223,9 @@ describe('tsdavManager.initialize', () => {
     await tsdavManager.initialize(buildTsdavConfig(PASSWORD_ENV));
     let done = logged.find(entry => entry.message === 'tsdav clients initialized and logged in');
     expect(done.fields).not.toHaveProperty('cardDavServerUrl');
+    // one endpoint serving both services is one shared policy
+    let restricted = logged.find(entry => entry.message === 'Requests are restricted to these URLs and below');
+    expect(restricted.fields.allowedPrefixes).toEqual(['https://dav.example.com/']);
 
     logged.length = 0;
     await tsdavManager.initialize(buildTsdavConfig({
@@ -226,6 +234,8 @@ describe('tsdavManager.initialize', () => {
     }));
     done = logged.find(entry => entry.message === 'tsdav clients initialized and logged in');
     expect(done.fields.cardDavServerUrl).toBe('https://card.example.com/');
+    restricted = logged.find(entry => entry.message === 'Requests are restricted to these URLs and below');
+    expect(restricted.fields.allowedPrefixes).toEqual(['https://dav.example.com/', 'https://card.example.com/']);
   });
 
   test('logs the method as configured, since Basic may end up as Digest on the wire', async () => {

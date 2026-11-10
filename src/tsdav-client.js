@@ -224,10 +224,14 @@ class TsdavClientManager {
     const answers = new LoginAnswers();
     const useOAuth = this.authMethod === 'OAuth' || this.authMethod === 'Oauth';
     const tokenUrl = useOAuth ? (config.tokenUrl || DEFAULT_OAUTH_TOKEN_URL) : undefined;
-    // Set when CARDDAV_SERVER_URL points the contacts client elsewhere; logs
-    // and login errors then tell the two endpoints apart.
+    // Set when CARDDAV_* points the contacts client elsewhere: logs and login
+    // errors then tell the two endpoints apart, and the failing half of a
+    // split setup is named even when only its credentials differ.
     const cardDavServerUrl = config.cardDav?.serverUrl;
     const splitServer = Boolean(cardDavServerUrl) && cardDavServerUrl !== config.serverUrl;
+    const splitConfig = splitServer ||
+      (config.cardDav?.username !== undefined && config.cardDav.username !== config.username) ||
+      (config.cardDav?.password !== undefined && config.cardDav.password !== config.password);
 
     try {
 
@@ -235,37 +239,56 @@ class TsdavClientManager {
         throw new ConfigurationError(`Unsupported authMethod '${this.authMethod}'. Use Basic, Digest or OAuth.`);
       }
 
-      // A fresh policy per login: the clients built here may reach the
-      // configured server (or both of them), what a login redirects to and
-      // the account it describes; their token requests only the OAuth token
-      // endpoint (see request-origins.js).
-      const origins = new RequestOrigins({ serverUrl: config.serverUrl, cardDavServerUrl, tokenUrl });
+      // A fresh policy per login: the clients built here may reach their
+      // configured server, what a login redirects to and the account it
+      // describes; their token requests only the OAuth token endpoint (see
+      // request-origins.js). Each client keeps its own policy, so a separate
+      // CardDAV endpoint never sees the calendar login or the other way
+      // round; one endpoint serving both services is one shared policy, as
+      // before. The names make configuration errors point at the setting
+      // that caused them.
+      const calOrigins = new RequestOrigins({
+        serverUrl: config.serverUrl,
+        tokenUrl,
+        ...(useOAuth
+          ? { serverUrlName: 'GOOGLE_SERVER_URL', serverCredentials: 'GOOGLE_USER' }
+          : splitServer ? { serverUrlName: 'CALDAV_SERVER_URL' } : {}),
+      });
+      const cardOrigins = splitServer
+        ? new RequestOrigins({ serverUrl: cardDavServerUrl, serverUrlName: 'CARDDAV_SERVER_URL' })
+        : calOrigins;
 
       let clients;
       if (useOAuth) {
         logger.info({ serverUrl: config.serverUrl }, 'Initializing tsdav clients with OAuth2');
-        clients = await this._initializeOAuth({ ...config, tokenUrl }, origins, answers);
+        clients = await this._initializeOAuth({ ...config, tokenUrl }, calOrigins, answers);
       } else {
         logger.info({
           serverUrl: config.serverUrl,
           ...(splitServer && { cardDavServerUrl }),
         }, `Initializing tsdav clients, ${this.authMethod} Auth configured`);
-        clients = await this._initializePasswordAuth(config, this.authMethod, origins);
+        clients = await this._initializePasswordAuth(config, this.authMethod, calOrigins, cardOrigins);
       }
 
       // The account each server described (root, principal, calendar and
       // address book home) is where its collections live, e.g. on a
       // per-account host.
-      origins.trustAccount(clients.calDavClient.account);
-      origins.trustAccount(clients.cardDavClient.account);
-      origins.endDiscovery();
+      calOrigins.trustAccount(clients.calDavClient.account);
+      cardOrigins.trustAccount(clients.cardDavClient.account);
+      calOrigins.endDiscovery();
+      cardOrigins.endDiscovery();
 
       // Tools only see clients that have finished logging in; until then the
-      // previous clients and their policy stay in place.
-      activateRequestOrigins(origins);
+      // previous clients and their policy stay in place. The tool schemas
+      // accept a URL inside either account; each client's own policy still
+      // keeps its requests on its own endpoint.
+      activateRequestOrigins(cardOrigins === calOrigins ? calOrigins : [calOrigins, cardOrigins]);
       this.calDavClient = clients.calDavClient;
       this.cardDavClient = clients.cardDavClient;
-      logger.info({ allowedPrefixes: origins.allowedPrefixes() }, 'Requests are restricted to these URLs and below');
+      const allowedPrefixes = cardOrigins === calOrigins
+        ? calOrigins.allowedPrefixes()
+        : [...calOrigins.allowedPrefixes(), ...cardOrigins.allowedPrefixes()];
+      logger.info({ allowedPrefixes }, 'Requests are restricted to these URLs and below');
 
       // "configured", not "used": under Basic tsdav switches to Digest when
       // the server offers nothing else, and does not expose which scheme it
@@ -279,11 +302,11 @@ class TsdavClientManager {
     } catch (cause) {
       let error;
       if (cause instanceof LoginFailure) {
-        // Without its own endpoint the two logins are told apart by the URL
-        // alone, as before; the label only names a split configuration's
-        // failing half.
+        // Without its own configuration the two logins are told apart by the
+        // URL alone, as before; the label only names a split setup's failing
+        // half.
         error = loginError(cause.cause, { ...config, serverUrl: cause.serverUrl, tokenUrl }, cause.answers,
-          splitServer ? cause.label : undefined);
+          splitConfig ? cause.label : undefined);
       } else if (cause.name === 'ConfigurationError') {
         error = cause;
       } else {
@@ -301,23 +324,27 @@ class TsdavClientManager {
 
   /**
    * Initialize clients with username/password authentication. Each client has
-   * its own endpoint and credentials: config.cardDav overrides the CalDAV
-   * values for the contacts client, and each client records its own login
-   * answers, so a failure is reported against the settings it used.
+   * its own endpoint, credentials, origin policy and login answers: each
+   * field of config.cardDav overrides its CalDAV counterpart for the contacts
+   * client, so a failure is reported against the settings it used.
    *
    * @private
-   * @param {Object} config - Client configuration, cardDav resolved
+   * @param {Object} config - Client configuration
    * @param {'Basic'|'Digest'} authMethod - tsdav auth method
-   * @param {RequestOrigins} origins - where the clients may send requests
+   * @param {RequestOrigins} calOrigins - where the calendar client may send requests
+   * @param {RequestOrigins} cardOrigins - where the contacts client may send requests
    * @returns {Promise<{calDavClient: DAVClient, cardDavClient: DAVClient}>} logged-in clients
    */
-  async _initializePasswordAuth(config, authMethod, origins) {
+  async _initializePasswordAuth(config, authMethod, calOrigins, cardOrigins) {
     // Validate required fields
     if (!config.username || !config.password) {
       throw new ConfigurationError(`${authMethod} Auth requires username and password`);
     }
-    const card = config.cardDav ||
-      { serverUrl: config.serverUrl, username: config.username, password: config.password };
+    const card = {
+      serverUrl: config.cardDav?.serverUrl || config.serverUrl,
+      username: config.cardDav?.username || config.username,
+      password: config.cardDav?.password || config.password,
+    };
 
     // CalDAV Client
     const calAnswers = new LoginAnswers();
@@ -329,7 +356,7 @@ class TsdavClientManager {
       },
       authMethod,
       defaultAccountType: 'caldav',
-    }, origins, calAnswers);
+    }, calOrigins, calAnswers);
 
     // CardDAV Client
     const cardAnswers = new LoginAnswers();
@@ -341,7 +368,7 @@ class TsdavClientManager {
       },
       authMethod,
       defaultAccountType: 'carddav',
-    }, origins, cardAnswers);
+    }, cardOrigins, cardAnswers);
 
     // Login to both clients. Either failure fails initialization; the error
     // carries the service, its endpoint and its own answers so initialize()
