@@ -267,6 +267,35 @@ describe('a split CardDAV endpoint', () => {
     expect(error.message).toContain('(CalDAV client)');
     expect(error.message).not.toContain('(CardDAV client)');
   });
+
+  // CARDDAV_PASSWORD alone, sharing the CalDAV URL: the failing login is
+  // still the contacts one, so the label must not depend on the URL alone.
+  test('a credentials-only CardDAV override still names the CardDAV client', async () => {
+    const badCardAuth = `Basic ${Buffer.from('alex:also-wrong').toString('base64')}`;
+    respond = async (url, init) => (new Headers(init.headers).get('authorization') === badCardAuth
+      ? refused()
+      : davResponse(url, init));
+
+    const error = await loginError({
+      CALDAV_SERVER_URL: `${CAL_HOST}/`,
+      CALDAV_USERNAME: 'alex',
+      CALDAV_PASSWORD: 'wrong',
+      CARDDAV_PASSWORD: 'also-wrong',
+    });
+
+    expect(error.name).toBe('AuthenticationError');
+    expect(error.message).toContain(CAL_HOST);
+    expect(error.message).toContain('(CardDAV client)');
+  });
+
+  test('a bad GOOGLE_SERVER_URL is reported under its own name, not the CalDAV variable', async () => {
+    const error = await loginError({ ...oauthEnv, GOOGLE_SERVER_URL: 'https://u:p@dav.example.com/' });
+
+    expect(error.name).toBe('ConfigurationError');
+    expect(error.message).toContain('GOOGLE_SERVER_URL');
+    expect(error.message).toContain('GOOGLE_USER');
+    expect(error.message).not.toContain('CALDAV_SERVER_URL');
+  });
 });
 
 // Over stdio the login happens again on the first tool call when it failed

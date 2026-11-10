@@ -326,10 +326,16 @@ class TsdavClientManager {
     const useOAuth = this.authMethod === 'OAuth' || this.authMethod === 'Oauth';
     const tokenUrl = useOAuth ? (config.tokenUrl || DEFAULT_OAUTH_TOKEN_URL) : undefined;
     const loginConfig = { ...config, authMethod: this.authMethod, tokenUrl };
-    // Set when CARDDAV_SERVER_URL points the contacts client elsewhere; logs
-    // and login errors then tell the two endpoints apart.
-    const cardDavServerUrl = useOAuth ? undefined : config.cardDav?.serverUrl;
+    // Set when CARDDAV_* points the contacts client elsewhere: logs and login
+    // errors then tell the two endpoints apart, and the failing half of a
+    // split setup is named even when only its credentials differ. OAuth has
+    // one Google server and ignores them.
+    const cardDav = useOAuth ? undefined : config.cardDav;
+    const cardDavServerUrl = cardDav?.serverUrl;
     const splitServer = Boolean(cardDavServerUrl) && cardDavServerUrl !== config.serverUrl;
+    const splitConfig = splitServer ||
+      (cardDav?.username !== undefined && cardDav.username !== config.username) ||
+      (cardDav?.password !== undefined && cardDav.password !== config.password);
 
     try {
 
@@ -337,15 +343,25 @@ class TsdavClientManager {
         throw new ConfigurationError(`Unsupported authMethod '${this.authMethod}'. Use Basic, Digest or OAuth.`);
       }
 
-      // A fresh policy per login: the clients built here may reach the
-      // configured server, what it redirects the login to and the account it
-      // describes; their token requests only the OAuth token endpoint
-      // (see request-origins.js).
-      const origins = new RequestOrigins({
+      // A fresh policy per login: the clients built here may reach their
+      // configured server, what a login redirects to and the account it
+      // describes; their token requests only the OAuth token endpoint (see
+      // request-origins.js). Each client keeps its own policy, so a separate
+      // CardDAV endpoint never sees the calendar login or the other way
+      // round; one endpoint serving both services is one shared policy, as
+      // before. The names make configuration errors point at the setting
+      // that caused them.
+      const calOrigins = new RequestOrigins({
         serverUrl: config.serverUrl,
-        ...(splitServer && { cardDavServerUrl }),
         tokenUrl,
+        ...(useOAuth
+          ? { serverUrlName: 'GOOGLE_SERVER_URL', serverCredentials: 'GOOGLE_USER' }
+          : splitServer ? { serverUrlName: 'CALDAV_SERVER_URL' } : {}),
       });
+      const cardOrigins = splitServer
+        ? new RequestOrigins({ serverUrl: cardDavServerUrl, serverUrlName: 'CARDDAV_SERVER_URL' })
+        : calOrigins;
+      const origins = { caldav: calOrigins, carddav: cardOrigins };
 
       let clients;
       if (useOAuth) {
@@ -356,23 +372,34 @@ class TsdavClientManager {
           serverUrl: config.serverUrl,
           ...(splitServer && { cardDavServerUrl }),
         }, `Initializing tsdav clients, ${this.authMethod} Auth configured`);
-        clients = await this._initializePasswordAuth({ ...loginConfig, splitServer }, origins);
+        clients = await this._initializePasswordAuth({ ...loginConfig, cardDav, splitConfig }, origins);
       }
 
       // The account each server described (root, principal, calendar and
       // address book home) is where its collections live, e.g. on a
       // per-account host.
-      origins.trustAccount(clients.calDavClient?.account);
-      origins.trustAccount(clients.cardDavClient?.account);
-      origins.endDiscovery();
+      calOrigins.trustAccount(clients.calDavClient?.account);
+      cardOrigins.trustAccount(clients.cardDavClient?.account);
+      calOrigins.endDiscovery();
+      cardOrigins.endDiscovery();
 
       // Tools only see clients that have finished logging in; until then the
-      // previous clients and their policy stay in place.
-      activateRequestOrigins(origins);
+      // previous clients and their policy stay in place. The tool schemas
+      // accept a URL inside the account of any client that logged in, and
+      // only those: a policy whose client is left out (a half the server
+      // does not serve) has no account, so no tool may be handed a URL for
+      // it. Each client's own policy still keeps its requests on its own
+      // endpoint.
+      const policies = [...new Set([
+        clients.calDavClient && calOrigins,
+        clients.cardDavClient && cardOrigins,
+      ].filter(Boolean))];
+      activateRequestOrigins(policies.length === 1 ? policies[0] : policies);
       this.calDavClient = clients.calDavClient;
       this.cardDavClient = clients.cardDavClient;
       this.unserved = clients.unserved;
-      logger.info({ allowedPrefixes: origins.allowedPrefixes() }, 'Requests are restricted to these URLs and below');
+      logger.info({ allowedPrefixes: policies.flatMap(policy => policy.allowedPrefixes()) },
+        'Requests are restricted to these URLs and below');
 
       // "configured", not "used": under Basic tsdav switches to Digest when
       // the server offers nothing else, and does not expose which scheme it
@@ -399,13 +426,14 @@ class TsdavClientManager {
 
   /**
    * Initialize clients with username/password authentication. Each client has
-   * its own endpoint and credentials: config.cardDav overrides the CalDAV
-   * values for the contacts client, and each client records its own login
-   * answers, so a failure is reported against the settings it used.
+   * its own endpoint, credentials, origin policy and login answers: each
+   * field of config.cardDav overrides its CalDAV counterpart for the contacts
+   * client, so a failure is reported against the settings it used.
    *
    * @private
    * @param {Object} config - Client configuration, authMethod 'Basic' or 'Digest'
-   * @param {RequestOrigins} origins - where the clients may send requests
+   * @param {{caldav: RequestOrigins, carddav: RequestOrigins}} origins - per
+   *   account type, where its client may send requests
    * @returns {Promise<{calDavClient: DAVClient|null, cardDavClient: DAVClient|null, unserved: object}>}
    *   see _loginHalves
    */
@@ -416,23 +444,28 @@ class TsdavClientManager {
       throw new ConfigurationError(`${authMethod} Auth requires username and password`);
     }
 
-    const card = config.cardDav ||
-      { serverUrl: config.serverUrl, username: config.username, password: config.password };
+    const card = {
+      serverUrl: config.cardDav?.serverUrl || config.serverUrl,
+      username: config.cardDav?.username || config.username,
+      password: config.cardDav?.password || config.password,
+    };
     // The label only names a split configuration's failing half; without its
     // own endpoint the two logins are told apart by the URL alone, as before.
     const halves = {
       caldav: {
         serverUrl: config.serverUrl,
         credentials: { username: config.username, password: config.password },
-        ...(config.splitServer && { label: 'CalDAV client' }),
+        origins: origins.caldav,
+        ...(config.splitConfig && { label: 'CalDAV client' }),
       },
       carddav: {
         serverUrl: card.serverUrl,
         credentials: { username: card.username, password: card.password },
-        ...(config.splitServer && { label: 'CardDAV client' }),
+        origins: origins.carddav,
+        ...(config.splitConfig && { label: 'CardDAV client' }),
       },
     };
-    return this._loginHalves(config, origins, halves, authMethod, `${authMethod} Auth configured`,
+    return this._loginHalves(config, halves, authMethod, `${authMethod} Auth configured`,
       PASSWORD_HALVES_OPTIONAL);
   }
 
@@ -449,16 +482,16 @@ class TsdavClientManager {
    * a half out is set per auth method (`optional`): OAuth keeps its own.
    * @private
    * @param {Object} config - Client configuration, tokenUrl resolved
-   * @param {RequestOrigins} origins - where the clients may send requests
    * @param {Object} halves - per account type, the endpoint (serverUrl), the
-   *   credentials for tsdav and, in a split setup, the label errors carry
+   *   credentials for tsdav, the origin policy its client is held to and, in
+   *   a split setup, the label errors carry
    * @param {string} authMethod - tsdav's auth method ('Basic', 'Digest', 'Oauth')
    * @param {string} how - how the clients authenticate, for the log
    * @param {{caldav: string, carddav: string}} optional - per account type,
    *   which failures leave the half out (see PASSWORD_HALVES_OPTIONAL)
    * @returns {Promise<{calDavClient: DAVClient|null, cardDavClient: DAVClient|null, unserved: object}>}
    */
-  async _loginHalves(config, origins, halves, authMethod, how, optional) {
+  async _loginHalves(config, halves, authMethod, how, optional) {
     const clients = { calDavClient: null, cardDavClient: null, unserved: {} };
     const unservedErrors = [];
     for (const [accountType, key] of [['caldav', 'calDavClient'], ['carddav', 'cardDavClient']]) {
@@ -473,7 +506,7 @@ class TsdavClientManager {
         credentials: half.credentials,
         authMethod,
         defaultAccountType: accountType,
-      }, origins, answers);
+      }, half.origins, answers);
       try {
         await client.login();
         clients[key] = client;
@@ -499,7 +532,8 @@ class TsdavClientManager {
    * Initialize clients with OAuth2 Authentication
    * @private
    * @param {Object} config - Client configuration, tokenUrl resolved
-   * @param {RequestOrigins} origins - where the clients may send requests
+   * @param {{caldav: RequestOrigins, carddav: RequestOrigins}} origins - per
+   *   account type, where its client may send requests (one shared policy)
    * @returns {Promise<{calDavClient: DAVClient|null, cardDavClient: DAVClient|null, unserved: object}>}
    *   see _loginHalves; Google serves no CardDAV at its CalDAV URL, so there
    *   the CardDAV half is null
@@ -531,10 +565,10 @@ class TsdavClientManager {
 
     // Note: tsdav expects 'Oauth' with capital O
     const halves = {
-      caldav: { serverUrl: config.serverUrl, credentials: oauthCredentials },
-      carddav: { serverUrl: config.serverUrl, credentials: oauthCredentials },
+      caldav: { serverUrl: config.serverUrl, credentials: oauthCredentials, origins: origins.caldav },
+      carddav: { serverUrl: config.serverUrl, credentials: oauthCredentials, origins: origins.carddav },
     };
-    return this._loginHalves(config, origins, halves, 'Oauth', 'OAuth2', OAUTH_HALVES_OPTIONAL);
+    return this._loginHalves(config, halves, 'Oauth', 'OAuth2', OAUTH_HALVES_OPTIONAL);
   }
 
   /**

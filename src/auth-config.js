@@ -150,7 +150,10 @@ export function buildTsdavConfig(env) {
     username: env.CALDAV_USERNAME,
     password: env.CALDAV_PASSWORD,
     cardDav: {
-      serverUrl: env.CARDDAV_SERVER_URL || env.CALDAV_SERVER_URL,
+      // trimmed so a whitespace-only value (a stray space in a user-config
+      // field or an env file) falls back instead of becoming the endpoint;
+      // usernames and passwords may legitimately contain spaces
+      serverUrl: String(env.CARDDAV_SERVER_URL ?? '').trim() || env.CALDAV_SERVER_URL,
       username: env.CARDDAV_USERNAME || env.CALDAV_USERNAME,
       password: env.CARDDAV_PASSWORD || env.CALDAV_PASSWORD,
     },

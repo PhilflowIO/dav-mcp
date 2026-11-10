@@ -214,53 +214,34 @@ export class RequestOrigins {
   /**
    * @param {object} params
    * @param {string} params.serverUrl - the configured DAV server
-   * @param {string} [params.cardDavServerUrl] - a separate configured CardDAV
-   *   endpoint (CARDDAV_SERVER_URL); both endpoints, their login redirects and
-   *   both accounts are reachable
    * @param {string} [params.tokenUrl] - the OAuth token endpoint; only the
    *   client's token requests may go there (see tokenFetch)
+   * @param {string} [params.serverUrlName] - how to name the configured URL
+   *   in validation errors ("DAV server URL" by default; the client manager
+   *   names CALDAV_SERVER_URL, CARDDAV_SERVER_URL or GOOGLE_SERVER_URL when
+   *   they apply, so the error points at the setting the user actually made)
+   * @param {string} [params.serverCredentials] - which variables hold the
+   *   login for this endpoint (default CALDAV_USERNAME and CALDAV_PASSWORD;
+   *   GOOGLE_USER for OAuth)
    */
-  constructor({ serverUrl, cardDavServerUrl, tokenUrl }) {
-    // Each endpoint is validated under its own variable's name, so a bad
-    // CARDDAV_SERVER_URL is reported there and not as the CalDAV setting. A
-    // CardDAV URL equal to the CalDAV one (the fallback, or one host serving
-    // both) is the single-server case and is counted once.
-    const endpoints = [
-      { value: serverUrl, variable: 'CALDAV_SERVER_URL', credentials: 'CALDAV_USERNAME and CALDAV_PASSWORD' },
-    ];
-    if (cardDavServerUrl !== undefined && cardDavServerUrl !== null && String(cardDavServerUrl).trim() !== '') {
-      endpoints.push({
-        value: cardDavServerUrl, variable: 'CARDDAV_SERVER_URL', credentials: 'CARDDAV_USERNAME and CARDDAV_PASSWORD',
-      });
+  constructor({ serverUrl, tokenUrl, serverUrlName = 'DAV server URL', serverCredentials = 'CALDAV_USERNAME and CALDAV_PASSWORD' }) {
+    const server = parseUrl(serverUrl);
+    if (!server || !isHttp(server)) {
+      throw new ConfigurationError(`The configured ${serverUrlName} ${serverUrl} is not an http(s) URL.`);
     }
-
-    // https only when every configured endpoint is https: an http endpoint
-    // must stay reachable, and then the https downgrade rule cannot hold.
-    this.secure = true;
+    if (server.username || server.password) {
+      throw new ConfigurationError(
+        `The configured ${serverUrlName} contains a user name or password. Remove them from the URL ` +
+        `and pass them as ${serverCredentials}.`);
+    }
+    this.secure = server.protocol === 'https:';
     this.scopes = [];
-    this.loginOrigins = new Set();
+    this.loginOrigins = new Set([server.origin]);
     // origins the server tried to send the login to over plain http
     this.downgradeRedirects = new Set();
+    this.#addScope(server);
     this.tokenUrl = tokenUrl ? parseUrl(tokenUrl) : null;
     this.discovering = true;
-
-    const counted = new Set();
-    for (const endpoint of endpoints) {
-      if (counted.has(String(endpoint.value))) continue;
-      counted.add(String(endpoint.value));
-      const server = parseUrl(endpoint.value);
-      if (!server || !isHttp(server)) {
-        throw new ConfigurationError(`The configured ${endpoint.variable} ${endpoint.value} is not an http(s) URL.`);
-      }
-      if (server.username || server.password) {
-        throw new ConfigurationError(
-          `The configured ${endpoint.variable} contains a user name or password. Remove them from the URL ` +
-          `and pass them as ${endpoint.credentials}.`);
-      }
-      if (server.protocol !== 'https:') this.secure = false;
-      this.loginOrigins.add(server.origin);
-      this.#addScope(server);
-    }
   }
 
   #addScope(url) {
@@ -473,8 +454,9 @@ export class RequestOrigins {
 }
 
 /**
- * The policy of the clients currently in use. Set by the client manager once
- * a login has completed; until then no URL is accepted.
+ * The policy of the clients currently in use, or the two of them when the
+ * CalDAV and CardDAV clients log onto different endpoints. Set by the client
+ * manager once a login has completed; until then no URL is accepted.
  */
 let active = null;
 
@@ -484,13 +466,23 @@ export function activateRequestOrigins(origins) {
 
 /**
  * Why a URL passed to a tool is refused, or null if it may be requested.
+ * With two endpoints a URL passes when it is inside either account: the tool
+ * schemas are then satisfied, and each client's own policy still keeps its
+ * requests, and with them its login, on its own endpoint's account.
  * @param {string} url
  * @returns {string|null}
  */
 export function requestUrlProblem(url) {
-  if (!active) {
+  const policies = Array.isArray(active) ? active : active ? [active] : [];
+  if (policies.length === 0) {
     return 'dav-mcp is not connected to a DAV server yet, so no URL can be checked against it. ' +
       'Check the server configuration and retry.';
   }
-  return active.problem(url);
+  let firstProblem;
+  for (const policy of policies) {
+    const problem = policy.problem(url);
+    if (!problem) return null;
+    firstProblem ??= problem;
+  }
+  return firstProblem;
 }
