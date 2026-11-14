@@ -38,6 +38,27 @@
           "isSecret": true
         },
         {
+          "name": "CARDDAV_SERVER_URL",
+          "description": "Separate CardDAV endpoint for contacts (e.g. https://carddav.fastmail.com/); optional, defaults to CALDAV_SERVER_URL. Not used with OAuth.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "CARDDAV_USERNAME",
+          "description": "Username for the CardDAV endpoint; optional, defaults to CALDAV_USERNAME",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "CARDDAV_PASSWORD",
+          "description": "Password or app-specific password for the CardDAV endpoint; optional, defaults to CALDAV_PASSWORD",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true
+        },
+        {
           "name": "AUTH_METHOD",
           "description": "Authentication method, case-insensitive: 'Basic' (default; switches to Digest by itself when the server only offers Digest), 'Digest' (Digest-only servers without ever sending the password) or 'OAuth' for Google",
           "isRequired": false,

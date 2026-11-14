@@ -216,6 +216,60 @@ describe('the policy', () => {
       .toThrow(expect.objectContaining({ name: 'ConfigurationError' }));
   });
 
+  describe('a separate CardDAV endpoint', () => {
+    // The manager gives each client its own policy when CARDDAV_SERVER_URL
+    // points elsewhere; the tool schemas then accept a URL inside either
+    // account, and each client's fetch still keeps it on its own account.
+    const activate = (calUrl, cardUrl) => {
+      const policies = [calUrl, cardUrl].map(serverUrl => {
+        const origins = new RequestOrigins({ serverUrl });
+        origins.endDiscovery();
+        return origins;
+      });
+      activateRequestOrigins(policies);
+      return policies;
+    };
+
+    test('a URL inside either account is accepted, a third host is refused', () => {
+      activate('https://cal.example.com/dav/', 'https://contacts.example.com/');
+      expect(requestUrlProblem('https://cal.example.com/dav/calendars/user/work/x.ics')).toBeNull();
+      expect(requestUrlProblem('https://contacts.example.com/addressbooks/user/contacts/c.vcf')).toBeNull();
+      expect(requestUrlProblem('https://attacker.example/steal')).toMatch(/outside/);
+    });
+
+    test('the https rule holds per endpoint: an http contacts endpoint does not weaken the https calendar one', () => {
+      activate('https://cal.example.com/dav/', 'http://nas.local/dav/');
+      // the contacts endpoint is http by configuration and stays reachable
+      expect(requestUrlProblem('http://nas.local/dav/addressbooks/user/c.vcf')).toBeNull();
+      // the calendar endpoint keeps https-only, as it would on its own
+      expect(requestUrlProblem('http://cal.example.com/dav/calendars/user/x.ics')).toMatch(/plain http/);
+      // and so does every other plain-http host
+      expect(requestUrlProblem('http://attacker.example/steal')).toMatch(/plain http/);
+    });
+
+    test('a configuration error names the setting the user actually made', () => {
+      // a single endpoint keeps the neutral wording of the original message
+      expect(() => new RequestOrigins({ serverUrl: 'ftp://dav.example.com/' }))
+        .toThrow('The configured DAV server URL ftp://dav.example.com/ is not an http(s) URL.');
+      expect(() => new RequestOrigins({ serverUrl: 'https://u:p@dav.example.com/' }))
+        .toThrow('The configured DAV server URL contains a user name or password. Remove them from the URL ' +
+          'and pass them as CALDAV_USERNAME and CALDAV_PASSWORD.');
+      // the endpoints of a split setup, and OAuth, are named by their variable
+      expect(() => new RequestOrigins({
+        serverUrl: 'https://u:p@dav.example.com/', serverUrlName: 'CALDAV_SERVER_URL',
+      })).toThrow('The configured CALDAV_SERVER_URL contains a user name or password. Remove them from the URL ' +
+        'and pass them as CALDAV_USERNAME and CALDAV_PASSWORD.');
+      expect(() => new RequestOrigins({
+        serverUrl: 'ftp://contacts.example.com/', serverUrlName: 'CARDDAV_SERVER_URL',
+      })).toThrow('The configured CARDDAV_SERVER_URL ftp://contacts.example.com/ is not an http(s) URL.');
+      expect(() => new RequestOrigins({
+        serverUrl: 'https://u:p@dav.example.com/',
+        serverUrlName: 'GOOGLE_SERVER_URL', serverCredentials: 'GOOGLE_USER',
+      })).toThrow('The configured GOOGLE_SERVER_URL contains a user name or password. Remove them from the URL ' +
+        'and pass them as GOOGLE_USER.');
+    });
+  });
+
   test('its fetch refuses before calling the network', async () => {
     let calls = 0;
     const guarded = policy().fetch(async () => { calls += 1; return new Response(''); });
@@ -748,5 +802,65 @@ describe('OAuth', () => {
       .then(() => null, e => e);
     expect(error).toBeInstanceOf(RequestOriginError);
     expect(token.hits.length).toBe(before);
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe('a separate CardDAV endpoint (CARDDAV_*)', () => {
+  let cal;
+  let card;
+
+  beforeAll(async () => {
+    cal = await davServer().start();
+    card = await davServer().start();
+    await tsdavManager.initialize({
+      serverUrl: `${cal.origin}/`,
+      authMethod: 'Basic',
+      username: 'user',
+      password: 'secret',
+      cardDav: { serverUrl: `${card.origin}/`, username: 'user', password: 'secret' },
+    });
+  });
+
+  afterAll(async () => {
+    await cal.stop();
+    await card.stop();
+  });
+
+  test('calendars come from the CalDAV endpoint, contacts from the CardDAV one', async () => {
+    const cardBefore = card.hits.length;
+    await tools.find(t => t.name === 'list_calendars').handler({});
+    expect(card.hits.length).toBe(cardBefore);
+
+    const calBefore = cal.hits.length;
+    await tools.find(t => t.name === 'list_addressbooks').handler({});
+    expect(cal.hits.length).toBe(calBefore);
+    expect(card.hits.length).toBeGreaterThan(cardBefore);
+  });
+
+  test('each client discovered its own account, and both hosts are inside the account', () => {
+    expect(tsdavManager.getCalDavClient().account.homeUrl).toBe(`${cal.origin}/calendars/user/`);
+    expect(tsdavManager.getCardDavClient().account.homeUrl).toBe(`${card.origin}/addressbooks/user/`);
+    expect(requestUrlProblem(`${cal.origin}/calendars/user/work/`)).toBeNull();
+    expect(requestUrlProblem(`${card.origin}/addressbooks/user/contacts/`)).toBeNull();
+    // both endpoints are host roots, so each whole host is the account; a
+    // host that is configured nowhere stays refused
+    expect(requestUrlProblem('https://attacker.example/steal')).toMatch(/outside/);
+  });
+
+  test('a calendar tool pointed at a contacts URL is refused with no request at all', async () => {
+    const calBefore = cal.hits.length;
+    const cardBefore = card.hits.length;
+    const error = await tools.find(t => t.name === 'delete_event').handler({
+      event_url: `${card.origin}/addressbooks/user/contacts/c.vcf`,
+      event_etag: '"1"',
+    }).then(() => null, e => e);
+    // the URL is inside the CardDAV account, so the tool schema accepts it;
+    // the calendar client's own policy then refuses it before anything is
+    // sent, so the calendar login never reaches the contacts host
+    expect(error.message).toMatch(/outside/);
+    expect(cal.hits.length).toBe(calBefore);
+    expect(card.hits.length).toBe(cardBefore);
   });
 });
