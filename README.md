@@ -11,6 +11,16 @@ Built on 27 production-ready tools spanning CalDAV, CardDAV, and VTODO protocols
 
 ## Quick Start
 
+### Claude Code plugin
+
+In Claude Code, run:
+
+```
+/plugin install dav-mcp --marketplace PhilflowIO/dav-mcp
+```
+
+Claude Code then asks for your server URL, username and password. The plugin also brings a skill that teaches Claude to use the tools well. Details are in the [plugin README](claude-plugin/README.md).
+
 ### One-click install (Claude Desktop)
 
 1. Download `dav-mcp-<version>.mcpb` from the [latest release](https://github.com/PhilflowIO/dav-mcp/releases/latest). Releases from 4.1.2 on carry this file.
