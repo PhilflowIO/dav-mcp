@@ -221,8 +221,8 @@ describe('the policy', () => {
     // points elsewhere; the tool schemas then accept a URL inside either
     // account, and each client's fetch still keeps it on its own account.
     const activate = (calUrl, cardUrl) => {
-      const policies = [calUrl, cardUrl].map(serverUrl => {
-        const origins = new RequestOrigins({ serverUrl });
+      const policies = [[calUrl, 'calendars and tasks'], [cardUrl, 'contacts']].map(([serverUrl, serves]) => {
+        const origins = new RequestOrigins({ serverUrl, serves });
         origins.endDiscovery();
         return origins;
       });
@@ -243,8 +243,27 @@ describe('the policy', () => {
       expect(requestUrlProblem('http://nas.local/dav/addressbooks/user/c.vcf')).toBeNull();
       // the calendar endpoint keeps https-only, as it would on its own
       expect(requestUrlProblem('http://cal.example.com/dav/calendars/user/x.ics')).toMatch(/plain http/);
-      // and so does every other plain-http host
-      expect(requestUrlProblem('http://attacker.example/steal')).toMatch(/plain http/);
+      // and every other plain-http host is outside both accounts
+      expect(requestUrlProblem('http://attacker.example/steal')).toMatch(/outside the configured DAV account/);
+    });
+
+    test('a refused URL names the allowed URLs of both services', () => {
+      activate('https://cal.example.com/dav/', 'https://contacts.example.com/card/');
+      const problem = requestUrlProblem('https://attacker.example/steal');
+      expect(problem).toMatch(/outside the configured DAV account/);
+      expect(problem).toContain('https://cal.example.com/dav/ (calendars and tasks)');
+      expect(problem).toContain('https://contacts.example.com/card/ (contacts)');
+      // the http calendar URL is refused for being http, still naming both
+      const downgrade = requestUrlProblem('http://cal.example.com/dav/x.ics');
+      expect(downgrade).toMatch(/plain http/);
+      expect(downgrade).toContain('https://contacts.example.com/card/ (contacts)');
+    });
+
+    test('one shared policy keeps its message unlabelled', () => {
+      const shared = new RequestOrigins({ serverUrl: 'https://dav.example.com/' });
+      shared.endDiscovery();
+      activateRequestOrigins(shared);
+      expect(requestUrlProblem('https://attacker.example/steal')).toContain('below https://dav.example.com/. ');
     });
 
     test('a configuration error names the setting the user actually made', () => {
@@ -845,8 +864,12 @@ describe('a separate CardDAV endpoint (CARDDAV_*)', () => {
     expect(requestUrlProblem(`${cal.origin}/calendars/user/work/`)).toBeNull();
     expect(requestUrlProblem(`${card.origin}/addressbooks/user/contacts/`)).toBeNull();
     // both endpoints are host roots, so each whole host is the account; a
-    // host that is configured nowhere stays refused
-    expect(requestUrlProblem('https://attacker.example/steal')).toMatch(/outside/);
+    // host that is configured nowhere stays refused, and the refusal says
+    // which URLs serve what
+    const problem = requestUrlProblem('https://attacker.example/steal');
+    expect(problem).toMatch(/outside/);
+    expect(problem).toContain(`${cal.origin}/ (calendars and tasks)`);
+    expect(problem).toContain(`${card.origin}/ (contacts)`);
   });
 
   test('a calendar tool pointed at a contacts URL is refused with no request at all', async () => {

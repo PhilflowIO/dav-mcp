@@ -223,8 +223,14 @@ export class RequestOrigins {
    * @param {string} [params.serverCredentials] - which variables hold the
    *   login for this endpoint (default CALDAV_USERNAME and CALDAV_PASSWORD;
    *   GOOGLE_USER for OAuth)
+   * @param {string} [params.serves] - what this endpoint serves ("calendars
+   *   and tasks", "contacts"), set when the two halves have endpoints of their
+   *   own, so a refusal can say which allowed URL is for what
    */
-  constructor({ serverUrl, tokenUrl, serverUrlName = 'DAV server URL', serverCredentials = 'CALDAV_USERNAME and CALDAV_PASSWORD' }) {
+  constructor({
+    serverUrl, tokenUrl, serverUrlName = 'DAV server URL', serverCredentials = 'CALDAV_USERNAME and CALDAV_PASSWORD',
+    serves,
+  }) {
     const server = parseUrl(serverUrl);
     if (!server || !isHttp(server)) {
       throw new ConfigurationError(`The configured ${serverUrlName} ${serverUrl} is not an http(s) URL.`);
@@ -235,6 +241,7 @@ export class RequestOrigins {
         `and pass them as ${serverCredentials}.`);
     }
     this.secure = server.protocol === 'https:';
+    this.serves = serves;
     this.scopes = [];
     this.loginOrigins = new Set([server.origin]);
     // origins the server tried to send the login to over plain http
@@ -290,13 +297,24 @@ export class RequestOrigins {
   }
 
   /**
+   * Whether a URL is on a host of this account, whatever its scheme or path:
+   * of several policies, the one whose refusal explains it.
+   * @param {URL|null} url
+   * @returns {boolean}
+   */
+  hasHostOf(url) {
+    return Boolean(url) && this.scopes.some(scope => parseUrl(scope.origin)?.hostname === url.hostname);
+  }
+
+  /**
    * Why a request to this URL is refused, or null if it is allowed.
    * @param {string|URL} value
+   * @param {string} [allowed] - the allowed URLs as the message names them;
+   *   by default this policy's own
    * @returns {string|null}
    */
-  problem(value) {
+  problem(value, allowed = this.allowedPrefixes().join(', ')) {
     const url = parseUrl(value);
-    const allowed = this.allowedPrefixes().join(', ');
     if (!url || !isHttp(url)) {
       return `${value} is not an http(s) URL. Use a URL returned by this server (e.g. from list_calendars or list_events).`;
     }
@@ -478,11 +496,24 @@ export function requestUrlProblem(url) {
     return 'dav-mcp is not connected to a DAV server yet, so no URL can be checked against it. ' +
       'Check the server configuration and retry.';
   }
-  let firstProblem;
+  if (policies.length === 1) return policies[0].problem(url);
+  // Refused by every policy: the message lists what each service allows, not
+  // only the first policy's URLs, and gives the reason of the policy the URL
+  // is closest to: the one on its host (an http URL of the https calendar
+  // host is refused for being http), else, for an http URL, one that is
+  // plain http itself (it would take http, so the URL is outside it), else
+  // the first.
+  const allowed = policies
+    .flatMap(policy => policy.allowedPrefixes().map(prefix => (policy.serves ? `${prefix} (${policy.serves})` : prefix)))
+    .join(', ');
+  const problems = [];
   for (const policy of policies) {
-    const problem = policy.problem(url);
+    const problem = policy.problem(url, allowed);
     if (!problem) return null;
-    firstProblem ??= problem;
+    problems.push(problem);
   }
-  return firstProblem;
+  const parsed = parseUrl(url);
+  let explaining = policies.findIndex(policy => policy.hasHostOf(parsed));
+  if (explaining < 0 && parsed?.protocol === 'http:') explaining = policies.findIndex(policy => !policy.secure);
+  return problems[Math.max(explaining, 0)];
 }

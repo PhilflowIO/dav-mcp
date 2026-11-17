@@ -365,13 +365,14 @@ class TsdavClientManager {
         tokenUrl,
         ...(useOAuth
           ? { serverUrlName: 'GOOGLE_SERVER_URL', serverCredentials: 'GOOGLE_USER' }
-          : splitServer ? { serverUrlName: 'CALDAV_SERVER_URL' } : {}),
+          : splitServer ? { serverUrlName: 'CALDAV_SERVER_URL', serves: 'calendars and tasks' } : {}),
       });
       const cardOrigins = splitServer
         ? new RequestOrigins({
           serverUrl: cardDavServerUrl,
           serverUrlName: 'CARDDAV_SERVER_URL',
           serverCredentials: 'CARDDAV_USERNAME and CARDDAV_PASSWORD',
+          serves: 'contacts',
         })
         : calOrigins;
       const origins = { caldav: calOrigins, carddav: cardOrigins };
