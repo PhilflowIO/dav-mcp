@@ -281,6 +281,9 @@ app.get('/health', (req, res) => {
     transport: 'http-stateless',
     timestamp: new Date().toISOString(),
     tools: tools.length,
+    // A server may serve only CalDAV or only CardDAV at the configured URL
+    // (#152); the tools of the other half then fail per call.
+    availableAccountTypes: tsdavManager.availableAccountTypes(),
     uptime: process.uptime(),
   });
 });

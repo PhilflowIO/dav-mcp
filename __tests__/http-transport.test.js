@@ -168,4 +168,10 @@ describe('HTTP transport', () => {
     });
     expect(response.status).toBe(401);
   });
+
+  test('/health says which account types the server logged in for', async () => {
+    const health = await (await fetch(new URL('/health', mcpUrl))).json();
+    expect(health.status).toBe('healthy');
+    expect(health.availableAccountTypes).toEqual(['caldav', 'carddav']);
+  });
 });
