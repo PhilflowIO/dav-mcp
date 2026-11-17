@@ -40,11 +40,12 @@ const update = async (fields) => {
 
 const parsed = (data) => new ICAL.Component(ICAL.parse(data));
 
-// Reading a card scans and builds about 7 characters of text per character
-// of the card (normalizer and ical.js together, see support/work-count.js);
+// Reading a card scans, builds and copies up to about 23 characters of text
+// per character of the card (normalizer and ical.js together, slices
+// included, see support/work-count.js);
 // each rescan the normalizer once made costs that per line, thousands of
 // times over (#138: counted, not timed).
-const WORK_PER_CHARACTER = 20;
+const WORK_PER_CHARACTER = 40;
 const read = (card) => countWork(() => readVCard(card), WORK_PER_CHARACTER * card.length);
 
 describe('update_contact on a vCard 2.1 card', () => {

@@ -75,6 +75,7 @@ export function assertParseBounded(object) {
  */
 export const parseGuardWork = { input: 0, visited: 0 };
 
+/** Start parseGuardWork over from zero, before the scan to be counted. */
 export function resetParseGuardWork() {
   Object.assign(parseGuardWork, { input: 0, visited: 0 });
 }

@@ -136,11 +136,12 @@ describe('the guard reads each character once', () => {
       ics('UID:folded', `X-A${';X-P=x'.repeat(MAX_PARAMETERS - 1)}:${'v'.repeat(1_000_000)}`.match(/.{1,74}/g).join('\r\n '))],
   ])('%s', (_, text) => {
     resetParseGuardWork();
-    try {
-      assertParseBounded(text);
-    } catch (error) {
-      expect(error).toBeInstanceOf(ValidationError);
-    }
+    // the guard's own meter, and, independent of it, the text its string
+    // functions scan and copy (indexOf, slice, regexes, joins): a rescan
+    // written with any of them fails here even where it skips the meter
+    const { work, outcome } = countWork(() => assertParseBounded(text), 2 * text.length);
+    expect(work).toBeLessThanOrEqual(2 * text.length);
+    if (outcome !== undefined) expect(outcome).toBeInstanceOf(ValidationError);
     expect(parseGuardWork.input).toBe(text.length);
     expectLinearGuard();
   });
