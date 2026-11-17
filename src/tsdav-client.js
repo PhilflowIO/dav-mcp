@@ -199,6 +199,11 @@ function isUnservedHalf(failure) {
  * - 'always': every failure leaves the half out.
  */
 const PASSWORD_HALVES_OPTIONAL = { caldav: 'unserved', carddav: 'unserved' };
+// With any CARDDAV_* set (config.cardDav), the user has said where each half
+// is: a half that fails there is a misconfiguration, and leaving it out
+// would hide it behind tools that answer "not available". Both halves are
+// required then.
+const CONFIGURED_HALVES_OPTIONAL = { caldav: 'never', carddav: 'never' };
 // OAuth is configured for one Google CalDAV server (GOOGLE_SERVER_URL), and
 // Google serves no CardDAV there, so dav-mcp has always logged in under
 // OAuth without that half, whatever its login failed with; a CardDAV error
@@ -269,7 +274,14 @@ function unservedHalf(accountType, cause, config, answers) {
   return {
     message: `The configured server ${config.serverUrl} does not serve ${name}, so the ${tools} are not available. ` +
       `Its ${name} login failed: ${reason}. ` +
-      `If your provider serves ${name} at another URL, run a second dav-mcp with that URL. ` +
+      // OAuth has one server and ignores CARDDAV_*.
+      (config.authMethod === 'OAuth'
+        ? `If your provider serves ${name} at another URL, run a second dav-mcp with that URL. `
+        : accountType === 'carddav'
+        ? 'If your provider serves CardDAV at another URL, set CARDDAV_SERVER_URL to it ' +
+          '(and CARDDAV_USERNAME and CARDDAV_PASSWORD if its login differs). '
+        : 'If your provider serves CalDAV at another URL, set CALDAV_SERVER_URL to it and ' +
+          `CARDDAV_SERVER_URL to ${config.serverUrl}. `) +
       settingsHint(config.authMethod),
     details: { serverUrl: config.serverUrl, accountType, ...(status !== undefined && { status, url: cause.url }) },
   };
@@ -326,16 +338,13 @@ class TsdavClientManager {
     const useOAuth = this.authMethod === 'OAuth' || this.authMethod === 'Oauth';
     const tokenUrl = useOAuth ? (config.tokenUrl || DEFAULT_OAUTH_TOKEN_URL) : undefined;
     const loginConfig = { ...config, authMethod: this.authMethod, tokenUrl };
-    // Set when CARDDAV_* points the contacts client elsewhere: logs and login
-    // errors then tell the two endpoints apart, and the failing half of a
-    // split setup is named even when only its credentials differ. OAuth has
-    // one Google server and ignores them.
+    // Set when any CARDDAV_* is: login errors then name the failing half, even
+    // when only its credentials differ, and logs tell the two endpoints apart
+    // when the URLs do. OAuth has one Google server and ignores them.
     const cardDav = useOAuth ? undefined : config.cardDav;
     const cardDavServerUrl = cardDav?.serverUrl;
     const splitServer = Boolean(cardDavServerUrl) && cardDavServerUrl !== config.serverUrl;
-    const splitConfig = splitServer ||
-      (cardDav?.username !== undefined && cardDav.username !== config.username) ||
-      (cardDav?.password !== undefined && cardDav.password !== config.password);
+    const splitConfig = Boolean(cardDav);
 
     try {
 
@@ -466,7 +475,7 @@ class TsdavClientManager {
       },
     };
     return this._loginHalves(config, halves, authMethod, `${authMethod} Auth configured`,
-      PASSWORD_HALVES_OPTIONAL);
+      config.cardDav ? CONFIGURED_HALVES_OPTIONAL : PASSWORD_HALVES_OPTIONAL);
   }
 
   /**
@@ -479,7 +488,8 @@ class TsdavClientManager {
    * it. Any other failure fails the login as before, so stdio retries it on
    * the next tool call instead of running without the half for good. When
    * neither half is served, the CalDAV error is thrown. Which failures leave
-   * a half out is set per auth method (`optional`): OAuth keeps its own.
+   * a half out is set per auth method (`optional`): OAuth keeps its own, and
+   * a configured CardDAV endpoint (any CARDDAV_*) makes both halves required.
    * @private
    * @param {Object} config - Client configuration, tokenUrl resolved
    * @param {Object} halves - per account type, the endpoint (serverUrl), the

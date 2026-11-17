@@ -120,6 +120,12 @@ export function parseAuthMethod(value) {
  * falls back to its CALDAV_* value, so an empty user-config field behaves like
  * a missing one. OAuth ignores them: it has one Google server.
  *
+ * `cardDav` is only present when at least one of them is set: that is the
+ * user saying where contacts are, and the client manager then fails the
+ * login when either half fails instead of leaving a half out (see
+ * tsdav-client.js). With none of them set, the configuration is the one
+ * server for both halves it always was.
+ *
  * @param {Object} env - Environment variables (usually process.env)
  * @returns {Object} tsdav client configuration
  */
@@ -144,18 +150,24 @@ export function buildTsdavConfig(env) {
   if (!env.CALDAV_SERVER_URL || !env.CALDAV_USERNAME || !env.CALDAV_PASSWORD) {
     throw new ConfigurationError(`${authMethod} Auth requires CALDAV_SERVER_URL, CALDAV_USERNAME, and CALDAV_PASSWORD`);
   }
-  return {
+  const config = {
     serverUrl: env.CALDAV_SERVER_URL,
     authMethod,
     username: env.CALDAV_USERNAME,
     password: env.CALDAV_PASSWORD,
-    cardDav: {
-      // trimmed so a whitespace-only value (a stray space in a user-config
-      // field or an env file) falls back instead of becoming the endpoint;
-      // usernames and passwords may legitimately contain spaces
-      serverUrl: String(env.CARDDAV_SERVER_URL ?? '').trim() || env.CALDAV_SERVER_URL,
-      username: env.CARDDAV_USERNAME || env.CALDAV_USERNAME,
-      password: env.CARDDAV_PASSWORD || env.CALDAV_PASSWORD,
-    },
   };
+  // trimmed so a whitespace-only value (a stray space in a user-config field
+  // or an env file) falls back instead of becoming the endpoint; usernames
+  // and passwords may legitimately contain spaces
+  const cardDavUrl = String(env.CARDDAV_SERVER_URL ?? '').trim();
+  if (!cardDavUrl && !env.CARDDAV_USERNAME && !env.CARDDAV_PASSWORD) {
+    return config;
+  }
+  const cardDav = {
+    serverUrl: cardDavUrl || env.CALDAV_SERVER_URL,
+    username: env.CARDDAV_USERNAME || env.CALDAV_USERNAME,
+    password: env.CARDDAV_PASSWORD || env.CALDAV_PASSWORD,
+  };
+  return { ...config, cardDav };
 }
+

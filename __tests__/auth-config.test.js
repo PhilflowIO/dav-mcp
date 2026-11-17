@@ -80,11 +80,6 @@ describe('buildTsdavConfig', () => {
       authMethod: 'Basic',
       username: 'user',
       password: 'pass',
-      cardDav: {
-        serverUrl: 'https://dav.example.com/',
-        username: 'user',
-        password: 'pass',
-      },
     });
   });
 
@@ -94,11 +89,6 @@ describe('buildTsdavConfig', () => {
       authMethod: 'Digest',
       username: 'user',
       password: 'pass',
-      cardDav: {
-        serverUrl: 'https://dav.example.com/',
-        username: 'user',
-        password: 'pass',
-      },
     });
   });
 
@@ -152,8 +142,18 @@ describe('buildTsdavConfig', () => {
     });
 
     test('a whitespace-only URL counts as unset, not as an endpoint of its own', () => {
-      const { serverUrl } = buildTsdavConfig({ ...PASSWORD_ENV, CARDDAV_SERVER_URL: '   ' }).cardDav;
+      expect(buildTsdavConfig({ ...PASSWORD_ENV, CARDDAV_SERVER_URL: '   ' })).not.toHaveProperty('cardDav');
+      const { serverUrl } = buildTsdavConfig({
+        ...PASSWORD_ENV, CARDDAV_SERVER_URL: '   ', CARDDAV_PASSWORD: 'other-pass',
+      }).cardDav;
       expect(serverUrl).toBe('https://dav.example.com/');
+    });
+
+    test('with no CARDDAV_* set there is no cardDav, so a half the server does not serve may be left out', () => {
+      expect(buildTsdavConfig(PASSWORD_ENV)).not.toHaveProperty('cardDav');
+      expect(buildTsdavConfig({
+        ...PASSWORD_ENV, CARDDAV_SERVER_URL: '', CARDDAV_USERNAME: '', CARDDAV_PASSWORD: '',
+      })).not.toHaveProperty('cardDav');
     });
 
     test('OAuth ignores CARDDAV_*: Google has one server', () => {

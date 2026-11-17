@@ -239,8 +239,13 @@ Each of `CARDDAV_SERVER_URL`, `CARDDAV_USERNAME` and `CARDDAV_PASSWORD` falls
 back to its `CALDAV_*` counterpart when unset or empty, so you only set the
 variables that differ (often the URL alone). The variables apply to Basic and
 Digest authentication only: OAuth has a single Google server and ignores them.
-If either endpoint refuses the login, startup fails with an error naming the
-endpoint that failed.
+
+As soon as one `CARDDAV_*` variable is set, both endpoints are required: if
+either login fails (refused, unreachable, or the URL serves no calendars or no
+contacts), startup fails with an error naming the half and the endpoint that
+failed. Without any `CARDDAV_*` variable, a server that serves only calendars
+or only contacts at `CALDAV_SERVER_URL` (iCloud, for one) still starts, and the
+tools of the other half answer that it is not available there.
 
 ---
 
