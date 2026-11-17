@@ -156,6 +156,42 @@ describe('buildTsdavConfig', () => {
       })).not.toHaveProperty('cardDav');
     });
 
+    describe('the calendar password over plain http', () => {
+      const httpCard = { ...PASSWORD_ENV, CARDDAV_SERVER_URL: 'http://card.example.com/' };
+
+      test('is refused: https CALDAV_SERVER_URL, http CARDDAV_SERVER_URL, no CARDDAV_PASSWORD', () => {
+        expect(() => buildTsdavConfig(httpCard)).toThrow(expect.objectContaining({
+          name: 'ConfigurationError',
+          message: expect.stringMatching(/CALDAV_PASSWORD[^]*plain http[^]*https URL[^]*set CARDDAV_PASSWORD/),
+        }));
+        // the scheme is read case-insensitively, as URLs are
+        expect(() => buildTsdavConfig({ ...httpCard, CARDDAV_SERVER_URL: 'HTTP://card.example.com/' }))
+          .toThrow(expect.objectContaining({ name: 'ConfigurationError' }));
+        // an empty CARDDAV_PASSWORD is unset as well and falls back
+        expect(() => buildTsdavConfig({ ...httpCard, CARDDAV_PASSWORD: '' }))
+          .toThrow(expect.objectContaining({ name: 'ConfigurationError' }));
+        // so is Digest: a Digest answer over http still lets the password be guessed offline
+        expect(() => buildTsdavConfig({ ...httpCard, AUTH_METHOD: 'Digest' }))
+          .toThrow(expect.objectContaining({ name: 'ConfigurationError' }));
+      });
+
+      test('is allowed with a password of its own for the http endpoint', () => {
+        expect(buildTsdavConfig({ ...httpCard, CARDDAV_PASSWORD: 'contacts-pass' }).cardDav)
+          .toEqual({ serverUrl: 'http://card.example.com/', username: 'user', password: 'contacts-pass' });
+      });
+
+      test('is not a new risk when the calendar endpoint is plain http itself', () => {
+        expect(buildTsdavConfig({
+          ...PASSWORD_ENV, CALDAV_SERVER_URL: 'http://dav.example.com/', CARDDAV_SERVER_URL: 'http://card.example.com/',
+        }).cardDav.password).toBe('pass');
+      });
+
+      test('https on both endpoints falls back as before', () => {
+        expect(buildTsdavConfig({ ...PASSWORD_ENV, CARDDAV_SERVER_URL: 'https://card.example.com/' }).cardDav.password)
+          .toBe('pass');
+      });
+    });
+
     test('OAuth ignores CARDDAV_*: Google has one server', () => {
       const config = buildTsdavConfig({ ...OAUTH_ENV, ...splitEnv, AUTH_METHOD: 'OAuth' });
       expect(config).not.toHaveProperty('cardDav');

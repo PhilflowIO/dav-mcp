@@ -126,6 +126,12 @@ export function parseAuthMethod(value) {
  * tsdav-client.js). With none of them set, the configuration is the one
  * server for both halves it always was.
  *
+ * The CardDAV login falls back to CALDAV_PASSWORD. When that would carry it
+ * over plain http although CALDAV_SERVER_URL is https, the configuration is
+ * refused: the https rule (request-origins.js) never lets the login leave
+ * https once it is configured, and a fallback must not open that way around
+ * it.
+ *
  * @param {Object} env - Environment variables (usually process.env)
  * @returns {Object} tsdav client configuration
  */
@@ -168,6 +174,27 @@ export function buildTsdavConfig(env) {
     username: env.CARDDAV_USERNAME || env.CALDAV_USERNAME,
     password: env.CARDDAV_PASSWORD || env.CALDAV_PASSWORD,
   };
+  if (!env.CARDDAV_PASSWORD && protocolOf(env.CALDAV_SERVER_URL) === 'https:'
+    && protocolOf(cardDav.serverUrl) === 'http:') {
+    throw new ConfigurationError(
+      `CARDDAV_SERVER_URL ${cardDav.serverUrl} is plain http while CALDAV_SERVER_URL is https, and ` +
+      'CARDDAV_PASSWORD is not set, so the contacts login would send the calendar password (CALDAV_PASSWORD) ' +
+      'over plain http. Use the https URL of the CardDAV server, or set CARDDAV_PASSWORD to a password ' +
+      'of its own for that endpoint.');
+  }
   return { ...config, cardDav };
 }
 
+/**
+ * The scheme of a configured URL ('https:', 'http:', ...), or undefined if it
+ * is not a URL; RequestOrigins reports a malformed one with its variable.
+ * @param {string} value
+ * @returns {string|undefined}
+ */
+function protocolOf(value) {
+  try {
+    return new URL(String(value).trim()).protocol;
+  } catch {
+    return undefined;
+  }
+}

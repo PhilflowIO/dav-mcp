@@ -239,6 +239,10 @@ Each of `CARDDAV_SERVER_URL`, `CARDDAV_USERNAME` and `CARDDAV_PASSWORD` falls
 back to its `CALDAV_*` counterpart when unset or empty, so you only set the
 variables that differ (often the URL alone). The variables apply to Basic and
 Digest authentication only: OAuth has a single Google server and ignores them.
+One fallback is refused: with an https `CALDAV_SERVER_URL` and a plain http
+`CARDDAV_SERVER_URL`, `CARDDAV_PASSWORD` must be set, because the calendar
+password would otherwise go over plain http. dav-mcp then stops at startup and
+says so.
 
 As soon as one `CARDDAV_*` variable is set, both endpoints are required: if
 either login fails (refused, unreachable, or the URL serves no calendars or no
