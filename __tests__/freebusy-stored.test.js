@@ -179,8 +179,9 @@ describe('stored VFREEBUSY periods', () => {
       'FREEBUSY:20260525T100000Z/PT1H,garbage,20260525T120000Z/20260525T110000Z,20260525T140000Z/PT1H')];
     const output = await call();
     expect(busyLines(output)).toEqual(['10:00-11:00', '14:00-15:00']);
-    expect(output).toContain('**Warning**: incomplete');
-    expect(output).toContain(`Stored free/busy (${FREEBUSY}published.ics): cannot be read — 2 FREEBUSY periods in it`);
+    expect(output).toContain('**Warning**: incomplete — stored free/busy in an object has periods that cannot be read');
+    expect(output).toContain(`- ${FREEBUSY}published.ics: 2 FREEBUSY periods cannot be read`);
+    expect(output).not.toContain('an event could not be read');
   });
 
   test('a very large object is read whole', async () => {
@@ -249,7 +250,7 @@ describe('stored VFREEBUSY read as RFC 5545 content lines', () => {
     const output = await call({ include_event_details: true });
     expect(busyLines(output)).toEqual(['10:00-11:00', '14:00-15:00']);
     expect(section(output, 'Events behind the busy blocks')).toContain('Planning');
-    expect(output).toContain('a FREEBUSY period in it');
+    expect(output).toContain(`- ${FREEBUSY}mixed.ics: a FREEBUSY period cannot be read`);
   });
 
   test('only FREEBUSY directly in the VFREEBUSY counts, not one in a component nested in it', async () => {
@@ -268,8 +269,9 @@ describe('the stored free/busy query going wrong', () => {
     events[FREEBUSY] = [event('Meeting', '20260525T100000Z', '20260525T110000Z')];
     const output = await call();
     expect(busyLines(output)).toEqual(['10:00-11:00']);
-    expect(output).toContain('**Warning**: incomplete');
-    expect(output).toContain(`Stored free/busy (${FREEBUSY}): cannot be read — the server refused the query for it (REPORT returned 501 Not Implemented)`);
+    expect(output).toContain('**Warning**: incomplete — the server refused the query for stored free/busy of a calendar');
+    expect(output).toContain(`- ${FREEBUSY}: REPORT returned 501 Not Implemented`);
+    expect(output).not.toContain('an event could not be read');
   });
 
   test('a server that ignores the filter does not count an event twice', async () => {

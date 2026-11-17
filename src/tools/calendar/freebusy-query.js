@@ -117,11 +117,7 @@ export const freeBusyQuery = {
         } catch (error) {
           // the query only adds busy time: a server that refuses it leaves
           // the answer incomplete, not failed
-          unqueried.push({
-            object: { url: calendar.url },
-            summary: 'Stored free/busy',
-            reason: `the server refused the query for it (${error?.message ?? error})`,
-          });
+          unqueried.push({ kind: 'query', object: { url: calendar.url }, reason: String(error?.message ?? error) });
           stored = [];
         }
         // a server that ignores the comp-filter answers with the events again

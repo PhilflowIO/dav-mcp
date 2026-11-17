@@ -1235,13 +1235,33 @@ export function formatFreeBusy({ busy, free, range, zone = null, zoneNote = null
   output += `- **Time zone**: ${shownIn.tzid}${zoneNote ? ` (${zoneNote})` : ''}\n\n`;
 
   // a series too dense to expand fully may hold busy time not counted below,
-  // so neither the free slots nor an empty busy list can be taken as certain
-  if (incomplete.length > 0) {
-    output += `**Warning**: incomplete — ${incomplete.length === 1 ? 'an event' : `${incomplete.length} events`} could not be read or expanded fully (an object that cannot be read, a series that cannot be read, or too many occurrences), so busy time from ${incomplete.length === 1 ? 'it' : 'them'} may be missing and the free time below is not certain:\n`;
-    incomplete.slice(0, LISTED_UNREADABLE).forEach(({ object, summary, reason }) => {
+  // so neither the free slots nor an empty busy list can be taken as certain;
+  // each kind of gap is named as what it is
+  const unreadEvents = incomplete.filter(({ kind }) => !kind);
+  const unreadStored = incomplete.filter(({ kind }) => kind === 'stored');
+  const unasked = incomplete.filter(({ kind }) => kind === 'query');
+  if (unreadEvents.length > 0) {
+    output += `**Warning**: incomplete — ${unreadEvents.length === 1 ? 'an event' : `${unreadEvents.length} events`} could not be read or expanded fully (an object that cannot be read, a series that cannot be read, or too many occurrences), so busy time from ${unreadEvents.length === 1 ? 'it' : 'them'} may be missing and the free time below is not certain:\n`;
+    unreadEvents.slice(0, LISTED_UNREADABLE).forEach(({ object, summary, reason }) => {
       output += `- ${summary || 'Untitled Event'} (${object.url})${reason ? `: cannot be read — ${reason}` : ''}\n`;
     });
-    output += moreLine(incomplete.length);
+    output += moreLine(unreadEvents.length);
+    output += '\n';
+  }
+  if (unreadStored.length > 0) {
+    output += `**Warning**: incomplete — stored free/busy ${unreadStored.length === 1 ? 'in an object' : `in ${unreadStored.length} objects`} has periods that cannot be read, so busy time from them may be missing and the free time below is not certain:\n`;
+    unreadStored.slice(0, LISTED_UNREADABLE).forEach(({ object, periods }) => {
+      output += `- ${object.url}: ${periods === 1 ? 'a FREEBUSY period' : `${periods} FREEBUSY periods`} cannot be read\n`;
+    });
+    output += moreLine(unreadStored.length);
+    output += '\n';
+  }
+  if (unasked.length > 0) {
+    output += `**Warning**: incomplete — the server refused the query for stored free/busy ${unasked.length === 1 ? 'of a calendar' : `of ${unasked.length} calendars`}, so busy time stored there may be missing and the free time below is not certain:\n`;
+    unasked.slice(0, LISTED_UNREADABLE).forEach(({ object, reason }) => {
+      output += `- ${object.url}: ${reason}\n`;
+    });
+    output += moreLine(unasked.length);
     output += '\n';
   }
 
@@ -1257,7 +1277,7 @@ export function formatFreeBusy({ busy, free, range, zone = null, zoneNote = null
 
   if (busy.length === 0) {
     output += incomplete.length > 0
-      ? `### Busy (0)\n\nNo busy time found, but the events named above could not be read or fully expanded.\n`
+      ? `### Busy (0)\n\nNo busy time found, but ${unreadEvents.length === incomplete.length ? 'the events named above could not be read or fully expanded' : 'some may be missing (see the warning above)'}.\n`
       : `### Busy (0)\n\nNothing blocks this window.\n`;
   } else {
     output += `### Busy (${busy.length})\n\n`;
