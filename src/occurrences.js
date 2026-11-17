@@ -60,26 +60,42 @@ import { floatingZoneOf, setFloatingZone, zoneInstant, zoneWall } from './calend
  * candidates. A walk that needs more than CALL_UNITS is incomplete even for
  * a lone series.
  */
-const REQUEST_UNITS = 300000;
-const CALL_UNITS = 100000;
+export const REQUEST_UNITS = 300000;
+export const CALL_UNITS = 100000;
 const REQUEST_MS = 1500;
 
 /**
  * What one call into the library costs in candidates on top of those it
  * tests: bounds the number of calls deterministically too.
  */
-const CALL_COST = 100;
+export const CALL_COST = 100;
 
 /**
  * Each calendar object of a tool call gets at least this much, whatever the
  * objects before it spent: one heavy series cannot starve the rest.
  */
-const MIN_SHARE = { units: 2000, ms: 20 };
+export const MIN_SHARE = { units: 2000, ms: 20 };
 
 // Overrides whose recurrence ids lie at most this many periods apart are
 // checked in one call: walking the periods between (a few units each) costs
 // less than another call (CALL_COST).
 const CLUSTER_PERIODS = 20;
+
+/**
+ * The work expand() has done since the last resetExpansionWork(), in
+ * deterministic measures: candidates charged (CALL_COST included), calls into
+ * the library, and overrides handed to it. The library converts every
+ * override it is given, on every call, and counts none of that in
+ * candidates, so only the clock bounds that work. Counting only: nothing
+ * here reads it. Tests bound a tool call's work by it without a clock, which
+ * on a slow runner measured the runner (#138).
+ */
+export const expansionWork = { units: 0, calls: 0, overridesHanded: 0 };
+
+/** Start expansionWork over from zero, before the work to be counted. */
+export function resetExpansionWork() {
+  Object.assign(expansionWork, { units: 0, calls: 0, overridesHanded: 0 });
+}
 
 const timedBudget = (units, ms) => Object.assign(createRecurrenceBudget(units), { timed: true, timeLeft: ms, granted: { units, ms } });
 
@@ -592,6 +608,9 @@ function expand(series, from, to, overrides, budget) {
   } finally {
     budget.remaining -= sliced - slice.remaining + CALL_COST;
     if (budget.timed) budget.timeLeft -= performance.now() - started;
+    expansionWork.units += sliced - slice.remaining + CALL_COST;
+    expansionWork.calls += 1;
+    expansionWork.overridesHanded += overrides.length;
   }
   if (!result.complete) budget.exhausted = true;
 

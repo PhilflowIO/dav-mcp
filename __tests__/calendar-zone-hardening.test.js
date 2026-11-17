@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeEach, jest } from '@jest/globals';
+import ICAL from 'ical.js';
 import { connectTo } from './support/request-origins.js';
 
 // The URLs below belong to the server these tests stand in for.
@@ -68,11 +69,16 @@ beforeEach(() => {
 describe('reading the property', () => {
   test('a value over the size limit is unreadable, without being parsed', () => {
     const big = BERLIN_TZ.replace('END:VTIMEZONE', `${'X-PAD:'.padEnd(70, 'x')}\r\n`.repeat(MAX_TIMEZONE_LENGTH / 70 + 10) + 'END:VTIMEZONE');
-    const started = performance.now();
-    const read = readTimezoneProperty(big);
-    expect(read.status).toBe('unreadable');
-    expect(read.reason).toMatch(/larger than/);
-    expect(performance.now() - started).toBeLessThan(50);
+    // counted, not timed (#138): what bounds it is that ical.js never sees it
+    const parse = jest.spyOn(ICAL, 'parse');
+    try {
+      const read = readTimezoneProperty(big);
+      expect(read.status).toBe('unreadable');
+      expect(read.reason).toMatch(/larger than/);
+      expect(parse).not.toHaveBeenCalled();
+    } finally {
+      parse.mockRestore();
+    }
   });
 
   test('a line with too many parameters is refused by the parse guard', () => {

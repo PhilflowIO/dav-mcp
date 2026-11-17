@@ -1,4 +1,6 @@
 import { describe, test, expect } from '@jest/globals';
+import { counted } from './support/expansion-work.js';
+import { CALL_UNITS } from '../src/occurrences.js';
 import ICAL from 'ical.js';
 import { formatEvent, formatEventList } from '../src/formatters.js';
 import { shownEvent, shownTouchesRange } from '../src/ical-components.js';
@@ -225,23 +227,27 @@ describe('expansion is bounded', () => {
       'END:VEVENT',
     ].join('\r\n'),
   ]);
-  const timed = (object) => {
-    const started = process.hrtime.bigint();
-    const output = formatEvent(object, 'Work', range('2026-08-03T00:00:00Z', '2026-08-04T00:00:00Z'));
-    return { output, elapsedMs: Number(process.hrtime.bigint() - started) / 1e6 };
+  // the work counted, not timed (#138)
+  const expanded = async (object) => {
+    const { result: output, work } = await counted(() => formatEvent(object, 'Work', range('2026-08-03T00:00:00Z', '2026-08-04T00:00:00Z')));
+    return { output, work };
   };
 
-  test('an every-minute series since 1970 is expanded from just before the range', () => {
-    const { output, elapsedMs } = timed(minutely('FREQ=MINUTELY'));
-    expect(elapsedMs).toBeLessThan(2000);
+  test('an every-minute series since 1970 is expanded from just before the range', async () => {
+    const { output, work } = await expanded(minutely('FREQ=MINUTELY'));
+    // one short walk (~14 900 candidates); one from 1970 runs out of budget
+    expect(work.calls).toBe(1);
+    expect(work.units).toBeLessThan(CALL_UNITS / 2);
     expect(when(output)).toContain('August 3, 2026, 12:00 AM');
     expect(output).not.toContain('Note');
   });
 
-  test('a degenerate series that cannot start near the range does not stall the formatter', () => {
+  test('a degenerate series that cannot start near the range does not stall the formatter', async () => {
     // COUNT together with BYDAY: the walk has to count from 1970
-    const { output, elapsedMs } = timed(minutely('FREQ=MINUTELY;BYDAY=MO,TU,WE,TH,FR;COUNT=99999999'));
-    expect(elapsedMs).toBeLessThan(2000);
+    const { output, work } = await expanded(minutely('FREQ=MINUTELY;BYDAY=MO,TU,WE,TH,FR;COUNT=99999999'));
+    // ended by the cap on one call into the library, not by the clock
+    expect(work.calls).toBe(1);
+    expect(work.units).toBeLessThan(2 * CALL_UNITS);
     expect(output).toContain('could not be expanded (too many occurrences');
   });
 });

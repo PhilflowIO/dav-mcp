@@ -4,6 +4,7 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import ICAL from 'ical.js';
 import { connectTo } from './support/request-origins.js';
+import { counted } from './support/expansion-work.js';
 
 // The URLs below belong to the server these tests stand in for.
 connectTo('https://dav.example.com/');
@@ -26,7 +27,8 @@ jest.unstable_mockModule('../src/tsdav-client.js', () => ({
 const { calculateFreeBusy } = await import('../src/tools/shared/freebusy.js');
 const { formatEvent } = await import('../src/formatters.js');
 const { readSeries, shownEvent } = await import('../src/ical-components.js');
-const { relateSeries, seriesOccurrences } = await import('../src/occurrences.js');
+const { relateSeries, seriesOccurrences, expansionWork, resetExpansionWork, REQUEST_UNITS, CALL_UNITS, CALL_COST, MIN_SHARE } =
+  await import('../src/occurrences.js');
 const { createRecurrenceBudget, expandOccurrences } = await import('tsdav-utils');
 const { floatingZoneFor, withFloatingZone, setFloatingZone } = await import('../src/calendar-zone.js');
 // an object of a calendar in UTC (see fetchCalendars above)
@@ -328,12 +330,14 @@ describe('ordinary calendars are complete (review of #110)', () => {
   const one = (uid, ...lines) => ({ ...object(BERLIN, vevent(`SUMMARY:${uid}`, ...lines)), url: `${CALENDAR_URL}${uid}.ics` });
   const run = async (objects, range) => {
     stored = objects;
-    const started = performance.now();
     const texts = [];
+    const work = [];
     for (const [tool, args] of [[freeBusyQuery, { include_event_details: true }], [calendarQuery, {}], [listEvents, { calendar_url: CALENDAR_URL }]]) {
-      texts.push((await tool.handler({ ...range, ...args })).content[0].text);
+      const { result, work: spent } = await counted(() => tool.handler({ ...range, ...args }));
+      texts.push(result.content[0].text);
+      work.push(spent);
     }
-    return { texts, elapsed: performance.now() - started };
+    return { texts, work };
   };
   const rules = ['FREQ=MONTHLY;BYDAY=1MO', 'FREQ=MONTHLY;BYDAY=-1FR', 'FREQ=MONTHLY;BYMONTHDAY=-1', 'FREQ=MONTHLY;BYMONTHDAY=15',
     'FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1', 'FREQ=MONTHLY;INTERVAL=3;BYDAY=2TU'];
@@ -341,19 +345,29 @@ describe('ordinary calendars are complete (review of #110)', () => {
   test('30 monthly series from 2010-2014: every one expanded, in every tool', async () => {
     const objects = Array.from({ length: 30 }, (_, i) => one(`m${i}`,
       `DTSTART;TZID=Europe/Berlin:${2010 + (i % 5)}0${1 + (i % 9)}0${1 + (i % 9)}T090000`, 'DURATION:PT1H', `RRULE:${rules[i % rules.length]}`));
-    const { texts, elapsed } = await run(objects, year);
+    const { texts, work } = await run(objects, year);
     for (const text of texts) expect(text).not.toMatch(/incomplete/i);
-    expect(elapsed).toBeLessThan(2000 * 3);
+    // one call per series, each within the share a tool call guarantees it
+    // (~1 060 candidates now; a walk from DTSTART ~9 400)
+    for (const spent of work) {
+      expect(spent.calls).toBe(30);
+      expect(spent.units).toBeLessThan(30 * MIN_SHARE.units);
+    }
   });
 
   test('200 yearly birthdays (all-day, no end) from 1950-2000: complete, each a whole day', async () => {
     const objects = Array.from({ length: 200 }, (_, i) => one(`b${i}`,
       `DTSTART;VALUE=DATE:${1950 + (i % 50)}10${String(12 + (i % 7)).padStart(2, '0')}`, 'RRULE:FREQ=YEARLY'));
-    const { texts, elapsed } = await run(objects, week);
+    const { texts, work } = await run(objects, week);
     for (const text of texts) expect(text).not.toMatch(/incomplete/i);
     // blocks the whole week: every day has a birthday
     expect(texts[0]).toContain('**No free time**');
-    expect(elapsed).toBeLessThan(2000 * 3);
+    // one call per series, ~190 candidates each; a walk from DTSTART spends
+    // the whole budget
+    for (const spent of work) {
+      expect(spent.calls).toBe(200);
+      expect(spent.units).toBeLessThan(REQUEST_UNITS / 4);
+    }
   });
 
   test('one series that cannot be expanded does not starve the others', async () => {
@@ -503,33 +517,38 @@ describe('no series can stall a tool call (ical.js loops between candidates)', (
   const week = { time_range_start: '2026-10-12T00:00:00Z', time_range_end: '2026-10-19T00:00:00Z' };
   const timed = async (objects, tool = freeBusyQuery, args = {}) => {
     stored = objects;
-    const started = performance.now();
-    const text = (await tool.handler({ ...week, ...args })).content[0].text;
-    return { text, elapsed: performance.now() - started };
+    const { result, work } = await counted(() => tool.handler({ ...week, ...args }));
+    return { text: result.content[0].text, work };
   };
   const one = (uid, ...lines) => ({ ...object(vevent('SUMMARY:x', ...lines)), url: `${CALENDAR_URL}${uid}.ics` });
 
   test('a limiting BYHOUR on SECONDLY since 1950 is reported incomplete, fast', async () => {
-    const { text, elapsed } = await timed([one('s', 'DTSTART:19500101T090000Z', 'DURATION:PT1M',
+    const { text, work } = await timed([one('s', 'DTSTART:19500101T090000Z', 'DURATION:PT1M',
       'RRULE:FREQ=SECONDLY;BYHOUR=9;BYMINUTE=0;BYSECOND=0')]);
     expect(text).toContain('**Warning**');
-    expect(elapsed).toBeLessThan(2000);
+    // ended by the cap on one call into the library (100 102 candidates),
+    // not by the clock; without the cap it spends the tool call's budget
+    expect(work.calls).toBe(1);
+    expect(work.units).toBeLessThan(2 * CALL_UNITS);
   });
 
   test('50 such series in one call share one budget', async () => {
     const objects = Array.from({ length: 50 }, (_, i) => one(`m${i}`, 'DTSTART:19600101T100000Z', 'DURATION:PT1M',
       'RRULE:FREQ=MINUTELY;BYHOUR=10;BYMINUTE=0'));
     for (const [tool, args] of [[freeBusyQuery, {}], [calendarQuery, {}], [listEvents, { calendar_url: CALENDAR_URL }]]) {
-      const { elapsed } = await timed(objects, tool, args);
-      expect(elapsed).toBeLessThan(2000);
+      const { work } = await timed(objects, tool, args);
+      // the tool call's budget, plus the minimum share each object gets
+      expect(work.units).toBeLessThanOrEqual(REQUEST_UNITS + 50 * MIN_SHARE.units + work.calls * CALL_COST);
     }
   });
 
   test('a rule no date satisfies (30 February) returns', async () => {
-    const { text, elapsed } = await timed([one('feb', 'DTSTART:20260101T100000Z', 'DURATION:PT1H',
+    const { text, work } = await timed([one('feb', 'DTSTART:20260101T100000Z', 'DURATION:PT1H',
       'RRULE:FREQ=DAILY;BYMONTH=2;BYMONTHDAY=30')], calendarQuery);
     expect(text).toBe('No events found.');
-    expect(elapsed).toBeLessThan(2000);
+    // one call, ended by its bound past the range (~1 850 candidates), not by the budget
+    expect(work.calls).toBe(1);
+    expect(work.units).toBeLessThan(CALL_UNITS / 10);
   });
 });
 
@@ -558,7 +577,7 @@ describe('the expansion still starts near the range', () => {
     expect(1e6 - near.remaining).toBeLessThan((1e6 - far.remaining) / 20);
   });
 
-  test('1000 overrides of an every-minute series from 2000 on are checked within one budget', () => {
+  test('1000 overrides of an every-minute series from 2000 on are checked within one budget', async () => {
     const lines = [...vevent('SUMMARY:Minutely', 'DTSTART:20000101T000000Z', 'DURATION:PT1M', 'RRULE:FREQ=MINUTELY')];
     for (let i = 0; i < 1000; i++) {
       const rid = new Date(Date.UTC(2000, 0, 1) + i * 11 * 86400000 + i * 60000).toISOString().replace(/[-:]|\.000/g, '');
@@ -569,19 +588,36 @@ describe('the expansion still starts near the range', () => {
     // one day: the 1440 occurrences of the day itself are not what is measured
     const day = { start: new Date('2026-10-12T00:00:00Z'), end: new Date('2026-10-13T00:00:00Z') };
 
-    // 123 s before the step budget, ~0.2 s now
-    const started = performance.now();
-    const { incomplete } = calculateFreeBusy([heavy], day);
-    const shown = shownEvent(new ICAL.Component(ICAL.parse(heavy.data)),
-      { start: day.start.toISOString(), end: day.end.toISOString() }, (v) => /^ov /.test(v.getFirstPropertyValue('summary')));
-    const elapsed = performance.now() - started;
+    // The work is counted, not timed (#138): a wall-clock bound failed on a
+    // slow runner. 123 s before the step budget, ~0.3 s now. A budget without
+    // a clock, the size of a tool call's candidates (REQUEST_UNITS), and the
+    // work meter see the same work on any machine.
+    const root = new ICAL.Component(ICAL.parse(heavy.data));
+    const { master, overrides } = readSeries(root, 'vevent');
+    const units = createRecurrenceBudget(REQUEST_UNITS);
+    const { result: { occurrences, truncated }, work } = await counted(() => seriesOccurrences(relateSeries(master, overrides),
+      { start: day.start.getTime(), end: day.end.getTime() }, { budget: units }));
+
+    expect(truncated).toBe(false);
+    expect(occurrences.filter((o) => /^ov /.test(o.item.summary))).toHaveLength(1000);
+    // one short walk per override (~18 candidates plus CALL_COST each, 117 866
+    // in all); walking from DTSTART or from days before each id runs out
+    expect(REQUEST_UNITS - units.remaining).toBeLessThan(REQUEST_UNITS / 2);
+    // each override handed to the library once; handing it every override on
+    // every call costs no candidates, but a million conversions (~8 s)
+    expect(work.overridesHanded).toBeLessThanOrEqual(2 * 1000);
+
+    // The tool paths, on their own timed budgets: with the clock stopped, only
+    // the candidates decide, so a slow runner cannot make them incomplete.
+    const { result: { incomplete } } = await counted(() => calculateFreeBusy([heavy], day));
+    const { result: shown } = await counted(() => shownEvent(new ICAL.Component(ICAL.parse(heavy.data)),
+      { start: day.start.toISOString(), end: day.end.toISOString() }, (v) => /^ov /.test(v.getFirstPropertyValue('summary'))));
 
     expect(incomplete).toEqual([]);
     expect(shown.item.summary).toBe('ov 0');
-    expect(elapsed).toBeLessThan(2000);
   });
 
-  test('200 overrides moved in from years away are checked in one pass', () => {
+  test('200 overrides moved in from years away are checked in one pass', async () => {
     // DAILY;COUNT=20000 from 2000, overrides of 2027-2030 moved into one week of 2026
     const lines = [...BERLIN, ...vevent('SUMMARY:Daily', 'DTSTART;TZID=Europe/Berlin:20000101T100000',
       'DTEND;TZID=Europe/Berlin:20000101T110000', 'RRULE:FREQ=DAILY;COUNT=20000')];
@@ -594,16 +630,66 @@ describe('the expansion still starts near the range', () => {
     const heavy = object(lines);
     const week = { start: new Date('2026-10-12T00:00:00Z'), end: new Date('2026-10-19T00:00:00Z') };
 
-    const started = performance.now();
-    const { busy, incomplete } = calculateFreeBusy([heavy], week);
-    const shown = shownEvent(new ICAL.Component(ICAL.parse(heavy.data)),
-      { start: week.start.toISOString(), end: week.end.toISOString() });
-    const elapsed = performance.now() - started;
+    const { result: { busy, incomplete }, work: busyWork } = await counted(() => calculateFreeBusy([heavy], week));
+    const { result: shown, work: shownWork } = await counted(() => shownEvent(new ICAL.Component(ICAL.parse(heavy.data)),
+      { start: week.start.toISOString(), end: week.end.toISOString() }));
 
     expect(incomplete).toEqual([]);
     expect(busy.length).toBeGreaterThan(7);
     expect(shown.item.summary).toMatch(/^ov /);
-    expect(elapsed).toBeLessThan(2000);
+    // overrides close together share a call (68 calls now, one per override
+    // 201), and each is handed to the library once
+    for (const spent of [busyWork, shownWork]) {
+      expect(spent.calls).toBeLessThan(200);
+      expect(spent.overridesHanded).toBeLessThanOrEqual(2 * 200);
+    }
+  });
+});
+
+describe('the clock ends an expansion, and every object still gets its share (#138)', () => {
+  // The time half of a tool call's budget, without a real clock: every read
+  // of performance.now advances it by STEP ms. 1500 ms over 201 objects is
+  // ~7.5 ms each; MIN_SHARE gives each 20 ms, room for two calls into the
+  // library.
+  const STEP = 8;
+  const at = (ms) => new Date(ms).toISOString().replace(/[-:]|\.000/g, '');
+  const day = { start: new Date('2026-10-12T00:00:00Z'), end: new Date('2026-10-13T00:00:00Z') };
+
+  test('a series the candidates would finish ends incomplete on time, and 200 others stay complete', () => {
+    // the 1000-override series from above: ~118 000 candidates. Last in the
+    // call, it gets the candidates the others left (~260 000), so only the
+    // clock can end it
+    const lines = [...vevent('SUMMARY:Minutely', 'DTSTART:20000101T000000Z', 'DURATION:PT1M', 'RRULE:FREQ=MINUTELY')];
+    for (let i = 0; i < 1000; i++) {
+      lines.push(...vevent(`SUMMARY:ov ${i}`, `RECURRENCE-ID:${at(Date.UTC(2000, 0, 1) + i * 11 * 86400000 + i * 60000)}`,
+        `DTSTART:${at(Date.UTC(2026, 9, 12) + i * 60000)}`, 'DURATION:PT20M'));
+    }
+    const heavy = { ...object(lines), url: `${CALENDAR_URL}heavy.ics` };
+    // each needs two calls: the day itself, and an override moved in from 2030
+    const small = Array.from({ length: 200 }, (_, i) => ({
+      ...object(
+        vevent(`SUMMARY:s${i}`, 'DTSTART:20260101T080000Z', 'DURATION:PT10M', 'RRULE:FREQ=DAILY'),
+        vevent(`SUMMARY:s${i} moved`, 'RECURRENCE-ID:20300101T080000Z', 'DTSTART:20261012T200000Z', 'DURATION:PT10M'),
+      ),
+      url: `${CALENDAR_URL}s${i}.ics`,
+    }));
+
+    let now = 0;
+    const clock = jest.spyOn(performance, 'now').mockImplementation(() => (now += STEP));
+    resetExpansionWork();
+    let result;
+    try {
+      result = calculateFreeBusy([...small, heavy], day);
+    } finally {
+      clock.mockRestore();
+    }
+
+    // the heavy series was cut by the clock, nothing else was
+    expect(result.incomplete.map(({ object: o }) => o.url)).toEqual([heavy.url]);
+    expect(expansionWork.units).toBeLessThan(REQUEST_UNITS);
+    // every small series got its two calls, though the pool of time ran dry
+    // after a third of them
+    expect(expansionWork.calls).toBeGreaterThanOrEqual(1 + 2 * 200);
   });
 });
 

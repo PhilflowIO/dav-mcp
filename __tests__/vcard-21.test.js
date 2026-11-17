@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeEach, jest } from '@jest/globals';
 import ICAL from 'ical.js';
 import { connectTo } from './support/request-origins.js';
+import { countWork } from './support/work-count.js';
 
 // Issue #103: vCard 2.1 cards (Outlook/Android exports) are read and edited as
 // the 3.0 card that says the same — quoted-printable decoded, 2.1 escaping
@@ -38,6 +39,14 @@ const update = async (fields) => {
 };
 
 const parsed = (data) => new ICAL.Component(ICAL.parse(data));
+
+// Reading a card scans, builds and copies up to about 23 characters of text
+// per character of the card (normalizer and ical.js together, slices
+// included, see support/work-count.js);
+// each rescan the normalizer once made costs that per line, thousands of
+// times over (#138: counted, not timed).
+const WORK_PER_CHARACTER = 40;
+const read = (card) => countWork(() => readVCard(card), WORK_PER_CHARACTER * card.length);
 
 describe('update_contact on a vCard 2.1 card', () => {
   beforeEach(() => updateVCard.mockClear());
@@ -169,17 +178,17 @@ describe('reading a vCard 2.1 card', () => {
     for (let i = 48; i < base64.length; i += 74) lines.push(' ' + base64.slice(i, i + 74));
     const card = ['BEGIN:VCARD', 'VERSION:3.0', 'FN:Big', ...lines, 'END:VCARD'].join('\r\n');
 
-    const started = performance.now();
-    expect(readVCard(card).getFirstPropertyValue('fn')).toBe('Big');
-    expect(performance.now() - started).toBeLessThan(1000);
+    const { work, outcome } = read(card);
+    expect(work).toBeLessThanOrEqual(WORK_PER_CHARACTER * card.length);
+    expect(outcome.getFirstPropertyValue('fn')).toBe('Big');
   });
 
   test('40 000 BEGIN:VCARD lines without END or VERSION are read in linear time', () => {
     // each BEGIN used to search the rest of the body for its VERSION: 71 s here
     const body = Array(40_000).fill('BEGIN:VCARD').join('\r\n');
-    const started = performance.now();
-    expect(() => readVCard(body)).toThrow();
-    expect(performance.now() - started).toBeLessThan(1000);
+    const { work, outcome } = read(body);
+    expect(work).toBeLessThanOrEqual(WORK_PER_CHARACTER * body.length);
+    expect(outcome).toBeInstanceOf(Error);
   });
 
   test('a parameter list folded over 8000 lines is read in linear time', () => {
@@ -189,8 +198,8 @@ describe('reading a vCard 2.1 card', () => {
     lines.push(' :v');
     const card = ['BEGIN:VCARD', 'VERSION:3.0', 'FN:Long', ...lines, 'END:VCARD'].join('\r\n');
 
-    const started = performance.now();
-    expect(readVCard(card).getFirstPropertyValue('fn')).toBe('Long');
-    expect(performance.now() - started).toBeLessThan(1000);
+    const { work, outcome } = read(card);
+    expect(work).toBeLessThanOrEqual(WORK_PER_CHARACTER * card.length);
+    expect(outcome.getFirstPropertyValue('fn')).toBe('Long');
   });
 });

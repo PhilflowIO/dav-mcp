@@ -1,5 +1,7 @@
 import { describe, test, expect, beforeEach, jest } from '@jest/globals';
 import { connectTo } from './support/request-origins.js';
+import { counted } from './support/expansion-work.js';
+import { CALL_UNITS } from '../src/occurrences.js';
 
 // The URLs below belong to the server these tests stand in for.
 connectTo('https://dav.example.com/');
@@ -168,17 +170,20 @@ describe('recurring events', () => {
     expect(busy).toEqual([]);
   });
 
-  test('a degenerate series does not stall the calculation', () => {
+  test('a degenerate series does not stall the calculation', async () => {
     const minutely = object([
       'DTSTART:19700101T000000Z',
       'DTEND:19700101T000100Z',
       'SUMMARY:Pathological',
       'RRULE:FREQ=MINUTELY',
     ]);
-    const started = process.hrtime.bigint();
-    calculateFreeBusy([minutely], DAY);
-    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
-    expect(elapsedMs).toBeLessThan(2000);
+    // the work counted, not timed (#138)
+    const { result: { incomplete }, work } = await counted(() => calculateFreeBusy([minutely], DAY));
+    // one short walk from near the range (~12 000 candidates), complete; one
+    // from 1970 runs out of budget
+    expect(incomplete).toEqual([]);
+    expect(work.calls).toBe(1);
+    expect(work.units).toBeLessThan(CALL_UNITS / 2);
   });
 });
 
