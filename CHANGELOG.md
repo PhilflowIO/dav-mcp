@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **A separate CardDAV endpoint** (#158): `CARDDAV_SERVER_URL`,
+  `CARDDAV_USERNAME` and `CARDDAV_PASSWORD` point the contact tools at a
+  host of their own, for providers that serve calendars and contacts on two
+  hosts (Fastmail, iCloud). Each falls back to its `CALDAV_*` counterpart
+  when unset or empty, so most setups only add the URL. Basic and Digest
+  only; OAuth ignores them. Each client keeps its own login and its own
+  allowed URLs, so a calendar request never carries the calendar login to
+  the contacts host or the other way round, and an http contacts endpoint
+  does not weaken the https rule of an https calendar one. Once any
+  `CARDDAV_*` is set, both logins must succeed: the tolerance for a half
+  the server does not serve (#152) only applies to a single server. An
+  https calendar URL with a plain http contacts URL and no
+  `CARDDAV_PASSWORD` is refused at startup, since the fallback would send
+  the calendar password over plain http. The MCP bundle offers the three
+  settings now; the Claude plugin gets them with the plugin update that
+  follows the release.
+
 ### Security
 - **Moved off the production dependencies with high advisories** (#155):
   the MCP SDK to 1.32.2, zod to 4, and body-parser, qs, fast-uri,
