@@ -16,12 +16,12 @@ import {
  * Common fields: SUMMARY, DESCRIPTION, STATUS, PRIORITY, DUE, PERCENT-COMPLETE
  * Custom properties: Any X-* property
  */
-const updateTodoFieldsSchema = z.object({
+const updateTodoFieldsSchema = z.strictObject({
   todo_url: davUrl('Todo URL must be a valid URL'),
   todo_etag: entityTag,
   fields: davFieldMapSchema,
   ...occurrenceEditSchema,
-}).strict().superRefine((data, ctx) => {
+}).superRefine((data, ctx) => {
   // EXDATE/RDATE are lists: written as a field they replace the whole list
   // (tsdav-utils 0.7.0), so single occurrences go through their own
   // parameters; see src/tools/shared/occurrence-edits.js
@@ -32,7 +32,7 @@ const updateTodoFieldsSchema = z.object({
   // one call has no single meaning.
   if (data.fields && 'DUE' in data.fields && 'DURATION' in data.fields) {
     ctx.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: 'custom',
       path: ['fields', 'DURATION'],
       message: 'Set either DUE or DURATION, not both (RFC 5545 3.6.2)',
     });

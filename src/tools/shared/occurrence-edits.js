@@ -66,7 +66,7 @@ export const occurrenceEditSchema = {
 export function refineOccurrenceEdits(data, ctx, tool) {
   if (data.fields && 'EXDATE' in data.fields) {
     ctx.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: 'custom',
       path: ['fields', 'EXDATE'],
       message: `EXDATE is not set through fields: written there it replaces every exclusion already in the series. ` +
         `Cancel occurrences with cancel_occurrences and bring them back with restore_occurrences, ` +
@@ -75,7 +75,7 @@ export function refineOccurrenceEdits(data, ctx, tool) {
   }
   if (data.fields && 'RDATE' in data.fields) {
     ctx.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: 'custom',
       path: ['fields', 'RDATE'],
       message: `RDATE is not set through fields: written there it replaces every extra date already in the series. ` +
         `To cancel an occurrence use cancel_occurrences; to add or remove extra dates of a series, ` +
