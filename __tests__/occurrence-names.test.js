@@ -45,6 +45,32 @@ describe('listings name occurrences as the update tools take them (#126)', () =>
     expect(text).toMatch(/- \*\*Changed occurrences\*\* \(by original start\): 2026-11-05T10:00:00 \(now November 5, 2026, 03:00 PM GMT\+1\)\n/);
   });
 
+  test('exclusions stored before ORGANIZER leave the organizer and attendees intact', () => {
+    // Google Calendar writes EXDATE before ORGANIZER and ATTENDEE. Checking the
+    // exclusions must not touch the stored series: the organizer read after it
+    // came back as the last EXDATE's time (its hydrated property at the index
+    // the organizer had moved to), and the listing threw "replace is not a
+    // function"; the exclusions themselves were gone from the shown series.
+    const stored = [
+      'UID:weekly@test', 'SUMMARY:Planning',
+      'DTSTART;TZID=Europe/Berlin:20261001T100000', 'DTEND;TZID=Europe/Berlin:20261001T110000',
+      'EXDATE;TZID=Europe/Berlin:20261224T100000',
+      'EXDATE;TZID=Europe/Berlin:20261231T100000',
+      'EXDATE;TZID=Europe/Berlin:20270107T100000',
+      'RRULE:FREQ=WEEKLY',
+      'ORGANIZER;CN=Ada:mailto:ada@example.com',
+      'ATTENDEE;CN=Bob;PARTSTAT=ACCEPTED:mailto:bob@example.com',
+      'ATTENDEE;CN=Cy;PARTSTAT=NEEDS-ACTION:mailto:cy@example.com',
+    ];
+    const data = calendar('VEVENT', stored);
+    for (const range of [undefined, { start: '2026-10-14T00:00:00Z', end: '2026-10-16T00:00:00Z' }]) {
+      const text = formatEvent({ url: EVENT_URL, data }, 'Work', range);
+      expect(text).toContain('- **Organizer**: ada@example.com\n');
+      expect(text).toContain('- **Attendees**: 2 person(s)\n  - Bob (ACCEPTED)\n  - Cy (NEEDS-ACTION)\n');
+      expect(text).toContain('- **Cancelled occurrences**: 2026-12-24T10:00:00, 2026-12-31T10:00:00, 2027-01-07T10:00:00\n');
+    }
+  });
+
   test('an occurrence in a range: its original start; a changed one says so', () => {
     const data = calendar('VEVENT', SERIES, OVERRIDE);
     const plain = formatEvent({ url: EVENT_URL, data }, 'Work',

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Listing a recurring event whose `EXDATE` lines are stored before
+  `ORGANIZER` (as Google Calendar writes them) threw
+  `parsed.organizer.replace is not a function` and so failed the whole
+  `list_events` call: checking the exclusions took them out of the stored
+  series itself, which left its organizer read as an `EXDATE` and the
+  listing without its cancelled occurrences (#150).
+
 ### Changed
 - The Claude plugin carries the dav-mcp server's source and a lockfile instead
   of starting `npx -y dav-mcp@<version>` (#149). The Claude directory could not
