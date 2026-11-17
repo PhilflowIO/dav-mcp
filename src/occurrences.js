@@ -38,11 +38,15 @@ import { floatingZoneOf, setFloatingZone, zoneInstant, zoneWall } from './calend
  */
 
 /**
- * What one tool call may spend expanding recurring events, across all of
- * them, in two measures:
+ * What one tool call may spend expanding recurring events, in two measures,
+ * per pool. A range query has two pools (rangeBudgetPool): one for the
+ * objects the server returned for the range, one for the recurring objects
+ * fetched on top of that answer (src/tools/shared/range-candidates.js); each
+ * gets the amounts below, so a tool call spends at most twice them. Other
+ * calls have one pool.
  *
  *  - candidates: tsdav-utils units, one per rule candidate ical.js tests
- *    (deterministic): 300 000 per tool call, at most CALL_UNITS of them in
+ *    (deterministic): 300 000 per pool, at most CALL_UNITS of them in
  *    any one call into the library (about 0.5 s here), since a call cannot
  *    be stopped once it runs.
  *  - time: what a request budget (requestBudget, budgetPool) has left of
@@ -52,10 +56,12 @@ import { floatingZoneOf, setFloatingZone, zoneInstant, zoneWall } from './calend
  *    made here, the work on each occurrence.
  *
  * Whichever runs out first ends the expansion, as incomplete. The clock is
- * checked before each call into the library, and every object gets at least
- * MIN_SHARE: so about 1.5 s per tool call plus up to one call per remaining
- * object, which grows with the size of the answer; machine load can make a
- * series incomplete. A year of a calendar of 100 ordinary series (daily,
+ * checked before each call into the library, and every object of the
+ * server's answer gets at least MIN_SHARE: so about 1.5 s for that pool plus
+ * up to one call per remaining object, which grows with the size of the
+ * answer; the extra pool has no floor, so it stays within its 1.5 s and the
+ * objects it cannot reach are reported as not checked. Machine load can
+ * make a series incomplete. A year of a calendar of 100 ordinary series (daily,
  * weekly, monthly, yearly, with overrides) takes about 1 s and some 280 000
  * candidates. A walk that needs more than CALL_UNITS is incomplete even for
  * a lone series.

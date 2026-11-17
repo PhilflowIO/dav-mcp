@@ -1224,8 +1224,8 @@ export function withUnsearched(result, unsearched, noun, listTool) {
 export function withUnchecked(result, unchecked) {
   if (!unchecked || unchecked.length === 0) return result;
 
-  let output = `\n\n---\nNot checked: **${unchecked.length}** recurring ${unchecked.length === 1 ? 'event (or calendar)' : 'events (or calendars)'} ` +
-    'could not be checked against the range, so an occurrence in it may be missing above:\n\n';
+  let output = `\n\n---\nNot checked: **${unchecked.length}** — recurring events the server did not return for this range ` +
+    'could not all be checked here, so an occurrence in the range may be missing above:\n\n';
   for (const { object, reason } of unchecked.slice(0, LISTED_UNREADABLE)) output += `- ${object.url} — ${reason}\n`;
   output += moreLine(unchecked.length);
 
