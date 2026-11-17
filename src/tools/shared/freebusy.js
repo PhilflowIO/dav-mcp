@@ -1,5 +1,4 @@
 import ICAL from 'ical.js';
-import { resolveZone } from 'tsdav-utils';
 import { parseICal, unreadableReason } from '../../ical-parse.js';
 import { shareTimezones, toInstant } from './ical-dates.js';
 import { logicalLines, parseContentLine } from './content-lines.js';
@@ -43,11 +42,12 @@ function busyType(fbtype) {
  * FREEBUSY period that is not FREE and touches the range, clipped to it, with
  * its busy type.
  *
- * A period is a start and an end o * list several. RFC 5545 3.8.2.6 requires them in UTC. One without a Z is
- * read like every other time here rather than dropped, which would report
- * published busy time as free: in the zone of its TZID parameter when it has
- * one, else as a floating time, in the calendar's zone.
-toInstant, the same lookup as for events).
+ * A period is a start and an end or a start and a duration; one property may
+ * list several. RFC 5545 3.8.2.6 requires them in UTC. One without a Z is
+ * read like an event's time rather than dropped, which would report
+ * published busy time as free: with a TZID, in the object's VTIMEZONE of
+ * that name, else the IANA zone, else, like a floating time, in the
+ * calendar's zone (toInstant, the same lookup as for events).
  *
  * Read from the text, content line by content line (content-lines.js) and one
  * period at a time, rather than from ical.js's parse of the whole object:
@@ -120,38 +120,32 @@ export function storedBusyOf(text, zone, range) {
   if (stack.length > 0) broken = true;
   if (broken) return { periods: [], unreadable: 0, stored, events, broken, rest: null };
 
-  // a TZID is read by the object's VTIMEZONE of that name, else the IANA
-  // zone (tsdav-utils' resolveZone)
-  const source = vtimezones.length > 0
-    ? ['BEGIN:VCALENDAR', ...vtimezones.map(([from, to]) => text.slice(from, to).replace(/\r?\n$|\r$/, '')), 'END:VCALENDAR'].join('\r\n')
-    : undefined;
-  const zones = new Map();
-  const zoneOf = (tzid) => {
-    if (!zones.has(tzid)) {
-      let converter = null;
-      try {
-        converter = resolveZone(tzid, source);
-      } catch {
-        converter = null;
-      }
-      zones.set(tzid, converter && { converter });
+  // the object's VTIMEZONEs, for ical.js to resolve a TZID by as it does in
+  // an event (shareTimezones); without them a TZID is the IANA zone's
+  let zones = new ICAL.Component('vcalendar');
+  if (vtimezones.length > 0) {
+    try {
+      zones = new ICAL.Component(parseICal(['BEGIN:VCALENDAR', ...vtimezones.map(([from, to]) => text.slice(from, to).replace(/\r?\n$|\r$/, '')), 'END:VCALENDAR'].join('\r\n')));
+    } catch {
+      // unreadable definitions: the TZIDs fall back as an event's would
     }
-    return zones.get(tzid);
-  };
+  }
+  const holder = new ICAL.Component('vfreebusy');
+  shareTimezones(zones).addSubcomponent(holder);
 
   for (const { type, tzid, value } of properties) {
-    // no zone of its own: floating, read in the calendar's (a Z wins over it)
-    const own = tzid ? zoneOf(tzid) : zone;
+    const head = tzid == null ? 'FREEBUSY' : `FREEBUSY;TZID="${tzid}"`;
     for (const item of value.split(',')) {
       let start;
       let end;
       try {
-        const period = ICAL.Property.fromString(`FREEBUSY:${item.trim()}`).getFirstValue();
-        // a TZID nobody knows leaves a time without a Z unreadable
-        if (!own && period.start.zone !== ICAL.Timezone.utcTimezone) throw new Error(`unknown TZID ${tzid}`);
-        start = toInstant(period.start, own ?? zone);
+        const property = ICAL.Property.fromString(`${head}:${item.trim()}`);
+        // its TZID is looked up in the object's VTIMEZONEs (see above)
+        property.parent = holder;
+        const period = property.getFirstValue();
+        start = toInstant(period.start, zone);
         end = period.end
-          ? toInstant(period.end, own ?? zone)
+          ? toInstant(period.end, zone)
           : start + period.duration.toSeconds() * 1000;
       } catch {
         unreadable += 1;

@@ -233,11 +233,24 @@ describe('stored VFREEBUSY read as RFC 5545 content lines', () => {
     expect(busyLines(await call())).toEqual(['10:00-11:00', '13:00-14:00', '15:00-16:00']);
   });
 
-  test('a TZID that names no zone leaves the period unread and the answer incomplete', async () => {
-    stored[FREEBUSY] = [freebusy('published', 'FREEBUSY;TZID=Nowhere/Land:20260525T090000/PT1H')];
+  test('a TZID that names no zone is read as an event\'s would be: in the calendar\'s zone', async () => {
+    calendars[0].timezone = calendarTimezoneValue('Europe/Berlin').text;
+    stored[FREEBUSY] = [freebusy('published', 'FREEBUSY;TZID=Nowhere/Land:20260525T120000/20260525T130000')];
+    events[FREEBUSY] = [calendarObject('event', [
+      'BEGIN:VEVENT', 'UID:event@test', 'DTSTAMP:20260101T000000Z', 'SUMMARY:Same zone',
+      'DTSTART;TZID=Nowhere/Land:20260525T150000', 'DTEND;TZID=Nowhere/Land:20260525T160000', 'END:VEVENT',
+    ])];
     const output = await call();
-    expect(busyLines(output)).toEqual([]);
-    expect(output).toContain('**Warning**: incomplete');
+    // both in Berlin summer time, shown there
+    expect(section(output, 'Busy')).toMatch(/12:00 PM.*→.*01:00 PM/);
+    expect(section(output, 'Busy')).toMatch(/03:00 PM.*→.*04:00 PM/);
+    expect(output).not.toContain('incomplete');
+  });
+
+  test('a period\'s start and end are both read in its TZID', async () => {
+    // 09:00 to 10:00 New York time, across no change: 13:00 to 14:00 UTC
+    stored[FREEBUSY] = [freebusy('published', 'FREEBUSY;TZID=America/New_York:20260525T090000/20260525T100000')];
+    expect(busyLines(await call())).toEqual(['13:00-14:00']);
   });
 
   test('a resource with a VEVENT and a VFREEBUSY with a bad period keeps the event\'s busy time', async () => {
