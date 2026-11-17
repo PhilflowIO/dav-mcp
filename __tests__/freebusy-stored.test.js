@@ -197,6 +197,34 @@ describe('stored VFREEBUSY periods', () => {
   });
 });
 
+describe('stored VFREEBUSY read as RFC 5545 content lines', () => {
+  const lines = (...body) => ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//test//EN', ...body, 'END:VCALENDAR'];
+  const raw = (name, data) => ({ url: `${FREEBUSY}${name}.ics`, etag: '"1"', data });
+
+  test('an FBTYPE inside a quoted parameter value is text, not the type', async () => {
+    stored[FREEBUSY] = [freebusy('published',
+      'FREEBUSY;X-NOTE="x;FBTYPE=FREE;y";FBTYPE=BUSY-TENTATIVE:20260525T100000Z/PT1H')];
+    expect(busyLines(await call())).toEqual(['10:00-11:00 BUSY-TENTATIVE']);
+  });
+
+  test('CR-only line endings and a folded BEGIN line are read', async () => {
+    stored[FREEBUSY] = [
+      raw('cr', lines('BEGIN:VFREEBUSY', 'UID:cr@test', 'FREEBUSY:20260525T100000Z/PT1H', 'END:VFREEBUSY').join('\r')),
+      raw('folded', lines('BEGIN:VFREE', ' BUSY', 'UID:folded@test', 'FREEBUSY:20260525T1200', ' 00Z/PT1H', 'END:VFREEBUSY').join('\n')),
+    ];
+    expect(busyLines(await call())).toEqual(['10:00-11:00', '12:00-13:00']);
+  });
+
+  test('only FREEBUSY directly in the VFREEBUSY counts, not one in a component nested in it', async () => {
+    stored[FREEBUSY] = [freebusy('published',
+      'FREEBUSY:20260525T100000Z/PT1H',
+      'BEGIN:X-ARCHIVE',
+      'FREEBUSY:20260525T140000Z/PT1H',
+      'END:X-ARCHIVE')];
+    expect(busyLines(await call())).toEqual(['10:00-11:00']);
+  });
+});
+
 describe('the stored free/busy query going wrong', () => {
   test('a refused query leaves the answer incomplete, not failed', async () => {
     storedQuery = 'refuse';

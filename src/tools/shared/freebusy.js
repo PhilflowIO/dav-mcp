@@ -1,6 +1,7 @@
 import ICAL from 'ical.js';
 import { parseICal, unreadableReason } from '../../ical-parse.js';
 import { shareTimezones, toInstant } from './ical-dates.js';
+import { unfoldLines, parseContentLine } from './content-lines.js';
 import { setFloatingZone, objectFloatingZone, serverZone } from '../../calendar-zone.js';
 import { readSeries, blocksTime } from '../../ical-components.js';
 import { relateSeries, seriesOccurrences, spanOf, touchesRange, requestBudget, budgetPool } from '../../occurrences.js';
@@ -36,16 +37,6 @@ function busyType(fbtype) {
   return BUSY_TYPES.includes(type) ? type : 'BUSY';
 }
 
-/** Where the value of a content line starts: after the first colon outside quotes */
-function valueStart(line) {
-  let quoted = false;
-  for (let i = 0; i < line.length; i += 1) {
-    if (line[i] === '"') quoted = !quoted;
-    else if (line[i] === ':' && !quoted) return i + 1;
-  }
-  return -1;
-}
-
 /**
  * What the stored VFREEBUSY components of a calendar object contribute: each
  * FREEBUSY period that is not FREE and touches the range, clipped to it, with
@@ -56,38 +47,54 @@ function valueStart(line) {
  * read like every other floating time here, in the calendar's zone, rather
  * than dropped: dropping it would report published busy time as free.
  *
- * Read from the text, one period at a time, rather than from ical.js's parse
- * of the whole object: ical.js refuses the whole object for one malformed
- * period, and this keeps the periods that can be read and counts the rest.
- * Time and memory are linear in the text; only periods that touch the range
- * are kept.
+ * Read from the text, content line by content line (content-lines.js) and one
+ * period at a time, rather than from ical.js's parse of the whole object:
+ * ical.js refuses the whole object for one malformed period, and this keeps
+ * the periods that can be read and counts the rest. Only FREEBUSY properties
+ * of a VFREEBUSY directly in the VCALENDAR count. Time and memory are linear
+ * in the text; only periods that touch the range are kept.
  *
  * @param {string} text - the calendar object's iCalendar text
  * @param {Object} zone - the zone floating values are read in
  * @param {{start: number, end: number}} range - ms
- * @returns {{periods: Array<{start: number, end: number, type: string}>, unreadable: number}}
+ * @returns {{periods: Array<{start: number, end: number, type: string}>, unreadable: number, stored: boolean, events: boolean}}
+ *   stored: whether the object has a VFREEBUSY; events: whether it has a VEVENT
  */
 export function storedBusyOf(text, zone, range) {
   const periods = [];
   let unreadable = 0;
-  let inside = false;
-  // RFC 5545 3.1: a line break followed by a space or tab continues the line
-  for (const line of text.replace(/\r?\n[ \t]/g, '').split(/\r?\n/)) {
-    if (/^BEGIN:VFREEBUSY\s*$/i.test(line)) inside = true;
-    else if (/^END:VFREEBUSY\s*$/i.test(line)) inside = false;
-    if (!inside || !/^FREEBUSY[;:]/i.test(line)) continue;
-    const at = valueStart(line);
-    if (at === -1) {
-      unreadable += 1;
+  let stored = false;
+  let events = false;
+  // the components the line is in, outermost first
+  const stack = [];
+  const inStored = () => stack.length === 2 && stack[0] === 'VCALENDAR' && stack[1] === 'VFREEBUSY';
+  for (const line of unfoldLines(text)) {
+    const property = parseContentLine(line);
+    if (!property) {
+      // a FREEBUSY line that is not a content line is a period lost
+      if (inStored() && /^FREEBUSY[;:]/i.test(line)) unreadable += 1;
       continue;
     }
-    const fbtype = line.slice(0, at - 1).match(/;FBTYPE=("?)([^";:]*)\1(?=;|$)/i)?.[2];
-    const type = busyType(fbtype);
+    const { name, params, value } = property;
+    if (name === 'BEGIN') {
+      stack.push(value.trim().toUpperCase());
+      if (stack.length === 2 && stack[0] === 'VCALENDAR') {
+        if (stack[1] === 'VFREEBUSY') stored = true;
+        if (stack[1] === 'VEVENT') events = true;
+      }
+      continue;
+    }
+    if (name === 'END') {
+      stack.pop();
+      continue;
+    }
+    if (name !== 'FREEBUSY' || !inStored()) continue;
+    const type = busyType(params.get('FBTYPE')?.[0] ?? null);
     if (!type) continue;
-    for (const value of line.slice(at).split(',')) {
+    for (const item of value.split(',')) {
       let period;
       try {
-        period = ICAL.Property.fromString(`FREEBUSY:${value.trim()}`).getFirstValue();
+        period = ICAL.Property.fromString(`FREEBUSY:${item.trim()}`).getFirstValue();
       } catch {
         unreadable += 1;
         continue;
@@ -105,7 +112,7 @@ export function storedBusyOf(text, zone, range) {
       periods.push({ start: Math.max(start, range.start), end: Math.min(end, range.end), type });
     }
   }
-  return { periods, unreadable };
+  return { periods, unreadable, stored, events };
 }
 
 /**
@@ -245,21 +252,21 @@ export function calculateFreeBusy(calendarObjects, range) {
     const text = typeof object.data === 'string' ? object.data : '';
     // an incomplete-note for this object already given (stored periods)
     let noted = false;
-    if (/^BEGIN:VFREEBUSY\s*$/im.test(text)) {
-      const { periods, unreadable } = storedBusyOf(text, objectFloatingZone(object) ?? serverZone(), window);
-      if (periods.length > 0) published.push(object);
+    const stored = storedBusyOf(text, objectFloatingZone(object) ?? serverZone(), window);
+    if (stored.stored) {
+      if (stored.periods.length > 0) published.push(object);
       // one at a time: a spread of a large object's periods overflows the stack
-      for (const period of periods) intervals.push(period);
-      if (unreadable > 0) {
+      for (const period of stored.periods) intervals.push(period);
+      if (stored.unreadable > 0) {
         incomplete.push({
           object,
           summary: 'Stored free/busy',
-          reason: `${unreadable === 1 ? 'a FREEBUSY period' : `${unreadable} FREEBUSY periods`} in it`,
+          reason: `${stored.unreadable === 1 ? 'a FREEBUSY period' : `${stored.unreadable} FREEBUSY periods`} in it`,
         });
         noted = true;
       }
       // nothing else in it blocks time: no event to parse
-      if (!/^BEGIN:VEVENT\s*$/im.test(text)) continue;
+      if (!stored.events) continue;
     }
     let root;
     try {
