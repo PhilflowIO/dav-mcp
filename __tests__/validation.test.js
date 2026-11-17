@@ -334,12 +334,19 @@ describe.each([
     '2026-03-02T09:00:00.123',
     '2026-03-02T09:00',
     '2024-02-29T09:00:00',
+    '2026-03-02T09:00:00+23:59',
+    // RFC 3339's unknown offset, as zod's datetime({ offset: true }) takes it
+    '2026-03-02T09:00:00-00:00',
   ])('accepts %s', (start) => {
     expect(validateInput(schema, range(start)).time_range_start).toBe(start);
   });
 
   test.each([
     '2026-03-02T09:00:00+01',
+    // offsets out of range (review of #165)
+    '2026-03-02T09:00:00+99:99',
+    '2026-03-02T09:00:00+2400',
+    '2026-03-02T09:00:00+01:60',
     '2026-02-30T09:00:00Z',
     '2026-13-45T25:61:00Z',
     // the same impossible values without a zone (#162)
