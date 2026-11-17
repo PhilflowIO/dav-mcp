@@ -120,6 +120,93 @@ describe('a login redirected onto the other half\'s configured host', () => {
   });
 });
 
+// The other half's hosts are refused as the other policy holds them at the
+// moment of the check, not only its configured host: a per-account host one
+// login was redirected to is just as much the other half's.
+describe('hosts the other half learned while logging in', () => {
+  const both = { CARDDAV_PASSWORD: 'card-secret' };
+  const env = (cal, card) => ({ CALDAV_SERVER_URL: `${cal.origin}/`, CARDDAV_SERVER_URL: `${card.origin}/`, ...both });
+
+  test('iCloud shape: each half redirected to a per-account host of its own logs in, each login on its own host', async () => {
+    const hosts = {};
+    const [cal, card, calAccount, cardAccount] = await start(
+      path => (path === '/.well-known/caldav' ? `${hosts.calAccount}/` : null),
+      path => (path === '/.well-known/carddav' ? `${hosts.cardAccount}/` : null),
+      () => null,
+      () => null,
+    );
+    hosts.calAccount = calAccount.origin;
+    hosts.cardAccount = cardAccount.origin;
+
+    expect(await login(env(cal, card))).toBeNull();
+    expect(tsdavManager.availableAccountTypes()).toEqual(['caldav', 'carddav']);
+    expect(calAccount.auths).toContain(CAL_AUTH);
+    expect(calAccount.auths).not.toContain(CARD_AUTH);
+    expect(cardAccount.auths).toContain(CARD_AUTH);
+    expect(cardAccount.auths).not.toContain(CAL_AUTH);
+  });
+
+  test('Fastmail shape: two hosts, no redirects, both log in on their own host', async () => {
+    const [cal, card] = await start(() => null, () => null);
+    expect(await login(env(cal, card))).toBeNull();
+    expect(tsdavManager.availableAccountTypes()).toEqual(['caldav', 'carddav']);
+    expect(cal.auths).not.toContain(CARD_AUTH);
+    expect(card.auths).not.toContain(CAL_AUTH);
+  });
+
+  test('the contacts host redirecting to the calendar\'s per-account host fails, and that host never gets the CardDAV login', async () => {
+    const hosts = {};
+    const [cal, card, account] = await start(
+      path => (path === '/.well-known/caldav' ? `${hosts.account}/` : null),
+      path => `${hosts.account}${path}`,
+      () => null,
+    );
+    hosts.account = account.origin;
+
+    const error = await login(env(cal, card));
+    expect(error?.message).toContain('(CardDAV client)');
+    expect(error.message).toContain('a host the login for CALDAV_SERVER_URL goes to');
+    expect(account.auths).toContain(CAL_AUTH);
+    expect(account.auths).not.toContain(CARD_AUTH);
+  });
+
+  test('the calendar host redirecting to the contacts per-account host: the second login is kept off it', async () => {
+    const hosts = {};
+    const [cal, card, account] = await start(
+      path => `${hosts.account}${path}`,
+      path => (path === '/.well-known/carddav' ? `${hosts.account}/` : null),
+      () => null,
+    );
+    hosts.account = account.origin;
+
+    expect(await login(env(cal, card))).toBeNull();
+    // the calendar logs in first and takes the host; the contacts discovery
+    // redirect to it is refused, tsdav falls back to the configured contacts
+    // URL, and one host never gets both logins
+    expect(tsdavManager.getCardDavClient().account.homeUrl).toBe(`${card.origin}/addressbooks/user/`);
+    expect(account.auths.includes(CAL_AUTH) && account.auths.includes(CARD_AUTH)).toBe(false);
+    expect(card.auths).not.toContain(CAL_AUTH);
+    expect(cal.auths).not.toContain(CARD_AUTH);
+  });
+
+  test('a tool call on the contacts client to the calendar\'s per-account host is refused before sending', async () => {
+    const hosts = {};
+    const [cal, card, account] = await start(
+      path => (path === '/.well-known/caldav' ? `${hosts.account}/` : null),
+      () => null,
+      () => null,
+    );
+    hosts.account = account.origin;
+    expect(await login(env(cal, card))).toBeNull();
+
+    const error = await tsdavManager.getCardDavClient()
+      .davRequest({ url: `${account.origin}/addressbooks/user/book/`, init: { method: 'PROPFIND', headers: { depth: '0' } } })
+      .then(() => null, e => e);
+    expect(error?.message).toContain('a host the login for CALDAV_SERVER_URL goes to');
+    expect(account.auths).not.toContain(CARD_AUTH);
+  });
+});
+
 describe('secrets in configuration errors', () => {
   test('the plain-http refusal shows the CardDAV origin, not the password in its URL', () => {
     let error;

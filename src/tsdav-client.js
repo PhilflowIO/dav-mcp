@@ -257,20 +257,6 @@ function loginError(cause, config, answers, label) {
   return error;
 }
 
-/**
- * The origin of a configured URL, or undefined if it is not one (the policy
- * reports that with its variable).
- * @param {string} value
- * @returns {string|undefined}
- */
-function originOf(value) {
-  try {
-    return new URL(String(value)).origin;
-  } catch {
-    return undefined;
-  }
-}
-
 // Per half: the account type tsdav knows it by, its name, its error class
 // and the tools that need it.
 const HALVES = {
@@ -373,13 +359,11 @@ class TsdavClientManager {
       // policy, even on the same URL: a policy learns every host its login
       // was redirected to, so a shared one would hand the CardDAV login to a
       // host only the calendar login was sent to. Each policy also refuses
-      // the other half's configured host, so a redirect cannot carry one
-      // login to the other endpoint. Without CARDDAV_* one login serves both
+      // every host the other half's login may go to, configured or learned
+      // (see keepApartFrom), so a redirect cannot carry one login to the
+      // other half's hosts. Without CARDDAV_* one login serves both
       // halves, and they share one policy, as before. The names make
       // configuration errors point at the setting that caused them.
-      const calHost = splitServer ? originOf(config.serverUrl) : undefined;
-      const cardHost = splitServer ? originOf(cardDavServerUrl) : undefined;
-      const separateHosts = Boolean(calHost && cardHost && calHost !== cardHost);
       const calOrigins = new RequestOrigins({
         serverUrl: config.serverUrl,
         tokenUrl,
@@ -387,7 +371,6 @@ class TsdavClientManager {
           ? { serverUrlName: 'GOOGLE_SERVER_URL', serverCredentials: 'GOOGLE_USER' }
           : splitConfig ? { serverUrlName: 'CALDAV_SERVER_URL' } : {}),
         ...(splitServer && { serves: 'calendars and tasks' }),
-        ...(separateHosts && { forbidden: { origin: cardHost, name: 'CARDDAV_SERVER_URL', own: 'CALDAV_SERVER_URL' } }),
       });
       const cardOrigins = splitConfig
         ? new RequestOrigins({
@@ -395,9 +378,12 @@ class TsdavClientManager {
           serverUrlName: splitServer ? 'CARDDAV_SERVER_URL' : 'CALDAV_SERVER_URL',
           serverCredentials: 'CARDDAV_USERNAME and CARDDAV_PASSWORD',
           ...(splitServer && { serves: 'contacts' }),
-          ...(separateHosts && { forbidden: { origin: calHost, name: 'CALDAV_SERVER_URL', own: 'CARDDAV_SERVER_URL' } }),
         })
         : calOrigins;
+      if (cardOrigins !== calOrigins) {
+        calOrigins.keepApartFrom(cardOrigins, { name: 'CARDDAV_SERVER_URL', own: 'CALDAV_SERVER_URL' });
+        cardOrigins.keepApartFrom(calOrigins, { name: 'CALDAV_SERVER_URL', own: 'CARDDAV_SERVER_URL' });
+      }
       const origins = { caldav: calOrigins, carddav: cardOrigins };
 
       let clients;

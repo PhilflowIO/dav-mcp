@@ -226,15 +226,10 @@ export class RequestOrigins {
    * @param {string} [params.serves] - what this endpoint serves ("calendars
    *   and tasks", "contacts"), set when the two halves have endpoints of their
    *   own, so a refusal can say which allowed URL is for what
-   * @param {{origin: string, name: string, own: string}} [params.forbidden] -
-   *   the other half's configured host when the two halves have endpoints on
-   *   different hosts: `name` is its variable, `own` this endpoint's. Nothing
-   *   this login is redirected to or told about there becomes reachable, so
-   *   this login never goes to the other endpoint.
    */
   constructor({
     serverUrl, tokenUrl, serverUrlName = 'DAV server URL', serverCredentials = 'CALDAV_USERNAME and CALDAV_PASSWORD',
-    serves, forbidden,
+    serves,
   }) {
     const server = parseUrl(serverUrl);
     if (!server || !isHttp(server)) {
@@ -247,7 +242,9 @@ export class RequestOrigins {
     }
     this.secure = server.protocol === 'https:';
     this.serves = serves;
-    this.forbidden = forbidden?.origin !== server.origin ? forbidden : undefined;
+    this.configuredOrigin = server.origin;
+    // the other half's policy, when each half has its own (see keepApartFrom)
+    this.apart = null;
     this.scopes = [];
     this.loginOrigins = new Set([server.origin]);
     // origins the server tried to send the login to over plain http
@@ -268,7 +265,37 @@ export class RequestOrigins {
   // http(s), carries no credentials and does not downgrade https to http.
   #acceptable(url) {
     return url && isHttp(url) && !url.username && !url.password && effectiveSegments(url.pathname) !== null &&
-      !(this.secure && url.protocol === 'http:') && url.origin !== this.forbidden?.origin;
+      !(this.secure && url.protocol === 'http:') && !this.#otherHalfHas(url.origin);
+  }
+
+  /**
+   * Keep this login off every host the other half's login may go to: its
+   * configured host and every host it learned (a discovery redirect, a
+   * per-account host like iCloud's pNN-caldav.icloud.com), at the moment of
+   * each check, so it does not matter which half logged in first. Set on
+   * both policies, so the rule holds both ways. A host both halves were
+   * configured with stays shared: that is the user's own setting.
+   *
+   * Hosts are compared by origin as written (scheme, host name, port): two
+   * names for one machine (localhost and 127.0.0.1, a CNAME) cannot be told
+   * apart without resolving them, which this check does not do.
+   *
+   * @param {RequestOrigins} other - the other half's policy
+   * @param {{name: string, own: string}} names - the other half's server
+   *   variable and this one's, for messages
+   */
+  keepApartFrom(other, names) {
+    this.apart = { policy: other, ...names };
+  }
+
+  /** The origins the other half's login may currently go to. */
+  #trustedOrigins() {
+    return new Set([...this.loginOrigins, ...this.scopes.map(scope => scope.origin)]);
+  }
+
+  #otherHalfHas(origin) {
+    if (!this.apart || origin === this.configuredOrigin) return false;
+    return this.apart.policy.#trustedOrigins().has(origin);
   }
 
   /**
@@ -337,11 +364,14 @@ export class RequestOrigins {
       return `${url.origin} is plain http, but the DAV server is configured over https; ` +
         `requests are only sent over https. Allowed: ${allowed}.`;
     }
-    if (url.origin === this.forbidden?.origin) {
-      return `${url.origin} is the server configured as ${this.forbidden.name}, and the login configured for ` +
-        `${this.forbidden.own} is never sent there: each half keeps its login on its own endpoint. If ` +
-        `${this.forbidden.own} redirects there, set ${this.forbidden.own} to the URL that serves this half. ` +
-        `Allowed: ${allowed}.`;
+    if (this.#otherHalfHas(url.origin)) {
+      const { policy, name, own } = this.apart;
+      const whose = url.origin === policy.configuredOrigin
+        ? `the server configured as ${name}`
+        : `a host the login for ${name} goes to`;
+      return `${url.origin} is ${whose}, and the login configured for ${own} is never sent there: each half ` +
+        `keeps its login on its own endpoint. If ${own} redirects there, set ${own} to the URL that serves ` +
+        `this half. Allowed: ${allowed}.`;
     }
     if (effectiveSegments(url.pathname) === null) {
       return `${url.href} has a path that cannot be checked safely (it climbs above the root once decoded, ` +
