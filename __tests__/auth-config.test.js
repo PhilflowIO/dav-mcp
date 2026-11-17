@@ -274,6 +274,21 @@ describe('tsdavManager.initialize', () => {
     expect(restricted.fields.allowedPrefixes).toEqual(['https://dav.example.com/', 'https://card.example.com/']);
   });
 
+  test('the startup-failure log shows the configured URLs without their user info', async () => {
+    logged.length = 0;
+    const error = await tsdavManager.initialize({
+      serverUrl: 'https://alex:hunter2@dav.example.com/', authMethod: 'Basic', username: 'alex', password: 'pass',
+      cardDav: { serverUrl: 'https://bob:card-pw@card.example.com/', username: 'bob', password: 'card-pw' },
+    }).then(() => null, e => e);
+    expect(error?.name).toBe('ConfigurationError');
+    const failed = logged.find(entry => entry.message === 'Failed to initialize tsdav clients');
+    expect(failed.fields).toMatchObject({
+      serverUrl: 'https://dav.example.com/',
+      cardDavServerUrl: 'https://card.example.com/',
+    });
+    expect(JSON.stringify(failed)).not.toMatch(/hunter2|card-pw|alex:|bob:/);
+  });
+
   test('logs the method as configured, since Basic may end up as Digest on the wire', async () => {
     logged.length = 0;
     await tsdavManager.initialize(buildTsdavConfig(PASSWORD_ENV));
