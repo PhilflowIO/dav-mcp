@@ -95,6 +95,8 @@ export const freeBusyQuery = {
     let events = [];
     // each calendar's zone, for a note when one could not be read
     const zones = [];
+    // calendars whose stored free/busy could not be asked for
+    const unqueried = [];
     for (const calendar of calendarsToSearch) {
       // floating times and dates are read in each calendar's own zone
       const zone = floatingZoneFor(calendar);
@@ -109,9 +111,20 @@ export const freeBusyQuery = {
         }), zone);
       events = events.concat(found);
       if (holdsFreeBusy(calendar)) {
-        const stored = withFloatingZone(
-          await client.fetchCalendarObjects({ calendar, filters: STORED_FREEBUSY }), zone);
-        events = events.concat(stored);
+        let stored;
+        try {
+          stored = await client.fetchCalendarObjects({ calendar, filters: STORED_FREEBUSY });
+        } catch (error) {
+          // the query only adds busy time: a server that refuses it leaves
+          // the answer incomplete, not failed
+          unqueried.push({
+            object: { url: calendar.url },
+            summary: 'Stored free/busy',
+            reason: `the server refused the query for it (${error?.message ?? error})`,
+          });
+          stored = [];
+        }
+        events = events.concat(withFloatingZone(stored, zone));
       }
     }
 
@@ -134,7 +147,7 @@ export const freeBusyQuery = {
       calendarCount: calendarsToSearch.length,
       events: validated.include_event_details ? blocking : null,
       published: validated.include_event_details ? published : null,
-      incomplete,
+      incomplete: [...unqueried, ...incomplete],
     }), zones);
   },
 };

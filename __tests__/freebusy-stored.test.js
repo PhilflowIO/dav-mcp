@@ -17,8 +17,12 @@ const { calendarTimezoneValue } = await import('../src/calendar-zone.js');
 let calendars;
 let stored;
 let events;
+// how the server answers the stored free/busy query: 'refuse' (a DAV
+// error), or normally
+let storedQuery;
 const fetchCalendarObjects = jest.fn(async ({ calendar, filters }) => {
   const isStored = filters?.[0]?.['comp-filter']?.['comp-filter']?._attributes?.name === 'VFREEBUSY';
+  if (isStored && storedQuery === 'refuse') throw new Error('REPORT returned 501 Not Implemented');
   return (isStored ? stored : events)[calendar.url] ?? [];
 });
 
@@ -69,6 +73,7 @@ beforeEach(() => {
   ];
   stored = {};
   events = {};
+  storedQuery = null;
 });
 
 describe('the stored free/busy query', () => {
@@ -188,5 +193,16 @@ describe('stored VFREEBUSY periods', () => {
     expect(output).toContain('### Busy (1)');
     expect(section(output, 'Busy')).toMatch(/January 1, 2026.*→ April 15, 2026, 04:00 AM/);
     expect(output).not.toContain('incomplete');
+  });
+});
+
+describe('the stored free/busy query going wrong', () => {
+  test('a refused query leaves the answer incomplete, not failed', async () => {
+    storedQuery = 'refuse';
+    events[FREEBUSY] = [event('Meeting', '20260525T100000Z', '20260525T110000Z')];
+    const output = await call();
+    expect(busyLines(output)).toEqual(['10:00-11:00']);
+    expect(output).toContain('**Warning**: incomplete');
+    expect(output).toContain(`Stored free/busy (${FREEBUSY}): cannot be read — the server refused the query for it (REPORT returned 501 Not Implemented)`);
   });
 });
