@@ -18,11 +18,12 @@ let calendars;
 let stored;
 let events;
 // how the server answers the stored free/busy query: 'refuse' (a DAV
-// error), or normally
+// error), 'ignore-filter' (the events again), or normally
 let storedQuery;
 const fetchCalendarObjects = jest.fn(async ({ calendar, filters }) => {
   const isStored = filters?.[0]?.['comp-filter']?.['comp-filter']?._attributes?.name === 'VFREEBUSY';
   if (isStored && storedQuery === 'refuse') throw new Error('REPORT returned 501 Not Implemented');
+  if (isStored && storedQuery === 'ignore-filter') return [...(events[calendar.url] ?? []), ...(stored[calendar.url] ?? [])];
   return (isStored ? stored : events)[calendar.url] ?? [];
 });
 
@@ -204,5 +205,14 @@ describe('the stored free/busy query going wrong', () => {
     expect(busyLines(output)).toEqual(['10:00-11:00']);
     expect(output).toContain('**Warning**: incomplete');
     expect(output).toContain(`Stored free/busy (${FREEBUSY}): cannot be read — the server refused the query for it (REPORT returned 501 Not Implemented)`);
+  });
+
+  test('a server that ignores the filter does not count an event twice', async () => {
+    storedQuery = 'ignore-filter';
+    events[FREEBUSY] = [event('Meeting', '20260525T100000Z', '20260525T110000Z')];
+    stored[FREEBUSY] = [freebusy('published', 'FREEBUSY:20260525T140000Z/PT1H')];
+    const output = await call({ include_event_details: true });
+    expect(output).toContain('### Events behind the busy blocks (1)');
+    expect(busyLines(output)).toEqual(['10:00-11:00', '14:00-15:00']);
   });
 });

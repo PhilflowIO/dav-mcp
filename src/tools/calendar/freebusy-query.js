@@ -124,7 +124,9 @@ export const freeBusyQuery = {
           });
           stored = [];
         }
-        events = events.concat(withFloatingZone(stored, zone));
+        // a server that ignores the comp-filter answers with the events again
+        const seen = new Set(found.map((object) => object.url));
+        events = events.concat(withFloatingZone(stored.filter((object) => !seen.has(object.url)), zone));
       }
     }
 
