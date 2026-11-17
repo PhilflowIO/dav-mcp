@@ -25,8 +25,9 @@ const formatMessage = (message) => ({
 // seconds optional, offset with or without its colon ("+01:00", "+0100").
 // zod 4's z.iso.datetime() requires both (RFC 3339), and would now refuse
 // "2026-03-02T09:00Z" or "...+0100", which callers could send so far and
-// which the time-range code reads correctly (new Date). The date part is
-// zod's own, so "2026-02-30" stays refused.
+// which the time-range code reads correctly (new Date). With a zone, the date
+// part is zod's own, so "2026-02-30T09:00Z" stays refused; the no-zone form
+// keeps main's looser pattern (#162 tracks tightening it).
 const DATE = z.regexes.date.source.replace(/^\^|\$$/g, '');
 const DATE_TIME = new RegExp(
   `^${DATE}T(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|[+-]\\d{2}:?\\d{2})$` + // with a zone

@@ -21,7 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   arguments, and accepts and refuses the same values as before. Two things
   differ: a missing or mistyped parameter is reported in zod 4's words
   ("Invalid input: expected string, received undefined" instead of
-  "Required"), and a URL with spaces around it is passed on without them.
+  "Required"), and a URL with spaces, tabs or line breaks in it is passed
+  on without them.
   The Claude plugin moves to zod 4 with the next release.
 
 ### Fixed
