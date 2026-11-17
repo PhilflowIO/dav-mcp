@@ -114,7 +114,12 @@ function davServer() {
             }
           });
           log.push({ kind: 'range', names });
-          return etagOnly(names);
+          const answer = () => {
+            log.push({ kind: 'range answered' });
+            etagOnly(names);
+          };
+          // answered late on request: what arrives meanwhile was sent with it
+          return server.delayRange ? setTimeout(answer, 200) : answer();
         }
         if (property) {
           log.push({ kind: 'property', property });
@@ -228,6 +233,27 @@ describe('a server whose time-range answer leaves out recurring events (#129)', 
     expect(busy).toContain('**Warning**: incomplete');
   });
 
+  test('a network failure of the property queries is no refusal: no fetch of the whole calendar, a note instead', async () => {
+    dav.server.extra = 'drop';
+    const result = text(await calendarQuery.handler(range('2026-11-16T00:00:00Z', '2026-11-17T00:00:00Z')));
+    expect(dav.log.some((r) => r.kind === 'all')).toBe(false);
+    expect(result).toContain('Plain weekly');
+    expect(result).toMatch(/Not checked: \*\*1\*\*[\s\S]*its recurring events could not be fetched/);
+  });
+
+  test('the range query and the property queries go out together: three round-trips', async () => {
+    dav.server.delayRange = true;
+    try {
+      await calendarQuery.handler(range('2026-11-16T00:00:00Z', '2026-11-17T00:00:00Z'));
+    } finally {
+      dav.server.delayRange = false;
+    }
+    // the property queries arrived while the range query was still unanswered
+    const order = dav.log.map((r) => r.kind);
+    expect(order.filter((kind) => kind === 'property').length).toBeGreaterThanOrEqual(3);
+    expect(order.lastIndexOf('property')).toBeLessThan(order.indexOf('range answered'));
+  });
+
   test('a server that refuses property filters is asked for all its events instead, and the listing stays complete', async () => {
     dav.server.extra = 'refuse';
     const result = text(await calendarQuery.handler(range('2026-11-16T00:00:00Z', '2026-11-17T00:00:00Z')));
@@ -268,7 +294,7 @@ describe('extra recurring objects do not take expansion budget from the range an
     await dav.stop();
   });
 
-  test.each([300, 5000])('with %i yearly series out of range, Friday the 13th is still listed and busy', async (count) => {
+  const friday13Among = async (count) => {
     use({ 'f13.ics': friday13, ...birthdays(count) });
     const { resetExpansionWork, expansionWork, REQUEST_UNITS, CALL_UNITS } = await import('../src/occurrences.js');
     // the work of one call is bounded by the two pools, not by the number of
@@ -283,7 +309,20 @@ describe('extra recurring objects do not take expansion budget from the range an
     const busy = text(await freeBusyQuery.handler(range('2026-11-13T08:00:00Z', '2026-11-13T12:00:00Z')));
     expect(expansionWork.units).toBeLessThanOrEqual(bound);
     expect(busy).toContain('### Busy (1)');
-  }, 120000);
+    // the out-of-range series were all checked: no false warning
+    expect(listed).not.toContain('Not checked');
+    expect(busy).not.toContain('Warning**: incomplete');
+  };
+
+  test('with 300 yearly series out of range, Friday the 13th is still listed and busy, nothing unchecked', () => friday13Among(300), 120000);
+
+  // Each series is walked from its DTSTART, so a birthday from 1980 costs 46
+  // years of candidates and some 1 600 of them exhaust the extra pool: the
+  // rest are reported as not checked on a correct server. The fix is a
+  // bounded start in the library (PhilflowIO/tsdav-utils#37); pinned until
+  // that release, then these become plain tests.
+  test.failing.each([2500, 5000])('with %i yearly series out of range, nothing is reported unchecked (tsdav-utils#37)',
+    (count) => friday13Among(count), 120000);
 
   test('series whose bounds rule the range out are dropped before any expansion', async () => {
     use({

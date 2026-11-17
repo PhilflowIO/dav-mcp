@@ -1,4 +1,5 @@
 import ICAL from 'ical.js';
+import { isDAVAuthenticationError, isDAVResponseError } from 'tsdav';
 import { parseICal, unreadableReason } from '../../ical-parse.js';
 import { serverTimeRange, relateSeries, seriesOutside } from '../../occurrences.js';
 import { readSeries } from '../../ical-components.js';
@@ -43,8 +44,9 @@ import { logger } from '../../logger.js';
  * cannot be read is reported, not listed. A server that refuses property
  * filters is asked for all its events instead: slower, still complete.
  *
- * Cost per calendar: three etag-only REPORTs sent at once, then one
- * multiget of the recurring objects the range answer did not hold. Measured
+ * Cost per calendar: the range query and three etag-only REPORTs sent at
+ * once, then one multiget of the recurring objects the range answer did not
+ * hold — three round-trips. Measured
  * against SabreDAV 4.7.1: see the pull request that added this (#170).
  * Caching them per login is #171.
  */
@@ -115,15 +117,31 @@ async function listHrefs(client, calendar, filters) {
     .map((href) => keyOf(new URL(href, base).href));
 }
 
-/** The recurring objects' hrefs: by property filters at once, or all events if those are refused */
+/**
+ * Did the server refuse the query itself (a 4xx other than a refused login,
+ * or 501 Not Implemented) — as a server does that cannot evaluate a property
+ * filter? A network failure, a timeout or a server fault is no refusal.
+ */
+function refusedFilter(error) {
+  if (!isDAVResponseError(error) || isDAVAuthenticationError(error)) return false;
+  const status = Number(error.status);
+  return (status >= 400 && status < 500 && status !== 403) || status === 501;
+}
+
+/**
+ * The recurring objects' hrefs, by property filters at once. Only a server
+ * that refuses the filter is asked for all its events instead; any other
+ * failure is thrown, and the calendar is reported as not checked.
+ */
 async function recurringHrefs(client, calendar) {
   try {
     const lists = await Promise.all(RECURRENCE_PROPERTIES.map((property) =>
       listHrefs(client, calendar, eventsWith(property))));
     return lists.flat();
   } catch (error) {
+    if (!refusedFilter(error)) throw error;
     logger.warn({ calendar: calendar.url, error: error?.message },
-      'Recurring events could not be listed by property; listing all events of the calendar');
+      'The server refused property filters; listing all events of the calendar');
     return listHrefs(client, calendar, eventsWith(null));
   }
 }
@@ -162,13 +180,19 @@ function judge(object, timeRange, zone) {
  */
 export async function fetchRangeCandidates(client, calendar, timeRange, zone = null) {
   if (!timeRange) return { objects: await client.fetchCalendarObjects({ calendar }), unchecked: [] };
-  // wider than asked: the server reads floating times its own way
-  const inRange = await client.fetchCalendarObjects({ calendar, timeRange: serverTimeRange(timeRange) });
+  // the range answer (wider than asked: the server reads floating times its
+  // own way) and the recurring listing go out at once; a failed listing
+  // must not fail the range answer, so it settles into a value
+  const [inRange, listed] = await Promise.all([
+    client.fetchCalendarObjects({ calendar, timeRange: serverTimeRange(timeRange) }),
+    recurringHrefs(client, calendar).then((hrefs) => ({ hrefs }), (error) => ({ error })),
+  ]);
 
   const seen = new Set(inRange.map((object) => keyOf(object.url)));
   let found;
   try {
-    const missing = [...new Set(await recurringHrefs(client, calendar))].filter((url) => !seen.has(url));
+    if (listed.error) throw listed.error;
+    const missing = [...new Set(listed.hrefs)].filter((url) => !seen.has(url));
     found = missing.length ? await client.fetchCalendarObjects({ calendar, objectUrls: missing }) : [];
   } catch (error) {
     logger.warn({ calendar: calendar.url, error: error?.message }, 'Recurring events of the calendar could not be fetched');
