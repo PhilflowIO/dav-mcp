@@ -27,7 +27,8 @@ jest.unstable_mockModule('../src/tsdav-client.js', () => ({
   tsdavManager: {
     getCalDavClient: () => ({
       fetchCalendars: async () => calendars,
-      fetchCalendarObjects: async ({ calendar }) => objectsByCalendar[calendar.url] ?? [],
+      // the events; the stored free/busy query (a filter of its own) finds none
+      fetchCalendarObjects: async ({ calendar, filters }) => (filters ? [] : objectsByCalendar[calendar.url] ?? []),
     }),
     getCardDavClient: () => ({}),
   },

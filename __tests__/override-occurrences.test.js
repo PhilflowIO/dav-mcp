@@ -17,7 +17,7 @@ jest.unstable_mockModule('../src/tsdav-client.js', () => ({
     getCalDavClient: () => ({
       // dates and floating times read in UTC, so the UTC days below are the
       // calendar's days on any host (#117)
-      fetchCalendars: async () => [{ url: CALENDAR_URL, displayName: 'Work', timezone: 'UTC' }],
+      fetchCalendars: async () => [{ url: CALENDAR_URL, displayName: 'Work', timezone: 'UTC', components: ['VEVENT', 'VTODO'] }],
       fetchCalendarObjects: async () => stored,
     }),
     getCardDavClient: () => ({}),

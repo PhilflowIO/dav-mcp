@@ -29,7 +29,7 @@ const updateCalendarObject = jest.fn(async () => ({ ok: true, status: 204, heade
 jest.unstable_mockModule('../src/tsdav-client.js', () => ({
   tsdavManager: {
     getCalDavClient: () => ({
-      fetchCalendars: async () => [{ url: CALENDAR_URL, displayName: 'Main' }],
+      fetchCalendars: async () => [{ url: CALENDAR_URL, displayName: 'Main', components: ['VEVENT', 'VTODO'] }],
       fetchCalendarObjects: async () => storedEvents,
       fetchTodos: async () => storedTodos,
       updateCalendarObject,

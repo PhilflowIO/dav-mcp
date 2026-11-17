@@ -280,7 +280,7 @@
     },
     {
       "name": "freebusy_query",
-      "description": "Find free and busy time in a date range — use for \"when am I free?\", \"am I available Tuesday afternoon?\" or finding a slot for a new meeting. Searches all calendars unless one is given. Events marked TRANSPARENT (does not block time) and cancelled events are ignored; recurring events are expanded, each occurrence at its own time and status, so a single cancelled occurrence is free and a moved one is busy where it moved to. A recurring event too dense to expand fully is named in a warning. Times are shown in the calendar's time zone (several calendars in different zones: the zone dav-mcp runs in), named in the answer; list_events shows an event that has a zone of its own in that zone instead.",
+      "description": "Find free and busy time in a date range — use for \"when am I free?\", \"am I available Tuesday afternoon?\" or finding a slot for a new meeting. Searches all calendars unless one is given. Free/busy time a calendar stores (VFREEBUSY, e.g. published by another system) counts too, a tentative or unavailable period marked as such. Events marked TRANSPARENT (does not block time) and cancelled events are ignored; recurring events are expanded, each occurrence at its own time and status, so a single cancelled occurrence is free and a moved one is busy where it moved to. A recurring event too dense to expand fully is named in a warning. Times are shown in the calendar's time zone (several calendars in different zones: the zone dav-mcp runs in), named in the answer; list_events shows an event that has a zone of its own in that zone instead.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -298,7 +298,7 @@
           },
           "include_event_details": {
             "type": "boolean",
-            "description": "Optional: also list the events behind the busy blocks, with titles (a recurring one as its occurrence in the range). Off by default — the answer to \"when am I free\" is the slots, not the meetings."
+            "description": "Optional: also list the events behind the busy blocks, with titles (a recurring one as its occurrence in the range), and the stored free/busy objects behind them. Off by default — the answer to \"when am I free\" is the slots, not the meetings."
           }
         },
         "required": [
