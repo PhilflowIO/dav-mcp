@@ -29,7 +29,9 @@ const fetchCalendarObjects = jest.fn(async ({ calendar, filters }) => {
 
 jest.unstable_mockModule('../src/tsdav-client.js', () => ({
   tsdavManager: {
-    getCalDavClient: () => ({ fetchCalendars: async () => calendars, fetchCalendarObjects }),
+    // calendarQuery: the recurring-object listing (range-candidates.js) finds
+    // nothing beyond the range answer
+    getCalDavClient: () => ({ fetchCalendars: async () => calendars, fetchCalendarObjects, calendarQuery: async () => [] }),
     getCardDavClient: () => ({}),
   },
 }));
@@ -82,18 +84,24 @@ describe('the stored free/busy query', () => {
     await freeBusyQuery.handler(WINDOW);
     const byCalendar = (url) => fetchCalendarObjects.mock.calls.map(([options]) => options)
       .filter((options) => options.calendar.url === url);
+    // told apart by what they ask for, not by the order they are sent in
+    const asksFor = (options, name) => options.filters?.[0]?.['comp-filter']?.['comp-filter']?._attributes?.name === name;
+    const storedQueries = (url) => byCalendar(url).filter((options) => asksFor(options, 'VFREEBUSY'));
+    const rangeQueries = (url) => byCalendar(url).filter((options) => options.timeRange);
 
     // the one that names VFREEBUSY and the one that names no types (RFC 4791 5.2.3)
     for (const url of [FREEBUSY, OPEN]) {
-      const [eventQuery, storedQuery] = byCalendar(url);
-      expect(eventQuery.filters).toBeUndefined();
-      expect(storedQuery.filters).toEqual([{
+      expect(rangeQueries(url)).toHaveLength(1);
+      expect(rangeQueries(url)[0].filters).toBeUndefined();
+      expect(storedQueries(url)).toHaveLength(1);
+      expect(storedQueries(url)[0].filters).toEqual([{
         'comp-filter': { _attributes: { name: 'VCALENDAR' }, 'comp-filter': { _attributes: { name: 'VFREEBUSY' } } },
       }]);
-      expect(storedQuery.timeRange).toBeUndefined();
+      expect(storedQueries(url)[0].timeRange).toBeUndefined();
     }
-    // one that leaves VFREEBUSY out costs no second query
-    expect(byCalendar(EVENTS)).toHaveLength(1);
+    // one that leaves VFREEBUSY out costs no stored query
+    expect(storedQueries(EVENTS)).toHaveLength(0);
+    expect(rangeQueries(EVENTS)).toHaveLength(1);
   });
 });
 

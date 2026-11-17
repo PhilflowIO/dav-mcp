@@ -1,11 +1,11 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, calendarQuerySchema } from '../../validation.js';
-import { formatEventList, withUnsearched } from '../../formatters.js';
+import { formatEventList, withUnsearched, withUnchecked } from '../../formatters.js';
 import { buildTimeRangeOptions, limitResults, DEFAULT_RESULT_LIMIT, findCalendarOrThrow } from '../shared/helpers.js';
 import ICAL from 'ical.js';
 import { shownEvent, shownTouchesRange } from '../../ical-components.js';
-import { ZONE_SLACK_MS, budgetPool } from '../../occurrences.js';
-import { fetchRangeCandidates } from '../shared/range-candidates.js';
+import { ZONE_SLACK_MS, rangeBudgetPool } from '../../occurrences.js';
+import { fetchRangeCandidates, isRangeExtra, UNCHECKABLE, uncheckable } from '../shared/range-candidates.js';
 import { instantOf, hasAbsoluteInstant } from '../shared/ical-dates.js';
 import { floatingZoneFor, withFloatingZone, withZoneNote } from '../../calendar-zone.js';
 import { parseObjects, unsearchedObjects, textValues, containsText, dateKey, orNull } from '../shared/query-objects.js';
@@ -71,12 +71,15 @@ export const calendarQuery = {
     let allEvents = [];
     // each calendar's zone, for a note when one could not be read
     const zones = [];
+    // recurring events that could not be checked against the range
+    const unchecked = [];
     for (const calendar of calendarsToSearch) {
       // floating times and dates are read in each calendar's own zone
       const zone = floatingZoneFor(calendar);
       zones.push(zone);
-      const events = withFloatingZone(await fetchRangeCandidates(client, calendar, timeRangeOptions.timeRange), zone);
-      allEvents = allEvents.concat(events);
+      const fetched = await fetchRangeCandidates(client, calendar, timeRangeOptions.timeRange, zone);
+      allEvents = allEvents.concat(withFloatingZone(fetched.objects, zone));
+      unchecked.push(...fetched.unchecked);
     }
 
     // Client-side filtering on parsed values; see query-objects.js
@@ -85,8 +88,8 @@ export const calendarQuery = {
     const { timeRange } = timeRangeOptions;
     const matches = searchOf(validated);
     // one expansion budget for this query (one tool call), shared fairly by
-    // its events
-    const budget = budgetPool(parsed.length);
+    // its events; the extra recurring objects have a pool of their own
+    const budget = rangeBudgetPool(allEvents, isRangeExtra);
 
     if (matches) {
       parsed = parsed.filter((p) => isFound(p, matches, timeRange, budget));
@@ -94,7 +97,15 @@ export const calendarQuery = {
     // what touches the range as read in each calendar's zone, not the
     // server's reading (see serverTimeRange)
     if (timeRange) {
-      parsed = parsed.filter((p) => !p.root || shownTouchesRange(shownOf(p, matches, timeRange, budget), timeRange));
+      parsed = parsed.filter((p) => {
+        if (!p.root) return true;
+        const shown = shownOf(p, matches, timeRange, budget);
+        if (isRangeExtra(p.object) && uncheckable(shown)) {
+          unchecked.push({ object: p.object, reason: UNCHECKABLE });
+          return false;
+        }
+        return shownTouchesRange(shown, timeRange);
+      });
     }
 
     // Determine calendar name for display
@@ -121,7 +132,7 @@ export const calendarQuery = {
     }
 
     const result = formatEventList(items.map(({ object }) => object), calendarName, timeRange, total, matches, shown, budget);
-    return withZoneNote(withUnsearched(result, unsearchedObjects(all, parsed), 'events', 'list_events'), zones);
+    return withUnchecked(withZoneNote(withUnsearched(result, unsearchedObjects(all, parsed), 'events', 'list_events'), zones), unchecked);
   },
 };
 
@@ -162,7 +173,7 @@ function isFound(parsed, matches, timeRange, budget) {
 /** shownEvent for a parsed object, computed once per query */
 function shownOf(parsed, matches, timeRange, budget) {
   if (!('shown' in parsed)) {
-    const share = budget.take();
+    const share = budget.take(parsed.object);
     parsed.shown = parsed.root ? orNull(() => shownEvent(parsed.root, timeRange, matches, share)) : null;
     budget.give(share);
   }

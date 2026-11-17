@@ -1,6 +1,9 @@
-import { isDAVAuthenticationError, isDAVResponseError } from 'tsdav';
-import { parseICal } from '../../ical-parse.js';
-import { serverTimeRange } from '../../occurrences.js';
+import ICAL from 'ical.js';
+import { parseICal, unreadableReason } from '../../ical-parse.js';
+import { serverTimeRange, relateSeries, seriesOutside } from '../../occurrences.js';
+import { readSeries } from '../../ical-components.js';
+import { setFloatingZone } from '../../calendar-zone.js';
+import { shareTimezones } from './ical-dates.js';
 import { logger } from '../../logger.js';
 
 /**
@@ -23,26 +26,27 @@ import { logger } from '../../logger.js';
  *
  * So the range answer is trusted for what it returns, not for the recurring
  * objects it leaves out: those — every object with a VEVENT carrying RRULE,
- * RDATE or RECURRENCE-ID — are fetched as well, without a time range, and
- * the occurrence engine decides what touches the range, as it already does
- * for everything the server returns. This is done for every server, not for
- * detected ones: a server does not say which library evaluates its
- * time-range filter, the same library sits under several products
- * (Nextcloud, Baïkal, ...), and a fix upstream reaches each of them at its
- * own pace.
+ * RDATE or RECURRENCE-ID — are listed as well, by property filters without a
+ * time range, and the occurrence engine decides what touches the range, as
+ * it already does for everything the server returns. This is done for every
+ * server, not for detected ones: a server does not say which library
+ * evaluates its time-range filter, the same library sits under several
+ * products (Nextcloud, Baïkal, ...), and a fix upstream reaches each of them
+ * at its own pace.
  *
- * A property filter without a time range is evaluated by every SabreDAV
- * backend on the stored text, so it is not subject to the errors above. A
- * server that refuses it (any DAV error other than a refused login) gets the
- * calendar's events asked for without a filter instead: slower, still
- * complete.
+ * The extra objects must not cost what the server's answer needs: the ones
+ * whose bounds rule the range out (seriesOutside) are dropped here, before
+ * any expansion, and the rest expand from a pool of their own
+ * (rangeBudgetPool, isRangeExtra). Nor may they fail the call: if listing or
+ * fetching them fails, the calendar's answer stands with a note that a
+ * recurring event the server left out may be missing; an extra object that
+ * cannot be read is reported, not listed. A server that refuses property
+ * filters is asked for all its events instead: slower, still complete.
  *
- * Cost per calendar: three etag-only REPORTs, and a multiget of the
- * recurring objects the range answer did not hold (up to one per REPORT;
- * each object is fetched once). Measured against SabreDAV 4.7.1 with a
- * three-year calendar of 1 625 objects, 124 of them recurring, for a
- * one-week query: 2 requests, 94 KB and 90 ms before; 7 requests, 236 KB
- * and 475 ms now. The whole calendar without a filter is 1.7 MB.
+ * Cost per calendar: three etag-only REPORTs sent at once, then one
+ * multiget of the recurring objects the range answer did not hold. Measured
+ * against SabreDAV 4.7.1: see the pull request that added this (#170).
+ * Caching them per login is #171.
  */
 
 // tsdav's default urlFilter keeps only hrefs naming an .ics resource
@@ -50,6 +54,30 @@ const ICS = '.ics';
 
 /** The properties that make a VEVENT part of a recurring object */
 const RECURRENCE_PROPERTIES = ['RRULE', 'RDATE', 'RECURRENCE-ID'];
+
+/** The objects fetched on top of the server's range answer */
+const extras = new WeakSet();
+
+/**
+ * Was this object fetched only because the server's range answer may have
+ * left it out (not returned by the range query itself)?
+ *
+ * @param {Object} object
+ * @returns {boolean}
+ */
+export function isRangeExtra(object) {
+  return Boolean(object && typeof object === 'object' && extras.has(object));
+}
+
+/**
+ * An extra recurring object  whose expansion stopped before an
+ * occurrence in the range was found: the server did not return it and we
+ * could not tell, so it is reported rather than listed at its series start.
+ */
+export const UNCHECKABLE = 'too many occurrences to check against the range in this call';
+export function uncheckable(shown) {
+  return !shown || (shown.expansionTruncated && !shown.occurrence);
+}
 
 /** calendar-query filter: VEVENTs, with `property` defined if given */
 function eventsWith(property) {
@@ -72,18 +100,51 @@ function keyOf(url) {
   }
 }
 
-/**
- * An object only the recurring query found is listed on our reading alone;
- * one we cannot read we cannot place, so the server's verdict stands: it
- * left the object out of the range.
- */
-function readable(object) {
-  if (typeof object.data !== 'string' || !object.data.trim()) return false;
+/** The .ics hrefs a calendar-query answered with, as absolute URLs */
+async function listHrefs(client, calendar, filters) {
+  const responses = await client.calendarQuery({
+    url: calendar.url,
+    props: { 'd:getetag': {} },
+    filters,
+    depth: '1',
+  });
+  const base = calendar.url.endsWith('/') ? calendar.url : `${calendar.url}/`;
+  return responses
+    .map((response) => response.href)
+    .filter((href) => typeof href === 'string' && href.includes(ICS))
+    .map((href) => keyOf(new URL(href, base).href));
+}
+
+/** The recurring objects' hrefs: by property filters at once, or all events if those are refused */
+async function recurringHrefs(client, calendar) {
   try {
-    parseICal(object.data);
-    return true;
+    const lists = await Promise.all(RECURRENCE_PROPERTIES.map((property) =>
+      listHrefs(client, calendar, eventsWith(property))));
+    return lists.flat();
+  } catch (error) {
+    logger.warn({ calendar: calendar.url, error: error?.message },
+      'Recurring events could not be listed by property; listing all events of the calendar');
+    return listHrefs(client, calendar, eventsWith(null));
+  }
+}
+
+/** An extra object's verdict: 'outside', 'check', or the reason it cannot be read */
+function judge(object, timeRange, zone) {
+  let root;
+  try {
+    if (typeof object.data !== 'string' || !object.data.trim()) return { unreadable: 'it is empty, not iCalendar' };
+    const jcal = parseICal(object.data);
+    root = setFloatingZone(shareTimezones(new ICAL.Component(Array.isArray(jcal[0]) ? jcal[0] : jcal)), zone);
+  } catch (error) {
+    return { unreadable: unreadableReason(error, 'iCalendar') };
+  }
+  const series = readSeries(root, 'vevent');
+  if (!series || series.detached.length > 0) return { check: true };
+  const range = { start: new Date(timeRange.start).getTime(), end: new Date(timeRange.end).getTime() };
+  try {
+    return seriesOutside(relateSeries(series.master, series.overrides), range) ? { outside: true } : { check: true };
   } catch {
-    return false;
+    return { check: true };
   }
 }
 
@@ -92,36 +153,45 @@ function readable(object) {
  * @param {Object} calendar - a calendar from fetchCalendars
  * @param {{start: string, end: string}|undefined} timeRange - the range asked
  *   for, ISO 8601; without one the whole calendar is fetched
- * @returns {Promise<Array<{url: string, etag?: string, data?: string}>>}
+ * @param {Object|null} [zone] - the calendar's zone for floating times
+ *   (src/calendar-zone.js)
+ * @returns {Promise<{objects: Object[], unchecked: Array<{object: {url: string}, reason: string}>}>}
+ *   objects: the range answer, then the extra objects that may touch the
+ *   range (isRangeExtra); unchecked: extra objects that cannot be read, or
+ *   the calendar itself when its recurring events could not be fetched
  */
-export async function fetchRangeCandidates(client, calendar, timeRange) {
-  if (!timeRange) return client.fetchCalendarObjects({ calendar });
+export async function fetchRangeCandidates(client, calendar, timeRange, zone = null) {
+  if (!timeRange) return { objects: await client.fetchCalendarObjects({ calendar }), unchecked: [] };
   // wider than asked: the server reads floating times its own way
   const inRange = await client.fetchCalendarObjects({ calendar, timeRange: serverTimeRange(timeRange) });
 
   const seen = new Set(inRange.map((object) => keyOf(object.url)));
-  const missed = [];
-  const fetchUnseen = async (filters) => {
-    const found = await client.fetchCalendarObjects({
-      calendar,
-      filters,
-      urlFilter: (url) => Boolean(url?.includes(ICS)) && !seen.has(keyOf(url)),
-    });
-    for (const object of found) {
-      const key = keyOf(object.url);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      if (readable(object)) missed.push(object);
-    }
-  };
-
+  let found;
   try {
-    for (const property of RECURRENCE_PROPERTIES) await fetchUnseen(eventsWith(property));
+    const missing = [...new Set(await recurringHrefs(client, calendar))].filter((url) => !seen.has(url));
+    found = missing.length ? await client.fetchCalendarObjects({ calendar, objectUrls: missing }) : [];
   } catch (error) {
-    if (!isDAVResponseError(error) || isDAVAuthenticationError(error)) throw error;
-    logger.warn({ calendar: calendar.url, error: error.message },
-      'Recurring events could not be listed by property; fetching all events of the calendar');
-    await fetchUnseen(eventsWith(null));
+    logger.warn({ calendar: calendar.url, error: error?.message }, 'Recurring events of the calendar could not be fetched');
+    return {
+      objects: inRange,
+      unchecked: [{
+        object: { url: calendar.url },
+        reason: `its recurring events could not be fetched (${error?.message ?? error}); a series the server left out of the range may be missing`,
+      }],
+    };
   }
-  return [...inRange, ...missed];
+
+  const objects = [...inRange];
+  const unchecked = [];
+  for (const object of found) {
+    if (seen.has(keyOf(object.url))) continue;
+    seen.add(keyOf(object.url));
+    const verdict = judge(object, timeRange, zone);
+    if (verdict.unreadable) unchecked.push({ object, reason: verdict.unreadable });
+    else if (verdict.check) {
+      extras.add(object);
+      objects.push(object);
+    }
+  }
+  return { objects, unchecked };
 }

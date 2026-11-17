@@ -1,11 +1,11 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, listEventsSchema } from '../../validation.js';
-import { formatEventList } from '../../formatters.js';
+import { formatEventList, withUnchecked } from '../../formatters.js';
 import { findCalendarOrThrow, buildTimeRangeOptions } from '../shared/helpers.js';
 import { floatingZoneFor, withFloatingZone, withZoneNote } from '../../calendar-zone.js';
 import { shownEvent, shownTouchesRange } from '../../ical-components.js';
-import { budgetPool } from '../../occurrences.js';
-import { fetchRangeCandidates } from '../shared/range-candidates.js';
+import { rangeBudgetPool } from '../../occurrences.js';
+import { fetchRangeCandidates, isRangeExtra, UNCHECKABLE, uncheckable } from '../shared/range-candidates.js';
 import { parseObjects } from '../shared/query-objects.js';
 
 /**
@@ -52,16 +52,17 @@ export const listEvents = {
 
     // floating times and dates are read in the calendar's zone
     const zone = floatingZoneFor(calendar);
-    const events = withFloatingZone(await fetchRangeCandidates(client, calendar, timeRange), zone);
+    const { objects, unchecked } = await fetchRangeCandidates(client, calendar, timeRange, zone);
+    const events = withFloatingZone(objects, zone);
     if (!timeRange) return withZoneNote(formatEventList(events, calendar, null), [zone]);
 
     // what touches the range as read in the calendar's zone, each resolved
     // once for the filter and the display (one expansion budget for the call)
-    const budget = budgetPool(events.length);
+    const budget = rangeBudgetPool(events, isRangeExtra);
     const shown = new Map();
     const listed = parseObjects(events, 'vevent').filter(({ object, root }) => {
       if (!root) return true;
-      const share = budget.take();
+      const share = budget.take(object);
       let view = null;
       try {
         view = shownEvent(root, timeRange, null, share);
@@ -69,10 +70,14 @@ export const listEvents = {
         view = null;
       }
       budget.give(share);
+      if (isRangeExtra(object) && uncheckable(view)) {
+        unchecked.push({ object, reason: UNCHECKABLE });
+        return false;
+      }
       if (view) shown.set(object, view);
       return shownTouchesRange(view, timeRange);
     }).map(({ object }) => object);
 
-    return withZoneNote(formatEventList(listed, calendar, timeRange, null, null, shown, budget), [zone]);
+    return withUnchecked(withZoneNote(formatEventList(listed, calendar, timeRange, null, null, shown, budget), [zone]), unchecked);
   },
 };

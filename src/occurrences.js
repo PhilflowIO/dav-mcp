@@ -112,21 +112,56 @@ export function requestBudget() {
  * @param {number} count
  * @returns {{take: () => Object, give: (budget: Object) => void}}
  */
-export function budgetPool(count) {
+export function budgetPool(count, { floor = true } = {}) {
   let units = REQUEST_UNITS;
   let ms = REQUEST_MS;
   let left = Math.max(1, count);
+  // without the floor no object gets more than the pool has left: once it
+  // is spent, what follows gets nothing and comes out incomplete
+  const cap = (value, rest) => (floor ? value : Math.max(0, Math.min(value, rest)));
   return {
     take() {
       return timedBudget(
-        Math.max(MIN_SHARE.units, Math.floor(units / left)),
-        Math.max(MIN_SHARE.ms, ms / left),
+        cap(Math.max(MIN_SHARE.units, Math.floor(units / left)), units),
+        cap(Math.max(MIN_SHARE.ms, ms / left), ms),
       );
     },
     give(budget) {
       units -= budget.granted.units - Math.max(0, budget.remaining);
       ms -= budget.granted.ms - Math.max(0, budget.timeLeft);
       left = Math.max(1, left - 1);
+    },
+  };
+}
+
+/**
+ * The budget of a range query whose objects come in two kinds: those the
+ * server returned for the range, and the recurring objects fetched on top
+ * because a server's range answer can leave them out (`isExtra`, see
+ * src/tools/shared/range-candidates.js). Each kind has a pool of its own, so
+ * however many extra objects there are, they never spend what the server's
+ * answer needs; the extra pool has no floor, so it bounds their time too.
+ * take(object) draws from the object's pool (none given: the first).
+ *
+ * @param {Object[]} objects
+ * @param {(object: Object) => boolean} isExtra
+ */
+export function rangeBudgetPool(objects, isExtra) {
+  const extraCount = objects.filter(isExtra).length;
+  const pools = {
+    answered: budgetPool(objects.length - extraCount),
+    extra: budgetPool(extraCount, { floor: false }),
+  };
+  const poolOf = new WeakMap();
+  return {
+    take(object) {
+      const pool = object && isExtra(object) ? pools.extra : pools.answered;
+      const share = pool.take();
+      poolOf.set(share, pool);
+      return share;
+    },
+    give(share) {
+      (poolOf.get(share) ?? pools.answered).give(share);
     },
   };
 }
@@ -896,6 +931,77 @@ function pastUntil({ plan, frame }, wall) {
 
 function byStart(a, b) {
   return spanOf(a).start - spanOf(b).start || toInstant(a.recurrenceId) - toInstant(b.recurrenceId);
+}
+
+/**
+ * Does provably no occurrence of the series touch the range? Decided from
+ * its bounds alone, without expanding: no occurrence starts before the
+ * earliest of DTSTART, the RDATEs and the overrides' starts, and none ends
+ * after the latest of the rule's last start (from UNTIL, or from COUNT where
+ * every period of the rule surely holds an occurrence) plus the duration,
+ * the RDATEs' ends and the overrides' ends. A THISANDFUTURE override, an
+ * unbounded or unreadable rule, a value that cannot be placed: not provable,
+ * false. Floating times and dates carry a zone offset of slack, the rule a
+ * DST change of it.
+ *
+ * @param {ReturnType<typeof relateSeries>} series
+ * @param {{start: number, end: number}} range - ms
+ * @returns {boolean}
+ */
+export function seriesOutside(series, range) {
+  if (!series.frame || series.futures.length > 0) return false;
+  const { event, master, zone } = series;
+  const at = (time) => orNull(() => toInstant(time, zone));
+  const start = at(event.startDate);
+  if (start === null) return false;
+  const duration = durationOf(event);
+
+  const spans = [];
+  for (const value of master.getAllProperties('rdate').flatMap((p) => p.getValues())) {
+    const period = value instanceof ICAL.Period;
+    const from = at(period ? value.start : value);
+    const to = period ? at(value.getEnd()) : from + duration;
+    if (from === null || to === null) return false;
+    spans.push([from, to]);
+  }
+  for (const { event: own } of series.overrides) {
+    const from = at(own.startDate);
+    if (from === null) return false;
+    spans.push([from, at(own.endDate ?? own.startDate) ?? from]);
+  }
+
+  const slack = ZONE_SLACK_MS + DST_SLACK_MS;
+  if (Math.min(start, ...spans.map(([from]) => from)) - slack >= range.end) return true;
+  const last = lastRuleStart(series, start);
+  if (last === null) return false;
+  return Math.max(last + duration, ...spans.map(([, to]) => to)) + slack <= range.start;
+}
+
+// ms per period for the rule frequencies, the longest a period can be
+const PERIOD_MS = { ...Object.fromEntries(Object.entries(UNIT_SECONDS).map(([f, s]) => [f, s * 1000])), MONTHLY: 31 * 864e5, YEARLY: 366 * 864e5 };
+// BY parts that never empty a period of a rule coarser than the part
+const FINER = { BYHOUR: ['DAILY', 'WEEKLY'], BYMINUTE: ['HOURLY', 'DAILY', 'WEEKLY'], BYSECOND: ['MINUTELY', 'HOURLY', 'DAILY', 'WEEKLY'], BYDAY: ['WEEKLY'], WKST: Object.keys(PERIOD_MS) };
+
+/** The latest start the series' rule can have, as an instant; null when unbounded or unknown */
+function lastRuleStart({ master, event, zone }, start) {
+  const rules = master.getAllProperties('rrule');
+  if (rules.length === 0) return start;
+  if (rules.length > 1) return null;
+  const rule = orNull(() => rules[0].getFirstValue());
+  if (!rule) return null;
+  if (rule.until) {
+    const until = orNull(() => toInstant(rule.until, zone));
+    // a date UNTIL includes its whole day
+    return until === null ? null : until + 864e5;
+  }
+  if (!rule.count || !PERIOD_MS[rule.freq]) return null;
+  const parts = Object.keys(rule.parts ?? {});
+  const filled = rule.freq === 'MONTHLY' || rule.freq === 'YEARLY'
+    ? everyPeriodHasOne(rule, parts, wallOfTime(event.startDate))
+    : parts.every((part) => FINER[part]?.includes(rule.freq));
+  if (!filled) return null;
+  // the COUNT-th occurrence lies within the first COUNT periods
+  return start + rule.count * (rule.interval || 1) * PERIOD_MS[rule.freq];
 }
 
 function orNull(compute) {

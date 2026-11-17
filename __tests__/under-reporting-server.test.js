@@ -106,7 +106,7 @@ function davServer() {
         const property = /prop-filter name="([\w-]+)"/.exec(body)?.[1];
         if (range) {
           const [from, to] = [utc(range[1]), utc(range[2])];
-          const names = Object.keys(OBJECTS).filter((name) => {
+          const names = server.correctAnswer ? server.correctAnswer() : Object.keys(OBJECTS).filter((name) => {
             try {
               return sabreInstances(OBJECTS[name]).some(([s, e]) => s < to && e > from);
             } catch {
@@ -118,11 +118,13 @@ function davServer() {
         }
         if (property) {
           log.push({ kind: 'property', property });
-          if (server.refusePropertyFilter) { res.writeHead(501); return res.end(); }
+          if (server.extra === 'refuse') { res.writeHead(501); return res.end(); }
+          if (server.extra === 'drop') return req.socket.destroy();
           const pattern = new RegExp(`\\r\\n${property}[:;]`);
           return etagOnly(Object.keys(OBJECTS).filter((name) => pattern.test(OBJECTS[name])));
         }
         log.push({ kind: 'all' });
+        if (server.extra === 'drop') return req.socket.destroy();
         return etagOnly(Object.keys(OBJECTS));
       }
       if (req.method === 'PROPFIND' || req.method === 'REPORT') return xml('');
@@ -154,7 +156,7 @@ describe('a server whose time-range answer leaves out recurring events (#129)', 
   afterAll(() => dav.stop());
   beforeEach(() => {
     dav.log.length = 0;
-    dav.server.refusePropertyFilter = false;
+    dav.server.extra = 'answer';
   });
 
   test('the stand-in really under-reports: its range answer for 16 Nov holds only the plain series and the single event', async () => {
@@ -174,7 +176,9 @@ describe('a server whose time-range answer leaves out recurring events (#129)', 
     // no occurrence on 16 Nov, and a broken object the server did not place in the range
     expect(result).not.toContain('Extra dates only');
     expect(result).not.toContain('Finished series');
-    expect(result).not.toContain('broken.ics');
+    // a broken object only the extra queries found is reported, not dropped
+    expect(result).toMatch(/Not checked: \*\*1\*\*[\s\S]*broken\.ics/);
+    expect(result).not.toContain('### 5.');
   });
 
   test('list_events finds an extra date of a series without a rule', async () => {
@@ -202,24 +206,94 @@ describe('a server whose time-range answer leaves out recurring events (#129)', 
     expect(result).toContain('Override first');
   });
 
-  test('costs one range query, one query per recurrence property, and a multiget only of what the range answer lacked', async () => {
+  test('costs one range query, the three property queries, and one multiget of what the range answer lacked', async () => {
     await calendarQuery.handler(range('2026-11-16T00:00:00Z', '2026-11-17T00:00:00Z'));
     expect(dav.log.filter((r) => r.kind === 'range')).toHaveLength(1);
-    expect(dav.log.filter((r) => r.kind === 'property').map((r) => r.property)).toEqual(['RRULE', 'RDATE', 'RECURRENCE-ID']);
+    expect(dav.log.filter((r) => r.kind === 'property').map((r) => r.property).sort()).toEqual(['RDATE', 'RECURRENCE-ID', 'RRULE']);
     const multigets = dav.log.filter((r) => r.kind === 'multiget').map((r) => r.names.sort());
     expect(multigets).toEqual([
       ['plain.ics', 'single.ics'], // the range answer
-      ['broken.ics', 'finished.ics', 'override-first.ics', 'rrule-rdate.ics'], // RRULE, less what was fetched
-      ['rdate-only.ics'], // RDATE, less what was fetched; RECURRENCE-ID adds nothing new: no multiget
+      ['broken.ics', 'finished.ics', 'override-first.ics', 'rdate-only.ics', 'rrule-rdate.ics'], // every other recurring object, once
     ]);
   });
 
+  test('a failure of the extra queries leaves the range answer standing, with a note per calendar', async () => {
+    dav.server.extra = 'drop';
+    const result = text(await calendarQuery.handler(range('2026-11-16T00:00:00Z', '2026-11-17T00:00:00Z')));
+    expect(result).toContain('Plain weekly');
+    expect(result).toContain('Single lunch');
+    expect(result).toMatch(/Not checked: \*\*1\*\*[\s\S]*calendars\/user\/work\/ — its recurring events could not be fetched/);
+    const busy = text(await freeBusyQuery.handler(range('2026-11-16T08:00:00Z', '2026-11-16T12:00:00Z')));
+    expect(busy).toContain('### Busy (1)');
+    expect(busy).toContain('**Warning**: incomplete');
+  });
+
   test('a server that refuses property filters is asked for all its events instead, and the listing stays complete', async () => {
-    dav.server.refusePropertyFilter = true;
+    dav.server.extra = 'refuse';
     const result = text(await calendarQuery.handler(range('2026-11-16T00:00:00Z', '2026-11-17T00:00:00Z')));
     expect(dav.log.some((r) => r.kind === 'all')).toBe(true);
     expect(result).toContain('Weekly with extra date');
     expect(result).toContain('Override first');
     expect(result).not.toContain('Finished series');
+  });
+});
+
+// Extra objects must never cost what the server's own answer needs (review
+// of #170): a correct server returns only a series that is expensive to
+// expand (Friday the 13th, walked month by month from 1990), and the extra
+// queries bring many yearly series that are out of range.
+describe('extra recurring objects do not take expansion budget from the range answer', () => {
+  let dav;
+  const saved = { ...OBJECTS };
+  const friday13 = ical(['UID:f13', 'DTSTART:19900713T090000Z', 'DURATION:PT1H',
+    'RRULE:FREQ=MONTHLY;BYDAY=FR;BYMONTHDAY=13', 'SUMMARY:Friday the 13th']);
+  const birthdays = (count) => Object.fromEntries(Array.from({ length: count }, (_, i) => {
+    const month = String(1 + (i % 9)).padStart(2, '0');
+    const day = String(1 + (i % 28)).padStart(2, '0');
+    return [`b${i}.ics`, ical([`UID:b${i}`, `DTSTART;VALUE=DATE:1980${month}${day}`, 'RRULE:FREQ=YEARLY', `SUMMARY:Birthday ${i}`])];
+  }));
+  const use = (objects) => {
+    for (const name of Object.keys(OBJECTS)) delete OBJECTS[name];
+    Object.assign(OBJECTS, objects);
+  };
+
+  beforeAll(async () => {
+    dav = await davServer().start();
+    // a correct server: the range answer is the one series in the range
+    dav.server.correctAnswer = () => ['f13.ics'];
+    await tsdavManager.initialize({ serverUrl: `${dav.origin}/`, authMethod: 'Basic', username: 'user', password: 'secret' });
+  });
+  afterAll(async () => {
+    use(saved);
+    await dav.stop();
+  });
+
+  test.each([300, 5000])('with %i yearly series out of range, Friday the 13th is still listed and busy', async (count) => {
+    use({ 'f13.ics': friday13, ...birthdays(count) });
+    const started = Date.now();
+    const listed = text(await calendarQuery.handler(range('2026-11-13T00:00:00Z', '2026-11-14T00:00:00Z')));
+    expect(listed).toContain('Friday the 13th');
+    expect(listed).not.toMatch(/Friday the 13th[\s\S]*incomplete/);
+    const busy = text(await freeBusyQuery.handler(range('2026-11-13T08:00:00Z', '2026-11-13T12:00:00Z')));
+    expect(busy).toContain('### Busy (1)');
+    // the extra objects' expansion is bounded by their own pool, not by their number
+    expect(Date.now() - started).toBeLessThan(count > 1000 ? 30000 : 10000);
+  }, 60000);
+
+  test('series whose bounds rule the range out are dropped before any expansion', async () => {
+    use({
+      'f13.ics': friday13,
+      'ended.ics': ical(['UID:ended', 'DTSTART:20200106T090000Z', 'DTEND:20200106T100000Z', 'RRULE:FREQ=WEEKLY;UNTIL=20200301T000000Z', 'SUMMARY:Ended by UNTIL']),
+      'counted.ics': ical(['UID:counted', 'DTSTART:20200106T090000Z', 'DTEND:20200106T100000Z', 'RRULE:FREQ=DAILY;COUNT=30', 'SUMMARY:Ended by COUNT']),
+      'later.ics': ical(['UID:later', 'DTSTART:20300106T090000Z', 'DTEND:20300106T100000Z', 'RRULE:FREQ=WEEKLY', 'SUMMARY:Starts later']),
+    });
+    const { resetExpansionWork, expansionWork } = await import('../src/occurrences.js');
+    const [calendar] = await tsdavManager.getCalDavClient().fetchCalendars();
+    const { fetchRangeCandidates, isRangeExtra } = await import('../src/tools/shared/range-candidates.js');
+    resetExpansionWork();
+    const { objects } = await fetchRangeCandidates(tsdavManager.getCalDavClient(), calendar,
+      { start: '2026-11-13T00:00:00Z', end: '2026-11-14T00:00:00Z' });
+    expect(objects.filter(isRangeExtra)).toHaveLength(0);
+    expect(expansionWork.calls).toBe(0);
   });
 });

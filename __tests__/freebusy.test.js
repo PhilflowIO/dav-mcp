@@ -20,6 +20,8 @@ jest.unstable_mockModule('../src/tsdav-client.js', () => ({
         { url: 'https://dav.example.com/calendars/user/home/', displayName: 'Home', components: ['VEVENT'] },
       ],
       fetchCalendarObjects,
+      // the range answer holds every object; no recurring one to add (range-candidates.js)
+      calendarQuery: async () => [],
     }),
     getCardDavClient: () => ({}),
   },
