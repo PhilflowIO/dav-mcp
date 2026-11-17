@@ -70,6 +70,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Write results (create, update and delete of events, todos and contacts,
   `make_calendar`) labelled their raw JSON block "Rohdaten (JSON)"; every
   tool result now says "Raw Data (JSON)", from one shared label (#146).
+- The test that 1000 overrides of an every-minute series are checked within
+  one budget no longer measures wall-clock time, which failed on a slow CI
+  runner. It counts the candidates spent and the overrides handed to the
+  recurrence library instead, so it holds on any machine and still fails
+  when the expansion falls back to its old cost (#138).
 
 ## [5.0.0] - 2026-10-09
 

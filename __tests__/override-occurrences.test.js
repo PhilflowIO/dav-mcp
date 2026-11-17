@@ -569,16 +569,34 @@ describe('the expansion still starts near the range', () => {
     // one day: the 1440 occurrences of the day itself are not what is measured
     const day = { start: new Date('2026-10-12T00:00:00Z'), end: new Date('2026-10-13T00:00:00Z') };
 
-    // 123 s before the step budget, ~0.2 s now
-    const started = performance.now();
+    // The work is counted, not timed (#138): a wall-clock bound failed on a
+    // slow runner. 123 s before the step budget, ~0.3 s now. A budget without
+    // a clock, the size of a tool call's candidates (REQUEST_UNITS), sees the
+    // same work on any machine.
+    const root = new ICAL.Component(ICAL.parse(heavy.data));
+    const { master, overrides } = readSeries(root, 'vevent');
+    const units = createRecurrenceBudget(300000);
+    const { occurrences, truncated } = seriesOccurrences(relateSeries(master, overrides),
+      { start: day.start.getTime(), end: day.end.getTime() }, { budget: units });
+
+    expect(truncated).toBe(false);
+    expect(occurrences.filter((o) => /^ov /.test(o.item.summary))).toHaveLength(1000);
+    // one short walk per override (~18 candidates plus CALL_COST each, 117 866
+    // in all); walking from DTSTART or from days before each id runs out
+    expect(300000 - units.remaining).toBeLessThan(150000);
+    // each override handed to the library once; handing it every override on
+    // every call costs no candidates, but a million conversions (~8 s)
+    expect(units.overridesHanded).toBeLessThanOrEqual(2 * 1000);
+
+    // The tool paths, on their own timed budgets: with the clock stopped, only
+    // the candidates decide, so a slow runner cannot make them incomplete.
+    jest.spyOn(performance, 'now').mockReturnValue(0);
     const { incomplete } = calculateFreeBusy([heavy], day);
     const shown = shownEvent(new ICAL.Component(ICAL.parse(heavy.data)),
       { start: day.start.toISOString(), end: day.end.toISOString() }, (v) => /^ov /.test(v.getFirstPropertyValue('summary')));
-    const elapsed = performance.now() - started;
 
     expect(incomplete).toEqual([]);
     expect(shown.item.summary).toBe('ov 0');
-    expect(elapsed).toBeLessThan(2000);
   });
 
   test('200 overrides moved in from years away are checked in one pass', () => {

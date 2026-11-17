@@ -592,6 +592,10 @@ function expand(series, from, to, overrides, budget) {
   } finally {
     budget.remaining -= sliced - slice.remaining + CALL_COST;
     if (budget.timed) budget.timeLeft -= performance.now() - started;
+    // The library converts every override it is given, on every call, and
+    // counts none of that in candidates: only the clock bounds it. Counted
+    // here (not charged), so that work can be checked without a clock.
+    budget.overridesHanded = (budget.overridesHanded ?? 0) + overrides.length;
   }
   if (!result.complete) budget.exhausted = true;
 
