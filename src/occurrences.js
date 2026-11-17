@@ -92,6 +92,7 @@ const CLUSTER_PERIODS = 20;
  */
 export const expansionWork = { units: 0, calls: 0, overridesHanded: 0 };
 
+/** Start expansionWork over from zero, before the work to be counted. */
 export function resetExpansionWork() {
   Object.assign(expansionWork, { units: 0, calls: 0, overridesHanded: 0 });
 }

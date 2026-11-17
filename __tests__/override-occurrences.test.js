@@ -27,7 +27,7 @@ jest.unstable_mockModule('../src/tsdav-client.js', () => ({
 const { calculateFreeBusy } = await import('../src/tools/shared/freebusy.js');
 const { formatEvent } = await import('../src/formatters.js');
 const { readSeries, shownEvent } = await import('../src/ical-components.js');
-const { relateSeries, seriesOccurrences, REQUEST_UNITS, CALL_UNITS, CALL_COST, MIN_SHARE } =
+const { relateSeries, seriesOccurrences, expansionWork, resetExpansionWork, REQUEST_UNITS, CALL_UNITS, CALL_COST, MIN_SHARE } =
   await import('../src/occurrences.js');
 const { createRecurrenceBudget, expandOccurrences } = await import('tsdav-utils');
 const { floatingZoneFor, withFloatingZone, setFloatingZone } = await import('../src/calendar-zone.js');
@@ -643,6 +643,53 @@ describe('the expansion still starts near the range', () => {
       expect(spent.calls).toBeLessThan(200);
       expect(spent.overridesHanded).toBeLessThanOrEqual(2 * 200);
     }
+  });
+});
+
+describe('the clock ends an expansion, and every object still gets its share (#138)', () => {
+  // The time half of a tool call's budget, without a real clock: every read
+  // of performance.now advances it by STEP ms. 1500 ms over 201 objects is
+  // ~7.5 ms each; MIN_SHARE gives each 20 ms, room for two calls into the
+  // library.
+  const STEP = 8;
+  const at = (ms) => new Date(ms).toISOString().replace(/[-:]|\.000/g, '');
+  const day = { start: new Date('2026-10-12T00:00:00Z'), end: new Date('2026-10-13T00:00:00Z') };
+
+  test('a series the candidates would finish ends incomplete on time, and 200 others stay complete', () => {
+    // the 1000-override series from above: ~118 000 candidates. Last in the
+    // call, it gets the candidates the others left (~260 000), so only the
+    // clock can end it
+    const lines = [...vevent('SUMMARY:Minutely', 'DTSTART:20000101T000000Z', 'DURATION:PT1M', 'RRULE:FREQ=MINUTELY')];
+    for (let i = 0; i < 1000; i++) {
+      lines.push(...vevent(`SUMMARY:ov ${i}`, `RECURRENCE-ID:${at(Date.UTC(2000, 0, 1) + i * 11 * 86400000 + i * 60000)}`,
+        `DTSTART:${at(Date.UTC(2026, 9, 12) + i * 60000)}`, 'DURATION:PT20M'));
+    }
+    const heavy = { ...object(lines), url: `${CALENDAR_URL}heavy.ics` };
+    // each needs two calls: the day itself, and an override moved in from 2030
+    const small = Array.from({ length: 200 }, (_, i) => ({
+      ...object(
+        vevent(`SUMMARY:s${i}`, 'DTSTART:20260101T080000Z', 'DURATION:PT10M', 'RRULE:FREQ=DAILY'),
+        vevent(`SUMMARY:s${i} moved`, 'RECURRENCE-ID:20300101T080000Z', 'DTSTART:20261012T200000Z', 'DURATION:PT10M'),
+      ),
+      url: `${CALENDAR_URL}s${i}.ics`,
+    }));
+
+    let now = 0;
+    const clock = jest.spyOn(performance, 'now').mockImplementation(() => (now += STEP));
+    resetExpansionWork();
+    let result;
+    try {
+      result = calculateFreeBusy([...small, heavy], day);
+    } finally {
+      clock.mockRestore();
+    }
+
+    // the heavy series was cut by the clock, nothing else was
+    expect(result.incomplete.map(({ object: o }) => o.url)).toEqual([heavy.url]);
+    expect(expansionWork.units).toBeLessThan(REQUEST_UNITS);
+    // every small series got its two calls, though the pool of time ran dry
+    // after a third of them
+    expect(expansionWork.calls).toBeGreaterThanOrEqual(1 + 2 * 200);
   });
 });
 
