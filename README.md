@@ -94,7 +94,7 @@ docker run -d --name dav-mcp -p 3000:3000 --env-file .env \
   ghcr.io/philflowio/dav-mcp:latest
 ```
 
-Tags: `latest`, the exact release (`5.0.0`) and the minor line (`5.0`).
+Tags: `latest`, the exact release (`5.1.0`) and the minor line (`5.1`).
 Set `PORT` to serve on a different port; the healthcheck follows it.
 
 Or build from source:
