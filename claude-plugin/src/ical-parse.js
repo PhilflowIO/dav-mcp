@@ -61,8 +61,23 @@ export function parseICal(text) {
 export function assertParseBounded(object) {
   const text = typeof object === 'string' ? object : object?.data;
   if (typeof text !== 'string') return;
+  parseGuardWork.input += text.length;
   let start = 0;
   while (start < text.length) start = checkLine(text, start);
+}
+
+/**
+ * What assertParseBounded has done since the last resetParseGuardWork():
+ * the length of the text it was handed, and the characters it visited.
+ * Counting only: nothing here reads it. Tests bound the scan by it (visited
+ * against input) instead of timing it, which on a slow runner measured the
+ * runner (#138).
+ */
+export const parseGuardWork = { input: 0, visited: 0 };
+
+/** Start parseGuardWork over from zero, before the scan to be counted. */
+export function resetParseGuardWork() {
+  Object.assign(parseGuardWork, { input: 0, visited: 0 });
 }
 
 const LF = 10;
@@ -87,6 +102,7 @@ function checkLine(text, start) {
   let equals = 0;
   let semicolons = 0;
   for (let i = start; i < text.length; i++) {
+    parseGuardWork.visited++;
     const char = text.charCodeAt(i);
     if (char === LF) {
       if (!foldAt(text, i)) return i + 1;
@@ -113,6 +129,7 @@ function nextLine(text, from) {
   let i = from;
   for (;;) {
     const lineBreak = text.indexOf('\n', i);
+    parseGuardWork.visited += (lineBreak === -1 ? text.length : lineBreak + 1) - i;
     if (lineBreak === -1) return text.length;
     if (!foldAt(text, lineBreak)) return lineBreak + 1;
     i = lineBreak + 1;

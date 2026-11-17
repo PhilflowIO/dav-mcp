@@ -11,11 +11,11 @@ import { writeVCardFields } from '../../vcard.js';
  * Common fields: FN, N, EMAIL, TEL, ORG, TITLE, NOTE, URL, ADR
  * Custom properties: Any X-* property
  */
-const updateContactFieldsSchema = z.object({
+const updateContactFieldsSchema = z.strictObject({
   vcard_url: davUrl('vCard URL must be a valid URL'),
   vcard_etag: entityTag,
   fields: davFieldMapSchema
-}).strict();
+});
 
 /**
  * Field-agnostic contact update tool powered by tsdav-utils
