@@ -8,22 +8,48 @@
  */
 
 /**
- * The logical lines of a text: split at CRLF, LF or a lone CR, and a line
- * that starts with a space or a tab continued onto the one before (folding).
+ * The logical lines of a text, with where each sits in it: `start` is the
+ * offset of its first character, `end` the offset after its line break, so
+ * that text.slice(start, end) is the line exactly as written, folds and line
+ * endings included.
+ *
+ * Lines break at CRLF or LF; a lone CR is a line break only in a text with no
+ * LF at all (old Mac line endings), and otherwise text, as ical.js reads it.
+ * A line that starts with a space or a tab continues the one before
+ * (folding, RFC 5545 3.1).
+ *
+ * @param {string} text
+ * @returns {Array<{line: string, start: number, end: number}>}
+ */
+export function logicalLines(text) {
+  const breaks = text.includes('\n') ? /\r?\n/g : /\r/g;
+  const lines = [];
+  let from = 0;
+  const add = (physical, end) => {
+    const last = lines[lines.length - 1];
+    if ((physical.startsWith(' ') || physical.startsWith('\t')) && last) {
+      last.line += physical.slice(1);
+      last.end = end;
+    } else {
+      lines.push({ line: physical, start: from, end });
+    }
+  };
+  for (const match of text.matchAll(breaks)) {
+    add(text.slice(from, match.index), match.index + match[0].length);
+    from = match.index + match[0].length;
+  }
+  if (from < text.length) add(text.slice(from), text.length);
+  return lines;
+}
+
+/**
+ * The logical lines of a text (logicalLines), as strings.
  *
  * @param {string} text
  * @returns {string[]}
  */
 export function unfoldLines(text) {
-  const lines = [];
-  for (const physical of text.split(/\r\n|\r|\n/)) {
-    if ((physical.startsWith(' ') || physical.startsWith('\t')) && lines.length > 0) {
-      lines[lines.length - 1] += physical.slice(1);
-    } else {
-      lines.push(physical);
-    }
-  }
-  return lines;
+  return logicalLines(text).map(({ line }) => line);
 }
 
 const NAME = /^[A-Za-z0-9-]+$/;

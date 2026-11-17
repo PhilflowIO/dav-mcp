@@ -253,6 +253,18 @@ describe('stored VFREEBUSY read as RFC 5545 content lines', () => {
     expect(output).toContain(`- ${FREEBUSY}mixed.ics: a FREEBUSY period cannot be read`);
   });
 
+  test('the event beside a VFREEBUSY is read from the object as written, lone CRs in a value included', async () => {
+    stored[FREEBUSY] = [calendarObject('mixed', [
+      'BEGIN:VEVENT', 'UID:cr@test', 'DTSTAMP:20260101T000000Z', 'SUMMARY:Notes',
+      'DESCRIPTION:first\rsecond', 'DTSTART:20260525T100000Z', 'DTEND:20260525T110000Z', 'END:VEVENT',
+      'BEGIN:VFREEBUSY', 'UID:cr-fb@test', 'FREEBUSY:20260525T140000Z/PT1H', 'END:VFREEBUSY',
+    ])];
+    const output = await call({ include_event_details: true });
+    expect(busyLines(output)).toEqual(['10:00-11:00', '14:00-15:00']);
+    expect(section(output, 'Events behind the busy blocks')).toContain('Notes');
+    expect(output).not.toContain('incomplete');
+  });
+
   test('only FREEBUSY directly in the VFREEBUSY counts, not one in a component nested in it', async () => {
     stored[FREEBUSY] = [freebusy('published',
       'FREEBUSY:20260525T100000Z/PT1H',

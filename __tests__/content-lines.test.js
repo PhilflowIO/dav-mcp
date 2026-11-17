@@ -1,10 +1,19 @@
 import { describe, test, expect } from '@jest/globals';
-import { unfoldLines, parseContentLine } from '../src/tools/shared/content-lines.js';
+import { unfoldLines, logicalLines, parseContentLine } from '../src/tools/shared/content-lines.js';
 
 describe('unfoldLines', () => {
-  test('splits at CRLF, LF and a lone CR, and joins folded lines', () => {
-    expect(unfoldLines('A:1\r\nB:2\nC:3\rD:4')).toEqual(['A:1', 'B:2', 'C:3', 'D:4']);
+  test('splits at CRLF and LF, and at CR only in a text without LF, and joins folded lines', () => {
+    expect(unfoldLines('A:1\r\nB:2\nC:3\rD:4')).toEqual(['A:1', 'B:2', 'C:3\rD:4']);
+    expect(unfoldLines('A:1\rB:2\r')).toEqual(['A:1', 'B:2']);
     expect(unfoldLines('A:1\r\n 23\r\n\t45\r\nB:2')).toEqual(['A:12345', 'B:2']);
+  });
+});
+
+describe('logicalLines', () => {
+  test('each line knows where it sits, folds and line ending included', () => {
+    const text = 'A:1\r\n 2\r\nB:x\ry\nC:3';
+    expect(logicalLines(text).map(({ line, start, end }) => [line, text.slice(start, end)]))
+      .toEqual([['A:12', 'A:1\r\n 2\r\n'], ['B:x\ry', 'B:x\ry\n'], ['C:3', 'C:3']]);
   });
 });
 
