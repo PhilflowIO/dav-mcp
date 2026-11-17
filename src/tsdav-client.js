@@ -142,6 +142,22 @@ function isUnservedHalf(failure) {
   return !failure.refused && !failure.atTokenEndpoint && failure.code === MCP_ERROR_CODES.CONFIGURATION_ERROR;
 }
 
+/**
+ * When a half's failed login leaves the half out instead of failing the
+ * login, per account type:
+ * - 'unserved': only when the server does not serve that half
+ *   (isUnservedHalf); any other failure fails the login.
+ * - 'never': every failure fails the login.
+ * - 'always': every failure leaves the half out.
+ */
+const PASSWORD_HALVES_OPTIONAL = { caldav: 'unserved', carddav: 'unserved' };
+// OAuth is configured for one Google CalDAV server (GOOGLE_SERVER_URL), and
+// Google serves no CardDAV there, so dav-mcp has always logged in under
+// OAuth without that half, whatever its login failed with; a CardDAV error
+// of a kind not seen before must not stop Google users from starting. The
+// CalDAV half is what an OAuth setup is for: any failure fails the login.
+const OAUTH_HALVES_OPTIONAL = { caldav: 'never', carddav: 'always' };
+
 // Errors loginError() built, so initialize() does not build one around them.
 const loginErrors = new WeakSet();
 
@@ -318,7 +334,8 @@ class TsdavClientManager {
     }
 
     const credentials = { username: config.username, password: config.password };
-    return this._loginHalves(config, origins, { credentials, authMethod }, `${authMethod} Auth configured`);
+    return this._loginHalves(config, origins, { credentials, authMethod }, `${authMethod} Auth configured`,
+      PASSWORD_HALVES_OPTIONAL);
   }
 
   /**
@@ -330,15 +347,18 @@ class TsdavClientManager {
    * comes back null, with the reason in `unserved` for the tools that need
    * it. Any other failure fails the login as before, so stdio retries it on
    * the next tool call instead of running without the half for good. When
-   * neither half is served, the CalDAV error is thrown.
+   * neither half is served, the CalDAV error is thrown. Which failures leave
+   * a half out is set per auth method (`optional`): OAuth keeps its own.
    * @private
    * @param {Object} config - Client configuration, tokenUrl resolved
    * @param {RequestOrigins} origins - where the clients may send requests
    * @param {Object} clientParams - credentials and authMethod for tsdav
    * @param {string} how - how the clients authenticate, for the log
+   * @param {{caldav: string, carddav: string}} optional - per account type,
+   *   which failures leave the half out (see PASSWORD_HALVES_OPTIONAL)
    * @returns {Promise<{calDavClient: DAVClient|null, cardDavClient: DAVClient|null, unserved: object}>}
    */
-  async _loginHalves(config, origins, clientParams, how) {
+  async _loginHalves(config, origins, clientParams, how, optional) {
     const clients = { calDavClient: null, cardDavClient: null, unserved: {} };
     const unservedErrors = [];
     for (const [accountType, key] of [['caldav', 'calDavClient'], ['carddav', 'cardDavClient']]) {
@@ -356,7 +376,9 @@ class TsdavClientManager {
         logger.debug({ accountType }, `${HALVES[accountType].name} client logged in (${how})`);
       } catch (cause) {
         const error = loginError(cause, config, answers);
-        if (!isUnservedHalf(loginFailure(cause, config, answers))) throw error;
+        const leaveOut = optional[accountType] === 'always'
+          || (optional[accountType] === 'unserved' && isUnservedHalf(loginFailure(cause, config, answers)));
+        if (!leaveOut) throw error;
         unservedErrors.push(error);
         clients.unserved[accountType] = unservedHalf(accountType, cause, config, answers);
         logger.warn({ accountType, error: error.message },
@@ -402,7 +424,8 @@ class TsdavClientManager {
     }, 'Configuring OAuth2 credentials');
 
     // Note: tsdav expects 'Oauth' with capital O
-    return this._loginHalves(config, origins, { credentials: oauthCredentials, authMethod: 'Oauth' }, 'OAuth2');
+    return this._loginHalves(config, origins, { credentials: oauthCredentials, authMethod: 'Oauth' }, 'OAuth2',
+      OAUTH_HALVES_OPTIONAL);
   }
 
   /**

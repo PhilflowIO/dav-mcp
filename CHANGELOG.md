@@ -25,9 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   set, and the startup log and `/health` list `availableAccountTypes`. Any
   other failure of a half (refused, unreachable, a server fault, a rate
   limit) still fails the login, so over stdio it is retried on the next tool
-  call as before. OAuth follows the same rule: with Google, contact tools
-  answer with that error instead of failing inside tsdav, and a CardDAV
-  failure other than "not served" now fails the login there too.
+  call as before. Under OAuth the CardDAV half stays optional as before,
+  whatever its login fails with, and the CalDAV half stays required; with
+  Google, contact tools now answer with that error instead of failing
+  inside tsdav, and `availableAccountTypes` no longer lists `carddav`.
 
 ## [5.0.0] - 2026-10-09
 

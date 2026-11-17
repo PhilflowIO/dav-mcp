@@ -84,6 +84,11 @@ const passwordLogin = (dav) => tsdavManager.initialize({
   serverUrl: `${dav.origin}/`, authMethod: 'Basic', username: 'user', password: 'secret',
 });
 
+const oauthLogin = (dav) => tsdavManager.initialize({
+  serverUrl: `${dav.origin}/`, authMethod: 'OAuth', username: 'alex@example.com',
+  clientId: 'id', clientSecret: 'secret', refreshToken: 'refresh', tokenUrl: `${dav.origin}/token`,
+});
+
 const failedLogin = (dav) => passwordLogin(dav).then(() => null, e => e);
 
 describe('password login against a CalDAV-only server (iCloud caldav.icloud.com shape: empty home set)', () => {
@@ -238,10 +243,7 @@ describe('OAuth login against a server without CardDAV (Google shape)', () => {
   let dav;
   beforeAll(async () => {
     dav = await davServer({ calendar: 'served', addressbook: 'empty' }).start();
-    await tsdavManager.initialize({
-      serverUrl: `${dav.origin}/`, authMethod: 'OAuth', username: 'alex@example.com',
-      clientId: 'id', clientSecret: 'secret', refreshToken: 'refresh', tokenUrl: `${dav.origin}/token`,
-    });
+    await oauthLogin(dav);
   });
   afterAll(() => dav.stop());
 
@@ -259,13 +261,22 @@ describe('OAuth login against a server without CardDAV (Google shape)', () => {
     expect(error.message).toContain('GOOGLE_SERVER_URL');
   });
 
-  test('a CardDAV fault under OAuth fails the login instead of dropping the half', async () => {
-    dav.server.homes = { calendar: 'served', addressbook: 503 };
-    const error = await tsdavManager.initialize({
-      serverUrl: `${dav.origin}/`, authMethod: 'OAuth', username: 'alex@example.com',
-      clientId: 'id', clientSecret: 'secret', refreshToken: 'refresh', tokenUrl: `${dav.origin}/token`,
-    }).then(() => null, e => e);
+  // Under OAuth the CardDAV half stays optional whatever its login fails
+  // with, as it always was: Google's answer to it is not known in advance.
+  test('a CardDAV half refused with 403 is left out, the server starts with CalDAV', async () => {
+    dav.server.homes = { calendar: 'served', addressbook: 403 };
+    await oauthLogin(dav);
+    expect(tsdavManager.availableAccountTypes()).toEqual(['caldav']);
+    expect(() => tsdavManager.getCardDavClient()).toThrow(/does not serve CardDAV.*the server answered 403/);
+  });
+
+  // The CalDAV half under OAuth is what the setup is for: as before split
+  // servers were tolerated, any failure of it fails the login.
+  test('a CalDAV half the server does not serve fails the login', async () => {
+    dav.server.homes = { calendar: 'empty', addressbook: 'served' };
+    const error = await oauthLogin(dav).then(() => null, e => e);
     expect(error).toBeTruthy();
-    expect(error.message).toContain('the server answered 503');
+    expect(error.code).toBe(MCP_ERROR_CODES.CONFIGURATION_ERROR);
+    expect(error.message).toContain('cannot find homeUrl');
   });
 });
