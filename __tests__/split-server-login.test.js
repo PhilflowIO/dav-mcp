@@ -8,7 +8,7 @@ import http from 'node:http';
 // a server fault, ...) still fails the login, so it is retried.
 const { tsdavManager } = await import('../src/tsdav-client.js');
 const { requestUrlProblem } = await import('../src/request-origins.js');
-const { CardDAVError, CalDAVError, MCP_ERROR_CODES } = await import('../src/error-handler.js');
+const { CardDAVError, CalDAVError, MCP_ERROR_CODES, codeForHttpStatus } = await import('../src/error-handler.js');
 const { tools } = await import('../src/tools/index.js');
 
 const multistatus = (responses) =>
@@ -25,7 +25,7 @@ const HOMES = {
 };
 
 // Each home is 'served', 'empty' (the property comes back without an href,
-// the iCloud shape) or an HTTP status the home-set request is answered with
+// the iCloud shape), 'drop' (the connection is cut) or an HTTP status the home-set request is answered with
 // (404 is the all-inkl shape). Settable while the server runs.
 function davServer(homes) {
   const server = http.createServer((req, res) => {
@@ -49,6 +49,7 @@ function davServer(homes) {
       for (const [kind, [property, ns, href]] of Object.entries(HOMES)) {
         if (!body.includes(property)) continue;
         const home = server.homes[kind];
+        if (home === 'drop') return req.socket.destroy();
         if (Number.isInteger(home)) { res.writeHead(home); return res.end(); }
         return xml(207, propResponse(path, home === 'served'
           ? `<${ns}:${property}><d:href>${href}</d:href></${ns}:${property}>`
@@ -195,6 +196,17 @@ describe('a half failing for another reason still fails the login', () => {
     expect(error.message).toContain(`the server answered ${status}`);
   });
 
+  // Discovery has been answered by then, so tsdav's "fetch failed" alone
+  // read like a server without CardDAV.
+  test('the connection cut on the CardDAV home request: a network error', async () => {
+    dav.server.homes = { calendar: 'served', addressbook: 'drop' };
+    const error = await failedLogin(dav);
+    expect(error).toBeTruthy();
+    expect(error.code).toBe(MCP_ERROR_CODES.NETWORK_ERROR);
+    expect(error.message).toContain('fetch failed');
+    expect(error.message).not.toContain('does not lead to a CalDAV/CardDAV server');
+  });
+
   test('CardDAV refused (401) while CalDAV logs in: an authentication error', async () => {
     dav.server.homes = { calendar: 'served', addressbook: 401 };
     const error = await failedLogin(dav);
@@ -278,5 +290,49 @@ describe('OAuth login against a server without CardDAV (Google shape)', () => {
     expect(error).toBeTruthy();
     expect(error.code).toBe(MCP_ERROR_CODES.CONFIGURATION_ERROR);
     expect(error.message).toContain('cannot find homeUrl');
+  });
+});
+
+// tsdav tries the configured URL and then the server root, and reports only
+// the last answer: a 429 on /dav/ came back as the root's 405, which reads
+// like a server without CardDAV.
+describe('a fault masked by a later answer still fails the login', () => {
+  test('CardDAV principal on /dav/ answered 429, server root 405: a rate limit, not a missing CardDAV', async () => {
+    let carddav = false;
+    const server = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', () => {
+        const path = new URL(req.url, 'http://local').pathname;
+        const xml = (prop) => {
+          res.writeHead(207, { 'content-type': 'application/xml; charset=utf-8' });
+          res.end(multistatus(propResponse(path, prop)));
+        };
+        if (path === '/.well-known/carddav') carddav = true;
+        if (path.startsWith('/.well-known/')) { res.writeHead(404); return res.end(); }
+        if (path === '/') { res.writeHead(405); return res.end(); }
+        if (body.includes('current-user-principal')) {
+          if (carddav) { res.writeHead(429); return res.end(); }
+          return xml('<d:current-user-principal><d:href>/dav/principals/user/</d:href></d:current-user-principal>');
+        }
+        if (body.includes('calendar-home-set')) {
+          return xml('<cal:calendar-home-set><d:href>/dav/calendars/user/</d:href></cal:calendar-home-set>');
+        }
+        res.writeHead(207, { 'content-type': 'application/xml; charset=utf-8' });
+        res.end(multistatus(''));
+      });
+    });
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    const error = await tsdavManager.initialize({
+      serverUrl: `${origin}/dav/`, authMethod: 'Basic', username: 'user', password: 'secret',
+    }).then(() => null, e => e);
+    await new Promise(resolve => server.close(resolve));
+
+    expect(error).toBeTruthy();
+    expect(error.code).toBe(codeForHttpStatus(429));
+    expect(error.code).not.toBe(MCP_ERROR_CODES.CONFIGURATION_ERROR);
+    expect(error.message).toContain(`failed: ${origin}/dav/ answered 429 (the login then reported:`);
+    expect(error.message).not.toContain('does not lead to a CalDAV/CardDAV server');
   });
 });

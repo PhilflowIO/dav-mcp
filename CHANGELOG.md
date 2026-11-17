@@ -24,7 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   saying the configured server does not serve it, why, and where the URL is
   set, and the startup log and `/health` list `availableAccountTypes`. Any
   other failure of a half (refused, unreachable, a server fault, a rate
-  limit) still fails the login, so over stdio it is retried on the next tool
+  limit), on any request of that half's login, still fails the login and
+  is named in the error even when a later answer of the server hides it, so
+  over stdio it is retried on the next tool
   call as before. Under OAuth the CardDAV half stays optional as before,
   whatever its login fails with, and the CalDAV half stays required; with
   Google, contact tools now answer with that error instead of failing

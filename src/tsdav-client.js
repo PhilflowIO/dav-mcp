@@ -62,28 +62,60 @@ class OriginCheckedDAVClient extends DAVClient {
   }
 }
 
+// Statuses that say the server had a fault or turned a request away for
+// now, not that it lacks something: forbidden, timeout, rate limit, 5xx.
+// 401 is not among them: a Digest login starts with one, and a refused
+// login is one tsdav reports itself (see LoginAnswers).
+const FAULT_STATUSES = new Set([403, 408, 429]);
+const isFaultStatus = status => FAULT_STATUSES.has(status) || status >= 500;
+
 /**
- * Whether a login got any answer at all, to tell a server that cannot be
- * reached from one that answered but not as a DAV server. Whether the
- * credentials were refused is not read here: tsdav tries several URLs and the
- * last answer need not be the refusal (Baïkal answers 401 on /dav.php/, then
- * 405 on the server root); the error tsdav throws says so itself.
+ * What the requests of one login got: whether any answer came, to tell a
+ * server that cannot be reached from one that answered but not as a DAV
+ * server, and the first fault on the way, if any (a request that threw, or a
+ * status isFaultStatus counts).
+ *
+ * tsdav's error alone does not say whether there was a fault: it tries
+ * several URLs and keeps only the last answer (a 429 on the configured
+ * /dav/ comes back as the 405 of the server root it tries next), and a
+ * request that throws after discovery has been answered reads like a server
+ * without that half. Whether the credentials were refused is left to tsdav's
+ * error, which says so itself (Baïkal answers 401 on /dav.php/, then 405 on
+ * the server root).
  */
 class LoginAnswers {
   constructor() {
     this.answered = false;
+    this.fault = null;
+    this.recording = true;
   }
 
   /**
    * @param {Function} fetchFn - the fetch to watch
-   * @returns {Function} a fetch that notes that an answer came
+   * @returns {Function} a fetch that notes what each login request got
    */
   watch(fetchFn) {
     return async (input, init) => {
-      const response = await fetchFn(input, init);
-      this.answered = true;
+      let response;
+      try {
+        response = await fetchFn(input, init);
+      } catch (error) {
+        if (this.recording) this.fault ??= { error };
+        throw error;
+      }
+      if (this.recording) {
+        this.answered = true;
+        if (isFaultStatus(response.status)) {
+          this.fault ??= { status: response.status, url: String(input?.url ?? input) };
+        }
+      }
       return response;
     };
+  }
+
+  /** The login is over: the requests of tool calls are not recorded. */
+  done() {
+    this.recording = false;
   }
 }
 
@@ -119,14 +151,29 @@ function loginFailure(cause, config, answers) {
   const atTokenEndpoint = Boolean(config.tokenUrl) && cause.url === config.tokenUrl;
   // A refused DAV login already says "returned 401"; tsdav's other messages
   // ("cannot find principalUrl", "no access token") name no status.
+  const { fault } = answers;
+  // The fault on the way, unless it is what the cause already reports.
+  const earlierFault = fault && !refused
+    && !(fault.error && (fault.error === cause || fault.error.message === cause.message))
+    && !(fault.status !== undefined && fault.status === status && fault.url === cause.url)
+    ? fault : null;
   const answeredBy = status === undefined ? ''
     : atTokenEndpoint ? ` (the token endpoint answered ${status})`
       : refused ? '' : ` (the server answered ${status})`;
+  const reported = `${String(cause.message).replace(/\.$/, '')}${answeredBy}`;
+  // The fault comes first: it is what failed, tsdav's last answer only what
+  // the login ran into after it.
+  const reason = !earlierFault ? reported
+    : earlierFault.error
+      ? `a request failed with a network error: ${String(earlierFault.error.message).replace(/\.$/, '')} (the login then reported: ${reported})`
+      : `${earlierFault.url} answered ${earlierFault.status} (the login then reported: ${reported})`;
   const code = Number.isInteger(cause.code) ? cause.code
-    : status !== undefined ? loginStatusCode(status)
-      : answers.answered ? MCP_ERROR_CODES.CONFIGURATION_ERROR
-        : MCP_ERROR_CODES.NETWORK_ERROR;
-  return { refused, status, atTokenEndpoint, answeredBy, code };
+    : fault?.error ? MCP_ERROR_CODES.NETWORK_ERROR
+      : fault ? loginStatusCode(fault.status)
+        : status !== undefined ? loginStatusCode(status)
+          : answers.answered ? MCP_ERROR_CODES.CONFIGURATION_ERROR
+            : MCP_ERROR_CODES.NETWORK_ERROR;
+  return { refused, status, atTokenEndpoint, reason, code };
 }
 
 /**
@@ -134,7 +181,8 @@ function loginFailure(cause, config, answers) {
  * does not serve that half: it answered, but not with that account type's
  * home (no home set, 404, 405). iCloud answers a CardDAV discovery on
  * caldav.icloud.com with an empty addressbook-home-set, all-inkl with a 404
- * (#152). A refused login, an unreachable server, a server fault, a rate
+ * (#152), and no request of that login met a fault (LoginAnswers). A
+ * refused login, an unreachable server, a server fault, a rate
  * limit or a token endpoint error says nothing about which halves the server
  * serves and may be gone on the next try, so it fails the login as a whole.
  */
@@ -173,10 +221,10 @@ const loginErrors = new WeakSet();
  */
 function loginError(cause, config, answers) {
   const hint = settingsHint(config.authMethod);
-  const { refused, status, answeredBy, code } = loginFailure(cause, config, answers);
+  const { refused, status, reason, code } = loginFailure(cause, config, answers);
   const notDav = !refused && code === MCP_ERROR_CODES.CONFIGURATION_ERROR
     ? `The server URL does not lead to a CalDAV/CardDAV server. ` : '';
-  const message = `Login to ${config.serverUrl} failed: ${String(cause.message).replace(/\.$/, '')}${answeredBy}. ${notDav}${hint}`;
+  const message = `Login to ${config.serverUrl} failed: ${reason}. ${notDav}${hint}`;
 
   let error;
   if (refused) {
@@ -205,10 +253,10 @@ const HALVES = {
  */
 function unservedHalf(accountType, cause, config, answers) {
   const { name, tools } = HALVES[accountType];
-  const { status, answeredBy } = loginFailure(cause, config, answers);
+  const { status, reason } = loginFailure(cause, config, answers);
   return {
     message: `The configured server ${config.serverUrl} does not serve ${name}, so the ${tools} are not available. ` +
-      `Its ${name} login failed: ${String(cause.message).replace(/\.$/, '')}${answeredBy}. ` +
+      `Its ${name} login failed: ${reason}. ` +
       `If your provider serves ${name} at another URL, run a second dav-mcp with that URL. ` +
       settingsHint(config.authMethod),
     details: { serverUrl: config.serverUrl, accountType, ...(status !== undefined && { status, url: cause.url }) },
@@ -383,6 +431,8 @@ class TsdavClientManager {
         clients.unserved[accountType] = unservedHalf(accountType, cause, config, answers);
         logger.warn({ accountType, error: error.message },
           `The server does not serve ${HALVES[accountType].name}; the ${HALVES[accountType].tools} are not available`);
+      } finally {
+        answers.done();
       }
     }
     if (!clients.calDavClient && !clients.cardDavClient) throw unservedErrors[0];
