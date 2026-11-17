@@ -98,6 +98,106 @@ describe('buildTsdavConfig', () => {
       .toThrow('Digest Auth requires CALDAV_SERVER_URL, CALDAV_USERNAME, and CALDAV_PASSWORD');
   });
 
+  describe('a separate CardDAV endpoint', () => {
+    const splitEnv = {
+      ...PASSWORD_ENV,
+      CARDDAV_SERVER_URL: 'https://card.example.com/',
+      CARDDAV_USERNAME: 'contacts',
+      CARDDAV_PASSWORD: 'other-pass',
+    };
+
+    test('CARDDAV_* overrides all three values for the contacts client', () => {
+      expect(buildTsdavConfig(splitEnv)).toEqual({
+        serverUrl: 'https://dav.example.com/',
+        authMethod: 'Basic',
+        username: 'user',
+        password: 'pass',
+        cardDav: {
+          serverUrl: 'https://card.example.com/',
+          username: 'contacts',
+          password: 'other-pass',
+        },
+      });
+    });
+
+    test('each value falls back to its CALDAV_* counterpart on its own', () => {
+      const { serverUrl, username, password } = buildTsdavConfig({
+        ...PASSWORD_ENV,
+        CARDDAV_SERVER_URL: 'https://card.example.com/',
+      }).cardDav;
+      expect(serverUrl).toBe('https://card.example.com/');
+      expect(username).toBe('user');
+      expect(password).toBe('pass');
+    });
+
+    test('an empty value counts as unset, so blank user-config fields fall back', () => {
+      const { serverUrl, username, password } = buildTsdavConfig({
+        ...splitEnv,
+        CARDDAV_SERVER_URL: '',
+        CARDDAV_PASSWORD: '',
+      }).cardDav;
+      expect(serverUrl).toBe('https://dav.example.com/');
+      expect(username).toBe('contacts');
+      expect(password).toBe('pass');
+    });
+
+    test('a whitespace-only URL counts as unset, not as an endpoint of its own', () => {
+      expect(buildTsdavConfig({ ...PASSWORD_ENV, CARDDAV_SERVER_URL: '   ' })).not.toHaveProperty('cardDav');
+      const { serverUrl } = buildTsdavConfig({
+        ...PASSWORD_ENV, CARDDAV_SERVER_URL: '   ', CARDDAV_PASSWORD: 'other-pass',
+      }).cardDav;
+      expect(serverUrl).toBe('https://dav.example.com/');
+    });
+
+    test('with no CARDDAV_* set there is no cardDav, so a half the server does not serve may be left out', () => {
+      expect(buildTsdavConfig(PASSWORD_ENV)).not.toHaveProperty('cardDav');
+      expect(buildTsdavConfig({
+        ...PASSWORD_ENV, CARDDAV_SERVER_URL: '', CARDDAV_USERNAME: '', CARDDAV_PASSWORD: '',
+      })).not.toHaveProperty('cardDav');
+    });
+
+    describe('the calendar password over plain http', () => {
+      const httpCard = { ...PASSWORD_ENV, CARDDAV_SERVER_URL: 'http://card.example.com/' };
+
+      test('is refused: https CALDAV_SERVER_URL, http CARDDAV_SERVER_URL, no CARDDAV_PASSWORD', () => {
+        expect(() => buildTsdavConfig(httpCard)).toThrow(expect.objectContaining({
+          name: 'ConfigurationError',
+          message: expect.stringMatching(/CALDAV_PASSWORD[^]*plain http[^]*https URL[^]*set CARDDAV_PASSWORD/),
+        }));
+        // the scheme is read case-insensitively, as URLs are
+        expect(() => buildTsdavConfig({ ...httpCard, CARDDAV_SERVER_URL: 'HTTP://card.example.com/' }))
+          .toThrow(expect.objectContaining({ name: 'ConfigurationError' }));
+        // an empty CARDDAV_PASSWORD is unset as well and falls back
+        expect(() => buildTsdavConfig({ ...httpCard, CARDDAV_PASSWORD: '' }))
+          .toThrow(expect.objectContaining({ name: 'ConfigurationError' }));
+        // so is Digest: a Digest answer over http still lets the password be guessed offline
+        expect(() => buildTsdavConfig({ ...httpCard, AUTH_METHOD: 'Digest' }))
+          .toThrow(expect.objectContaining({ name: 'ConfigurationError' }));
+      });
+
+      test('is allowed with a password of its own for the http endpoint', () => {
+        expect(buildTsdavConfig({ ...httpCard, CARDDAV_PASSWORD: 'contacts-pass' }).cardDav)
+          .toEqual({ serverUrl: 'http://card.example.com/', username: 'user', password: 'contacts-pass' });
+      });
+
+      test('is not a new risk when the calendar endpoint is plain http itself', () => {
+        expect(buildTsdavConfig({
+          ...PASSWORD_ENV, CALDAV_SERVER_URL: 'http://dav.example.com/', CARDDAV_SERVER_URL: 'http://card.example.com/',
+        }).cardDav.password).toBe('pass');
+      });
+
+      test('https on both endpoints falls back as before', () => {
+        expect(buildTsdavConfig({ ...PASSWORD_ENV, CARDDAV_SERVER_URL: 'https://card.example.com/' }).cardDav.password)
+          .toBe('pass');
+      });
+    });
+
+    test('OAuth ignores CARDDAV_*: Google has one server', () => {
+      const config = buildTsdavConfig({ ...OAUTH_ENV, ...splitEnv, AUTH_METHOD: 'OAuth' });
+      expect(config).not.toHaveProperty('cardDav');
+    });
+  });
+
   test('AUTH_METHOD=oauth2 selects OAuth with Google defaults', () => {
     expect(buildTsdavConfig({ ...OAUTH_ENV, AUTH_METHOD: 'oauth2' })).toEqual({
       serverUrl: 'https://apidata.googleusercontent.com/caldav/v2/',
@@ -130,6 +230,63 @@ describe('tsdavManager.initialize', () => {
       expect(options.credentials).toEqual({ username: 'user', password: 'pass' });
     }
     expect(constructed.map((o) => o.defaultAccountType)).toEqual(['caldav', 'carddav']);
+  });
+
+  test('with a split configuration the contacts client logs onto its own endpoint', async () => {
+    await tsdavManager.initialize(buildTsdavConfig({
+      ...PASSWORD_ENV,
+      AUTH_METHOD: 'Digest',
+      CARDDAV_SERVER_URL: 'https://card.example.com/',
+      CARDDAV_USERNAME: 'contacts',
+      CARDDAV_PASSWORD: 'other-pass',
+    }));
+
+    expect(constructed).toHaveLength(2);
+    expect(constructed[0]).toMatchObject({
+      serverUrl: 'https://dav.example.com/',
+      credentials: { username: 'user', password: 'pass' },
+      defaultAccountType: 'caldav',
+    });
+    expect(constructed[1]).toMatchObject({
+      serverUrl: 'https://card.example.com/',
+      credentials: { username: 'contacts', password: 'other-pass' },
+      defaultAccountType: 'carddav',
+    });
+  });
+
+  test('the logs name the CardDAV endpoint only when it differs', async () => {
+    logged.length = 0;
+    await tsdavManager.initialize(buildTsdavConfig(PASSWORD_ENV));
+    let done = logged.find(entry => entry.message === 'tsdav clients initialized and logged in');
+    expect(done.fields).not.toHaveProperty('cardDavServerUrl');
+    // one endpoint serving both services is one shared policy
+    let restricted = logged.find(entry => entry.message === 'Requests are restricted to these URLs and below');
+    expect(restricted.fields.allowedPrefixes).toEqual(['https://dav.example.com/']);
+
+    logged.length = 0;
+    await tsdavManager.initialize(buildTsdavConfig({
+      ...PASSWORD_ENV,
+      CARDDAV_SERVER_URL: 'https://card.example.com/',
+    }));
+    done = logged.find(entry => entry.message === 'tsdav clients initialized and logged in');
+    expect(done.fields.cardDavServerUrl).toBe('https://card.example.com/');
+    restricted = logged.find(entry => entry.message === 'Requests are restricted to these URLs and below');
+    expect(restricted.fields.allowedPrefixes).toEqual(['https://dav.example.com/', 'https://card.example.com/']);
+  });
+
+  test('the startup-failure log shows the configured URLs without their user info', async () => {
+    logged.length = 0;
+    const error = await tsdavManager.initialize({
+      serverUrl: 'https://alex:hunter2@dav.example.com/', authMethod: 'Basic', username: 'alex', password: 'pass',
+      cardDav: { serverUrl: 'https://bob:card-pw@card.example.com/', username: 'bob', password: 'card-pw' },
+    }).then(() => null, e => e);
+    expect(error?.name).toBe('ConfigurationError');
+    const failed = logged.find(entry => entry.message === 'Failed to initialize tsdav clients');
+    expect(failed.fields).toMatchObject({
+      serverUrl: 'https://dav.example.com/',
+      cardDavServerUrl: 'https://card.example.com/',
+    });
+    expect(JSON.stringify(failed)).not.toMatch(/hunter2|card-pw|alex:|bob:/);
   });
 
   test('logs the method as configured, since Basic may end up as Digest on the wire', async () => {

@@ -201,6 +201,7 @@ Works with any CalDAV/CardDAV server that follows RFC 4791 and RFC 6352:
 - **Nextcloud** - Full support
 - **Baikal** - Full support
 - **Radicale** - Full support
+- **Fastmail** - Full support, with separate CalDAV and CardDAV endpoints (see below)
 - **iCloud** - Works with app-specific password
 - **Any RFC-compliant server** - Standard protocol support
 
@@ -219,6 +220,42 @@ Works with any CalDAV/CardDAV server that follows RFC 4791 and RFC 6352:
 dav-mcp needs Node.js 22 or newer. A wrong configuration — an unknown
 `AUTH_METHOD` value, or missing credentials for the chosen method — stops the
 server at startup instead of falling back to Basic.
+
+### Separate CalDAV and CardDAV endpoints (Fastmail and similar)
+
+Some providers serve calendars and contacts on two different hosts: Fastmail,
+for example, uses `https://caldav.fastmail.com/dav/` and
+`https://carddav.fastmail.com/`. Point dav-mcp at both with the optional
+`CARDDAV_*` variables:
+
+```bash
+CALDAV_SERVER_URL=https://caldav.fastmail.com/dav/
+CALDAV_USERNAME=your_username
+CALDAV_PASSWORD=your_app_password
+CARDDAV_SERVER_URL=https://carddav.fastmail.com/
+```
+
+Each of `CARDDAV_SERVER_URL`, `CARDDAV_USERNAME` and `CARDDAV_PASSWORD` falls
+back to its `CALDAV_*` counterpart when unset or empty, so you only set the
+variables that differ (often the URL alone). The variables apply to Basic and
+Digest authentication only: OAuth has a single Google server and ignores them.
+One fallback is refused: with an https `CALDAV_SERVER_URL` and a plain http
+`CARDDAV_SERVER_URL`, `CARDDAV_PASSWORD` must be set, because the calendar
+password would otherwise go over plain http. dav-mcp then stops at startup and
+says so.
+
+Each login stays on its own endpoint: a redirect from one configured
+endpoint onto the other's is refused, and the login fails. The hosts a
+configured server redirects its own login to (iCloud's per-account hosts, a
+proxy in front of the DAV server) are trusted as that server names them,
+just as with a single server.
+
+As soon as one `CARDDAV_*` variable is set, both endpoints are required: if
+either login fails (refused, unreachable, or the URL serves no calendars or no
+contacts), startup fails with an error naming the half and the endpoint that
+failed. Without any `CARDDAV_*` variable, a server that serves only calendars
+or only contacts at `CALDAV_SERVER_URL` (iCloud, for one) still starts, and the
+tools of the other half answer that it is not available there.
 
 ---
 

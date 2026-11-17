@@ -336,3 +336,55 @@ describe('a fault masked by a later answer still fails the login', () => {
     expect(error.message).not.toContain('does not lead to a CalDAV/CardDAV server');
   });
 });
+
+// With any CARDDAV_* set (config.cardDav) the user has said where contacts
+// are: a half that fails there fails the login, served or not, instead of
+// being left out behind "not available" (#158).
+describe('a configured CardDAV endpoint makes both halves required', () => {
+  let cal;
+  let card;
+  beforeAll(async () => {
+    cal = await davServer({ calendar: 'served', addressbook: 'empty' }).start();
+    card = await davServer({ calendar: 'empty', addressbook: 'served' }).start();
+  });
+  afterAll(async () => {
+    await cal.stop();
+    await card.stop();
+  });
+
+  const configuredLogin = (calDav, cardDav) => tsdavManager.initialize({
+    serverUrl: `${calDav.origin}/`, authMethod: 'Basic', username: 'user', password: 'secret',
+    cardDav: { serverUrl: `${cardDav.origin}/`, username: 'user', password: 'secret' },
+  }).then(() => null, e => e);
+
+  test('both halves served on their own endpoints: both log in', async () => {
+    expect(await configuredLogin(cal, card)).toBeNull();
+    expect(tsdavManager.availableAccountTypes()).toEqual(['caldav', 'carddav']);
+  });
+
+  test('CARDDAV_SERVER_URL at a server that serves no CardDAV fails the login, naming that half', async () => {
+    const error = await configuredLogin(cal, cal);
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toContain(`Login to ${cal.origin}/ failed (CardDAV client)`);
+    expect(error.code).toBe(MCP_ERROR_CODES.CONFIGURATION_ERROR);
+  });
+
+  test('CALDAV_SERVER_URL at a server that serves no CalDAV fails the login as well', async () => {
+    const error = await configuredLogin(card, card);
+    expect(error.message).toContain(`Login to ${card.origin}/ failed (CalDAV client)`);
+  });
+
+  test('only CARDDAV_PASSWORD set, same URL: an unserved CardDAV half is still fatal', async () => {
+    const error = await tsdavManager.initialize({
+      serverUrl: `${cal.origin}/`, authMethod: 'Basic', username: 'user', password: 'secret',
+      cardDav: { serverUrl: `${cal.origin}/`, username: 'user', password: 'contacts-secret' },
+    }).then(() => null, e => e);
+    expect(error.message).toContain('(CardDAV client)');
+  });
+
+  test('without CARDDAV_* the same server runs with the CalDAV half, and says how to set the other', async () => {
+    await passwordLogin(cal);
+    expect(tsdavManager.availableAccountTypes()).toEqual(['caldav']);
+    expect(() => tsdavManager.getCardDavClient()).toThrow(/set CARDDAV_SERVER_URL to it/);
+  });
+});
