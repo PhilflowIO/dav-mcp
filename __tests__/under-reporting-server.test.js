@@ -250,7 +250,7 @@ describe('a server whose time-range answer leaves out recurring events (#129)', 
     }
     // the property queries arrived while the range query was still unanswered
     const order = dav.log.map((r) => r.kind);
-    expect(order.filter((kind) => kind === 'property').length).toBeGreaterThanOrEqual(3);
+    expect(order.filter((kind) => kind === 'property')).toHaveLength(3);
     expect(order.lastIndexOf('property')).toBeLessThan(order.indexOf('range answered'));
   });
 

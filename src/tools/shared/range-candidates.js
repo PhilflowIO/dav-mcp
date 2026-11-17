@@ -134,16 +134,17 @@ function refusedFilter(error) {
  * failure is thrown, and the calendar is reported as not checked.
  */
 async function recurringHrefs(client, calendar) {
-  try {
-    const lists = await Promise.all(RECURRENCE_PROPERTIES.map((property) =>
-      listHrefs(client, calendar, eventsWith(property))));
-    return lists.flat();
-  } catch (error) {
-    if (!refusedFilter(error)) throw error;
-    logger.warn({ calendar: calendar.url, error: error?.message },
-      'The server refused property filters; listing all events of the calendar');
-    return listHrefs(client, calendar, eventsWith(null));
-  }
+  // all three settle before anything is decided: a tool call leaves no
+  // request of its own running (Promise.all would return at the first
+  // failure while the others, and a client's retry of them, carry on)
+  const settled = await Promise.allSettled(RECURRENCE_PROPERTIES.map((property) =>
+    listHrefs(client, calendar, eventsWith(property))));
+  const failed = settled.find((result) => result.status === 'rejected');
+  if (!failed) return settled.flatMap((result) => result.value);
+  if (!refusedFilter(failed.reason)) throw failed.reason;
+  logger.warn({ calendar: calendar.url, error: failed.reason?.message },
+    'The server refused property filters; listing all events of the calendar');
+  return listHrefs(client, calendar, eventsWith(null));
 }
 
 /** An extra object's verdict: 'outside', 'check', or the reason it cannot be read */
