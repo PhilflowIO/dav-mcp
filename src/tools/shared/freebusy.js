@@ -1,7 +1,7 @@
 import ICAL from 'ical.js';
 import { parseICal, unreadableReason } from '../../ical-parse.js';
-import { shareTimezones } from './ical-dates.js';
-import { setFloatingZone, objectFloatingZone } from '../../calendar-zone.js';
+import { shareTimezones, toInstant } from './ical-dates.js';
+import { setFloatingZone, objectFloatingZone, floatingZoneOf } from '../../calendar-zone.js';
 import { readSeries, blocksTime } from '../../ical-components.js';
 import { relateSeries, seriesOccurrences, spanOf, touchesRange, requestBudget, budgetPool } from '../../occurrences.js';
 
@@ -10,10 +10,65 @@ import { relateSeries, seriesOccurrences, spanOf, touchesRange, requestBudget, b
  *
  * The native CalDAV free-busy-query REPORT is barely supported in practice —
  * Google and iCloud do not answer it, Radicale never implemented it, Nextcloud
- * and Baikal have open bugs — so this derives the same answer from the events
- * themselves, which every server can serve. The cost is needing read access to
- * the calendar rather than only free/busy access, and more data on the wire.
+ * and Baikal have open bugs — so this derives the same answer from the
+ * calendar objects themselves, which every server can serve: the events, and
+ * the VFREEBUSY components a calendar stores (published busy time, RFC 4791
+ * 7.10). The cost is needing read access to the calendar rather than only
+ * free/busy access, and more data on the wire.
  */
+
+/**
+ * The busy types of RFC 5545 3.2.9, strongest first: where periods of
+ * several types overlap, the time is reported as the strongest of them.
+ * Busy time from events is BUSY.
+ */
+export const BUSY_TYPES = ['BUSY', 'BUSY-UNAVAILABLE', 'BUSY-TENTATIVE'];
+
+/**
+ * The busy type a FREEBUSY property stands for, or null for free time.
+ * RFC 5545 3.2.9: BUSY when there is no FBTYPE, and an unknown one (an
+ * x-name or a newer IANA token) is read as BUSY too.
+ */
+function busyType(fbtype) {
+  const type = fbtype == null ? 'BUSY' : String(fbtype).toUpperCase();
+  if (type === 'FREE') return null;
+  return BUSY_TYPES.includes(type) ? type : 'BUSY';
+}
+
+/**
+ * What the stored VFREEBUSY components of a calendar object contribute: each
+ * FREEBUSY period that is not FREE and touches the range, clipped to it, with
+ * its busy type.
+ *
+ * A period is a start and an end or a start and a duration; one property may
+ * list several. RFC 5545 3.8.2.6 requires them in UTC. One without a Z is
+ * read like every other floating time here, in the calendar's zone
+ * (floatingZoneOf), rather than dropped: dropping it would report published
+ * busy time as free.
+ *
+ * @param {ICAL.Component} root - the parsed VCALENDAR
+ * @param {{start: number, end: number}} range - ms
+ * @returns {Array<{start: number, end: number, type: string}>}
+ */
+export function storedBusyOf(root, range) {
+  const periods = [];
+  for (const vfreebusy of root.getAllSubcomponents('vfreebusy')) {
+    const zone = floatingZoneOf(vfreebusy);
+    for (const property of vfreebusy.getAllProperties('freebusy')) {
+      const type = busyType(property.getParameter('fbtype'));
+      if (!type) continue;
+      for (const period of property.getValues()) {
+        const start = toInstant(period.start, zone);
+        const end = period.end
+          ? toInstant(period.end, zone)
+          : start + period.duration.toSeconds() * 1000;
+        if (end <= start || !touchesRange(start, end, range)) continue;
+        periods.push({ start: Math.max(start, range.start), end: Math.min(end, range.end), type });
+      }
+    }
+  }
+  return periods;
+}
 
 /**
  * What a calendar object contributes to free/busy: the occurrences of it that
@@ -82,26 +137,40 @@ function view(vevent, event, occurrence, occurrences) {
 }
 
 /**
- * Merge overlapping and touching intervals into a minimal set.
+ * Busy blocks from busy intervals: overlapping and touching intervals of the
+ * same type make one block, and where types overlap the strongest
+ * (BUSY_TYPES) holds. With one type this is the minimal set of merged
+ * intervals; back-to-back meetings are one busy block, not two with a
+ * zero-length gap between them.
+ *
+ * @param {Array<{start: number, end: number, type: string}>} intervals
+ * @returns {Array<{start: number, end: number, type: string}>}
  */
-function mergeIntervals(intervals) {
-  if (intervals.length === 0) return [];
-
-  const sorted = [...intervals].sort((a, b) => a.start - b.start);
-  const merged = [{ ...sorted[0] }];
-
-  for (const interval of sorted.slice(1)) {
-    const last = merged[merged.length - 1];
-    // touching counts as overlapping: back-to-back meetings are one busy block,
-    // not two with a zero-length gap between them
-    if (interval.start <= last.end) {
-      last.end = Math.max(last.end, interval.end);
-    } else {
-      merged.push({ ...interval });
-    }
+function busyBlocks(intervals) {
+  const edges = [];
+  for (const { start, end, type } of intervals) {
+    const rank = BUSY_TYPES.indexOf(type);
+    edges.push({ at: start, rank, step: 1 }, { at: end, rank, step: -1 });
   }
+  edges.sort((a, b) => a.at - b.at);
 
-  return merged;
+  const open = BUSY_TYPES.map(() => 0);
+  const blocks = [];
+  for (let i = 0; i < edges.length;) {
+    const at = edges[i].at;
+    while (i < edges.length && edges[i].at === at) {
+      open[edges[i].rank] += edges[i].step;
+      i += 1;
+    }
+    const rank = open.findIndex((count) => count > 0);
+    const last = blocks[blocks.length - 1];
+    if (last && last.end === null) {
+      if (rank === last.rank) continue;
+      last.end = at;
+    }
+    if (rank !== -1) blocks.push({ start: at, end: null, rank });
+  }
+  return blocks.map(({ start, end, rank }) => ({ start, end, type: BUSY_TYPES[rank] }));
 }
 
 /**
@@ -110,13 +179,16 @@ function mergeIntervals(intervals) {
  * @param {Array} calendarObjects - DAV objects with a `data` property
  * @param {{ start: Date, end: Date }} range
  * @returns {{
- *   busy: Array<{start: Date, end: Date}>,
+ *   busy: Array<{start: Date, end: Date, type?: string}>,
  *   free: Array<{start: Date, end: Date}>,
  *   blocking: Array<{object: Object, shown: Object}>,
+ *   published: Array<Object>,
  *   incomplete: Array<{object: Object, summary: string}>,
- * }} blocking: each object that makes up busy time, in input order, with the
- *   occurrences of it that do (`shown`, as formatEvent takes it) — not the
+ * }} busy: with its type (BUSY_TYPES) when that is not plain BUSY.
+ *   blocking: each event object that makes up busy time, in input order, with
+ *   the occurrences of it that do (`shown`, as formatEvent takes it) — not the
  *   objects the server returned for the range that block none of it.
+ *   published: each object whose stored VFREEBUSY makes up busy time.
  *   incomplete: series too dense to expand fully (the iteration cap), and
  *   objects that could not be read at all: busy time from them may be
  *   missing, so the free time is not certain.
@@ -127,6 +199,7 @@ export function calculateFreeBusy(calendarObjects, range) {
   // its objects
   const budget = budgetPool(calendarObjects.length);
   const blocking = [];
+  const published = [];
   const incomplete = [];
   const intervals = [];
 
@@ -140,6 +213,17 @@ export function calculateFreeBusy(calendarObjects, range) {
       incomplete.push({ object, summary: '', reason: unreadableReason(error, 'iCalendar') });
       continue;
     }
+    let stored;
+    try {
+      stored = storedBusyOf(root, window);
+    } catch (error) {
+      incomplete.push({ object, summary: '', reason: unreadableReason(error, 'iCalendar') });
+      stored = [];
+    }
+    if (stored.length > 0) {
+      published.push(object);
+      intervals.push(...stored);
+    }
     const share = budget.take();
     const { occurrences, truncated, reason, shown } = busyOccurrencesOf(root, window, share);
     budget.give(share);
@@ -151,11 +235,11 @@ export function calculateFreeBusy(calendarObjects, range) {
     blocking.push({ object, shown });
     for (const occurrence of occurrences) {
       const { start, end } = spanOf(occurrence);
-      intervals.push({ start: Math.max(start, window.start), end: Math.min(end, window.end) });
+      intervals.push({ start: Math.max(start, window.start), end: Math.min(end, window.end), type: 'BUSY' });
     }
   }
 
-  const busy = mergeIntervals(intervals);
+  const busy = busyBlocks(intervals);
   const free = [];
   let cursor = window.start;
 
@@ -170,9 +254,14 @@ export function calculateFreeBusy(calendarObjects, range) {
   }
 
   return {
-    busy: busy.map(i => ({ start: new Date(i.start), end: new Date(i.end) })),
+    busy: busy.map(i => ({
+      start: new Date(i.start),
+      end: new Date(i.end),
+      ...(i.type !== 'BUSY' && { type: i.type }),
+    })),
     free,
     blocking,
+    published,
     incomplete,
   };
 }

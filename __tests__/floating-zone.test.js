@@ -19,8 +19,8 @@ const { calendarTimezoneValue } = await import('../src/calendar-zone.js');
 
 let objectsByCalendar;
 const calendars = [
-  { url: BERLIN, displayName: 'Berlin', timezone: calendarTimezoneValue('Europe/Berlin').text },
-  { url: NEW_YORK, displayName: 'New York', timezone: 'America/New_York' }, // the bare form dav-mcp wrote before 5.0.0
+  { url: BERLIN, displayName: 'Berlin', timezone: calendarTimezoneValue('Europe/Berlin').text, components: ['VEVENT', 'VTODO'] },
+  { url: NEW_YORK, displayName: 'New York', timezone: 'America/New_York', components: ['VEVENT', 'VTODO'] }, // the bare form dav-mcp wrote before 5.0.0
 ];
 const fetchCalendarObjects = jest.fn(async ({ calendar }) => objectsByCalendar[calendar.url] ?? []);
 const propfind = jest.fn(async ({ url }) => [{

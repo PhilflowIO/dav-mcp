@@ -15,8 +15,9 @@ jest.unstable_mockModule('../src/tsdav-client.js', () => ({
   tsdavManager: {
     getCalDavClient: () => ({
       fetchCalendars: async () => [
-        { url: CALENDAR_URL, displayName: 'Work' },
-        { url: 'https://dav.example.com/calendars/user/home/', displayName: 'Home' },
+        // calendars that hold no VFREEBUSY (freebusy-stored.test.js has those)
+        { url: CALENDAR_URL, displayName: 'Work', components: ['VEVENT', 'VTODO'] },
+        { url: 'https://dav.example.com/calendars/user/home/', displayName: 'Home', components: ['VEVENT'] },
       ],
       fetchCalendarObjects,
     }),

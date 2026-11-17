@@ -1224,7 +1224,7 @@ export function withMissingObjects(result, missing) {
  * Free slots come first: the question behind this tool is almost always "when
  * can I put something", not "what am I doing".
  */
-export function formatFreeBusy({ busy, free, range, zone = null, zoneNote = null, calendarCount = 1, events = null, incomplete = [] }) {
+export function formatFreeBusy({ busy, free, range, zone = null, zoneNote = null, calendarCount = 1, events = null, published = null, incomplete = [] }) {
   const scope = calendarCount === 1 ? '1 calendar' : `${calendarCount} calendars`;
   // the zone list_events shows these calendars' times in (src/calendar-zone.js)
   const shownIn = zone ?? serverZone();
@@ -1262,7 +1262,10 @@ export function formatFreeBusy({ busy, free, range, zone = null, zoneNote = null
   } else {
     output += `### Busy (${busy.length})\n\n`;
     busy.forEach(slot => {
-      output += `- ${formatInterval(slot, shownIn)}\n`;
+      // BUSY-TENTATIVE and BUSY-UNAVAILABLE come from stored free/busy time
+      // (RFC 5545 3.2.9) and are named; plain busy time is not
+      const type = slot.type ? ` — ${slot.type}` : '';
+      output += `- ${formatInterval(slot, shownIn)}${type}\n`;
     });
   }
 
@@ -1272,6 +1275,13 @@ export function formatFreeBusy({ busy, free, range, zone = null, zoneNote = null
       output += `#### ${index + 1}. `;
       // exactly the occurrences that make up the busy time (calculateFreeBusy)
       output += formatEvent(object, 'Calendar', null, null, shown).replace(/^## /, '') + '\n';
+    });
+  }
+
+  if (published?.length) {
+    output += `\n### Stored free/busy behind the busy blocks (${published.length})\n\n`;
+    published.forEach((object) => {
+      output += `- ${object.url}\n`;
     });
   }
 
