@@ -226,10 +226,15 @@ export class RequestOrigins {
    * @param {string} [params.serves] - what this endpoint serves ("calendars
    *   and tasks", "contacts"), set when the two halves have endpoints of their
    *   own, so a refusal can say which allowed URL is for what
+   * @param {{origin: string, name: string, own: string}} [params.forbidden] -
+   *   the other half's configured host when the two halves have endpoints on
+   *   different hosts: `name` is its variable, `own` this endpoint's. Nothing
+   *   this login is redirected to or told about there becomes reachable, so
+   *   this login never goes to the other endpoint.
    */
   constructor({
     serverUrl, tokenUrl, serverUrlName = 'DAV server URL', serverCredentials = 'CALDAV_USERNAME and CALDAV_PASSWORD',
-    serves,
+    serves, forbidden,
   }) {
     const server = parseUrl(serverUrl);
     if (!server || !isHttp(server)) {
@@ -242,6 +247,7 @@ export class RequestOrigins {
     }
     this.secure = server.protocol === 'https:';
     this.serves = serves;
+    this.forbidden = forbidden?.origin !== server.origin ? forbidden : undefined;
     this.scopes = [];
     this.loginOrigins = new Set([server.origin]);
     // origins the server tried to send the login to over plain http
@@ -262,7 +268,7 @@ export class RequestOrigins {
   // http(s), carries no credentials and does not downgrade https to http.
   #acceptable(url) {
     return url && isHttp(url) && !url.username && !url.password && effectiveSegments(url.pathname) !== null &&
-      !(this.secure && url.protocol === 'http:');
+      !(this.secure && url.protocol === 'http:') && url.origin !== this.forbidden?.origin;
   }
 
   /**
@@ -330,6 +336,12 @@ export class RequestOrigins {
       }
       return `${url.origin} is plain http, but the DAV server is configured over https; ` +
         `requests are only sent over https. Allowed: ${allowed}.`;
+    }
+    if (url.origin === this.forbidden?.origin) {
+      return `${url.origin} is the server configured as ${this.forbidden.name}, and the login configured for ` +
+        `${this.forbidden.own} is never sent there: each half keeps its login on its own endpoint. If ` +
+        `${this.forbidden.own} redirects there, set ${this.forbidden.own} to the URL that serves this half. ` +
+        `Allowed: ${allowed}.`;
     }
     if (effectiveSegments(url.pathname) === null) {
       return `${url.href} has a path that cannot be checked safely (it climbs above the root once decoded, ` +
@@ -503,8 +515,8 @@ export function requestUrlProblem(url) {
   // host is refused for being http), else, for an http URL, one that is
   // plain http itself (it would take http, so the URL is outside it), else
   // the first.
-  const allowed = policies
-    .flatMap(policy => policy.allowedPrefixes().map(prefix => (policy.serves ? `${prefix} (${policy.serves})` : prefix)))
+  const allowed = [...new Set(policies
+    .flatMap(policy => policy.allowedPrefixes().map(prefix => (policy.serves ? `${prefix} (${policy.serves})` : prefix))))]
     .join(', ');
   const problems = [];
   for (const policy of policies) {

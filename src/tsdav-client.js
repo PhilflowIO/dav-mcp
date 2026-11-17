@@ -257,6 +257,20 @@ function loginError(cause, config, answers, label) {
   return error;
 }
 
+/**
+ * The origin of a configured URL, or undefined if it is not one (the policy
+ * reports that with its variable).
+ * @param {string} value
+ * @returns {string|undefined}
+ */
+function originOf(value) {
+  try {
+    return new URL(String(value)).origin;
+  } catch {
+    return undefined;
+  }
+}
+
 // Per half: the account type tsdav knows it by, its name, its error class
 // and the tools that need it.
 const HALVES = {
@@ -355,24 +369,33 @@ class TsdavClientManager {
       // A fresh policy per login: the clients built here may reach their
       // configured server, what a login redirects to and the account it
       // describes; their token requests only the OAuth token endpoint (see
-      // request-origins.js). Each client keeps its own policy, so a separate
-      // CardDAV endpoint never sees the calendar login or the other way
-      // round; one endpoint serving both services is one shared policy, as
-      // before. The names make configuration errors point at the setting
-      // that caused them.
+      // request-origins.js). With any CARDDAV_* set each client keeps its own
+      // policy, even on the same URL: a policy learns every host its login
+      // was redirected to, so a shared one would hand the CardDAV login to a
+      // host only the calendar login was sent to. Each policy also refuses
+      // the other half's configured host, so a redirect cannot carry one
+      // login to the other endpoint. Without CARDDAV_* one login serves both
+      // halves, and they share one policy, as before. The names make
+      // configuration errors point at the setting that caused them.
+      const calHost = splitServer ? originOf(config.serverUrl) : undefined;
+      const cardHost = splitServer ? originOf(cardDavServerUrl) : undefined;
+      const separateHosts = Boolean(calHost && cardHost && calHost !== cardHost);
       const calOrigins = new RequestOrigins({
         serverUrl: config.serverUrl,
         tokenUrl,
         ...(useOAuth
           ? { serverUrlName: 'GOOGLE_SERVER_URL', serverCredentials: 'GOOGLE_USER' }
-          : splitServer ? { serverUrlName: 'CALDAV_SERVER_URL', serves: 'calendars and tasks' } : {}),
+          : splitConfig ? { serverUrlName: 'CALDAV_SERVER_URL' } : {}),
+        ...(splitServer && { serves: 'calendars and tasks' }),
+        ...(separateHosts && { forbidden: { origin: cardHost, name: 'CARDDAV_SERVER_URL', own: 'CALDAV_SERVER_URL' } }),
       });
-      const cardOrigins = splitServer
+      const cardOrigins = splitConfig
         ? new RequestOrigins({
-          serverUrl: cardDavServerUrl,
-          serverUrlName: 'CARDDAV_SERVER_URL',
+          serverUrl: cardDav.serverUrl,
+          serverUrlName: splitServer ? 'CARDDAV_SERVER_URL' : 'CALDAV_SERVER_URL',
           serverCredentials: 'CARDDAV_USERNAME and CARDDAV_PASSWORD',
-          serves: 'contacts',
+          ...(splitServer && { serves: 'contacts' }),
+          ...(separateHosts && { forbidden: { origin: calHost, name: 'CALDAV_SERVER_URL', own: 'CARDDAV_SERVER_URL' } }),
         })
         : calOrigins;
       const origins = { caldav: calOrigins, carddav: cardOrigins };
@@ -412,7 +435,7 @@ class TsdavClientManager {
       this.calDavClient = clients.calDavClient;
       this.cardDavClient = clients.cardDavClient;
       this.unserved = clients.unserved;
-      logger.info({ allowedPrefixes: policies.flatMap(policy => policy.allowedPrefixes()) },
+      logger.info({ allowedPrefixes: [...new Set(policies.flatMap(policy => policy.allowedPrefixes()))] },
         'Requests are restricted to these URLs and below');
 
       // "configured", not "used": under Basic tsdav switches to Digest when

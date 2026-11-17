@@ -882,7 +882,7 @@ describe('a separate CardDAV endpoint (CARDDAV_*)', () => {
     // the URL is inside the CardDAV account, so the tool schema accepts it;
     // the calendar client's own policy then refuses it before anything is
     // sent, so the calendar login never reaches the contacts host
-    expect(error.message).toMatch(/outside/);
+    expect(error.message).toMatch(/configured as CARDDAV_SERVER_URL[^]*never sent there/);
     expect(cal.hits.length).toBe(calBefore);
     expect(card.hits.length).toBe(cardBefore);
   });
