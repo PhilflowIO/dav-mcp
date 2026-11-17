@@ -43,7 +43,7 @@ jest.unstable_mockModule('../src/tsdav-client.js', () => ({
 }));
 
 const { readVCard } = await import('../src/vcard.js');
-const { parseICal, MAX_PARAMETERS } = await import('../src/ical-parse.js');
+const { parseICal, assertParseBounded, MAX_PARAMETERS, parseGuardWork, resetParseGuardWork } = await import('../src/ical-parse.js');
 const { ValidationError } = await import('../src/error-handler.js');
 const { listContacts } = await import('../src/tools/contacts/list-contacts.js');
 const { addressbookQuery } = await import('../src/tools/contacts/addressbook-query.js');
@@ -79,10 +79,21 @@ function overTheBound(text) {
 }
 
 /**
+ * The guard in front of every parse (assertParseBounded) reads each character
+ * once: the characters it visited, against the length of the text it was
+ * handed. A guard that rescans what it already read, the quadratic cost it
+ * exists to keep from ical.js, fails this on any machine (#138).
+ */
+function expectLinearGuard() {
+  expect(parseGuardWork.visited).toBeLessThanOrEqual(2 * parseGuardWork.input);
+}
+
+/**
  * run fn, return [result or error, how many texts ICAL.parse was handed that
- * have a line over the bound]
+ * have a line over the bound]; the guard's scan is checked as well
  */
 async function guarded(fn) {
+  resetParseGuardWork();
   const parse = ICAL.parse;
   let overBound = 0;
   const spy = jest.spyOn(ICAL, 'parse').mockImplementation((text, ...rest) => {
@@ -100,6 +111,7 @@ async function guarded(fn) {
   } finally {
     spy.mockRestore();
   }
+  expectLinearGuard();
   return [outcome, overBound];
 }
 
@@ -110,6 +122,29 @@ beforeEach(() => {
   consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
 });
 afterEach(() => consoleError.mockRestore());
+
+describe('the guard reads each character once', () => {
+  // The hostile shapes from above, at 20 000 parameters: a guard that
+  // rescans the parameter list so far fails here in about a second, where
+  // the 1 MB lines would stall it for minutes.
+  const PARAMETERS = 20_000;
+  test.each([
+    ['a parameter list without names, which the guard lets through to the vCard reader',
+      vcard('FN:Mallory', `X-A${';x'.repeat(PARAMETERS)}:v`)],
+    ['named parameters, refused at the bound', ics('UID:hostile', `X-A${';X-P=x'.repeat(PARAMETERS)}:v`)],
+    ['a parameter list just under the bound, folded, before a 1 MB folded value',
+      ics('UID:folded', `X-A${';X-P=x'.repeat(MAX_PARAMETERS - 1)}:${'v'.repeat(1_000_000)}`.match(/.{1,74}/g).join('\r\n '))],
+  ])('%s', (_, text) => {
+    resetParseGuardWork();
+    try {
+      assertParseBounded(text);
+    } catch (error) {
+      expect(error).toBeInstanceOf(ValidationError);
+    }
+    expect(parseGuardWork.input).toBe(text.length);
+    expectLinearGuard();
+  });
+});
 
 describe('the parameter bound', () => {
   test('the vCard from the issue is refused before ical.js reads it, naming the property and the limit', async () => {

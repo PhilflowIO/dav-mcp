@@ -32,6 +32,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `list_events` call: checking the exclusions took them out of the stored
   series itself, which left its organizer read as an `EXDATE` and the
   listing without its cancelled occurrences (#150).
+- Write results (create, update and delete of events, todos and contacts,
+  `make_calendar`) labelled their raw JSON block "Rohdaten (JSON)"; every
+  tool result now says "Raw Data (JSON)", from one shared label (#146).
+- No test measures wall-clock time any more; one bound of 2000 ms failed on
+  a slow CI runner. The recurrence tests count the work of an expansion
+  instead (candidates, calls into the library, overrides handed to it) with
+  the clock stopped; the parser tests count the text their regular
+  expressions scan, or that hostile text never reaches ical.js, and the
+  guard in front of every parse is held to reading each character once. They hold
+  on any machine and still fail when an old slow path comes back (#138).
 
 ### Changed
 - The Claude plugin carries the dav-mcp server's source and a lockfile instead
