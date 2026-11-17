@@ -309,3 +309,50 @@ describe('Validation Module', () => {
     });
   });
 });
+
+// zod 4 narrowed what its datetime and URL checks accept and how they word a
+// failure; the time-range parameters and URL messages keep their zod 3 form.
+describe('time-range datetimes', () => {
+  const range = (start) => ({ calendar_url: 'https://example.com/cal/', time_range_start: start, time_range_end: '2026-03-09T09:00:00Z' });
+
+  test.each([
+    '2026-03-02T09:00:00Z',
+    '2026-03-02T09:00:00.123Z',
+    '2026-03-02T09:00:00+01:00',
+    '2026-03-02T09:00:00+0100',
+    '2026-03-02T09:00Z',
+    '2026-03-02T09:00+01:00',
+    '2026-03-02T09:00:00',
+  ])('accepts %s', (start) => {
+    expect(validateInput(listEventsSchema, range(start)).time_range_start).toBe(start);
+  });
+
+  test.each([
+    '2026-03-02T09:00:00+01',
+    '2026-03-02T09:00',
+    '2026-02-30T09:00:00Z',
+    '2026-03-02',
+    'tomorrow',
+  ])('refuses %s', (start) => {
+    expect(() => validateInput(listEventsSchema, range(start))).toThrow('time_range_start: Invalid datetime');
+  });
+});
+
+describe('URL parameter messages', () => {
+  test('a malformed URL gets the parameter\'s own message', () => {
+    expect(() => validateInput(createEventSchema, {
+      calendar_url: 'not a url', summary: 's', start_date: '2026-03-02', end_date: '2026-03-03',
+    })).toThrow('calendar_url: Invalid calendar URL');
+  });
+
+  test('a missing URL is reported as missing, not as malformed', () => {
+    let message;
+    try {
+      validateInput(createEventSchema, { summary: 's', start_date: '2026-03-02', end_date: '2026-03-03' });
+    } catch (error) {
+      message = error.message;
+    }
+    expect(message).toMatch(/calendar_url: .*received undefined/);
+    expect(message).not.toMatch('Invalid calendar URL');
+  });
+});
