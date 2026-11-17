@@ -1,7 +1,7 @@
 import ICAL from 'ical.js';
 import { parseICal, unreadableReason } from '../../ical-parse.js';
 import { shareTimezones, toInstant } from './ical-dates.js';
-import { setFloatingZone, objectFloatingZone, floatingZoneOf } from '../../calendar-zone.js';
+import { setFloatingZone, objectFloatingZone, serverZone } from '../../calendar-zone.js';
 import { readSeries, blocksTime } from '../../ical-components.js';
 import { relateSeries, seriesOccurrences, spanOf, touchesRange, requestBudget, budgetPool } from '../../occurrences.js';
 
@@ -30,9 +30,19 @@ export const BUSY_TYPES = ['BUSY', 'BUSY-UNAVAILABLE', 'BUSY-TENTATIVE'];
  * x-name or a newer IANA token) is read as BUSY too.
  */
 function busyType(fbtype) {
-  const type = fbtype == null ? 'BUSY' : String(fbtype).toUpperCase();
+  const type = fbtype == null ? 'BUSY' : fbtype.toUpperCase();
   if (type === 'FREE') return null;
   return BUSY_TYPES.includes(type) ? type : 'BUSY';
+}
+
+/** Where the value of a content line starts: after the first colon outside quotes */
+function valueStart(line) {
+  let quoted = false;
+  for (let i = 0; i < line.length; i += 1) {
+    if (line[i] === '"') quoted = !quoted;
+    else if (line[i] === ':' && !quoted) return i + 1;
+  }
+  return -1;
 }
 
 /**
@@ -42,32 +52,59 @@ function busyType(fbtype) {
  *
  * A period is a start and an end or a start and a duration; one property may
  * list several. RFC 5545 3.8.2.6 requires them in UTC. One without a Z is
- * read like every other floating time here, in the calendar's zone
- * (floatingZoneOf), rather than dropped: dropping it would report published
- * busy time as free.
+ * read like every other floating time here, in the calendar's zone, rather
+ * than dropped: dropping it would report published busy time as free.
  *
- * @param {ICAL.Component} root - the parsed VCALENDAR
+ * Read from the text, one period at a time, rather than from ical.js's parse
+ * of the whole object: ical.js refuses the whole object for one malformed
+ * period, and this keeps the periods that can be read and counts the rest.
+ * Time and memory are linear in the text; only periods that touch the range
+ * are kept.
+ *
+ * @param {string} text - the calendar object's iCalendar text
+ * @param {Object} zone - the zone floating values are read in
  * @param {{start: number, end: number}} range - ms
- * @returns {Array<{start: number, end: number, type: string}>}
+ * @returns {{periods: Array<{start: number, end: number, type: string}>, unreadable: number}}
  */
-export function storedBusyOf(root, range) {
+export function storedBusyOf(text, zone, range) {
   const periods = [];
-  for (const vfreebusy of root.getAllSubcomponents('vfreebusy')) {
-    const zone = floatingZoneOf(vfreebusy);
-    for (const property of vfreebusy.getAllProperties('freebusy')) {
-      const type = busyType(property.getParameter('fbtype'));
-      if (!type) continue;
-      for (const period of property.getValues()) {
-        const start = toInstant(period.start, zone);
-        const end = period.end
-          ? toInstant(period.end, zone)
-          : start + period.duration.toSeconds() * 1000;
-        if (end <= start || !touchesRange(start, end, range)) continue;
-        periods.push({ start: Math.max(start, range.start), end: Math.min(end, range.end), type });
+  let unreadable = 0;
+  let inside = false;
+  // RFC 5545 3.1: a line break followed by a space or tab continues the line
+  for (const line of text.replace(/\r?\n[ \t]/g, '').split(/\r?\n/)) {
+    if (/^BEGIN:VFREEBUSY\s*$/i.test(line)) inside = true;
+    else if (/^END:VFREEBUSY\s*$/i.test(line)) inside = false;
+    if (!inside || !/^FREEBUSY[;:]/i.test(line)) continue;
+    const at = valueStart(line);
+    if (at === -1) {
+      unreadable += 1;
+      continue;
+    }
+    const fbtype = line.slice(0, at - 1).match(/;FBTYPE=("?)([^";:]*)\1(?=;|$)/i)?.[2];
+    const type = busyType(fbtype);
+    if (!type) continue;
+    for (const value of line.slice(at).split(',')) {
+      let period;
+      try {
+        period = ICAL.Property.fromString(`FREEBUSY:${value.trim()}`).getFirstValue();
+      } catch {
+        unreadable += 1;
+        continue;
       }
+      const start = toInstant(period.start, zone);
+      const end = period.end
+        ? toInstant(period.end, zone)
+        : start + period.duration.toSeconds() * 1000;
+      // RFC 5545 3.3.9: a period has a positive length
+      if (!(end > start)) {
+        unreadable += 1;
+        continue;
+      }
+      if (!touchesRange(start, end, range)) continue;
+      periods.push({ start: Math.max(start, range.start), end: Math.min(end, range.end), type });
     }
   }
-  return periods;
+  return { periods, unreadable };
 }
 
 /**
@@ -204,25 +241,33 @@ export function calculateFreeBusy(calendarObjects, range) {
   const intervals = [];
 
   for (const object of calendarObjects) {
+    const text = typeof object.data === 'string' ? object.data : '';
+    // an incomplete-note for this object already given (stored periods)
+    let noted = false;
+    if (/^BEGIN:VFREEBUSY\s*$/im.test(text)) {
+      const { periods, unreadable } = storedBusyOf(text, objectFloatingZone(object) ?? serverZone(), window);
+      if (periods.length > 0) published.push(object);
+      // one at a time: a spread of a large object's periods overflows the stack
+      for (const period of periods) intervals.push(period);
+      if (unreadable > 0) {
+        incomplete.push({
+          object,
+          summary: 'Stored free/busy',
+          reason: `${unreadable === 1 ? 'a FREEBUSY period' : `${unreadable} FREEBUSY periods`} in it`,
+        });
+        noted = true;
+      }
+      // nothing else in it blocks time: no event to parse
+      if (!/^BEGIN:VEVENT\s*$/im.test(text)) continue;
+    }
     let root;
     try {
       root = setFloatingZone(shareTimezones(new ICAL.Component(parseICal(object.data))), objectFloatingZone(object));
     } catch (error) {
       // A single unparseable object must not take the whole answer down,
       // nor its busy time vanish unsaid: the answer is incomplete
-      incomplete.push({ object, summary: '', reason: unreadableReason(error, 'iCalendar') });
+      if (!noted) incomplete.push({ object, summary: '', reason: unreadableReason(error, 'iCalendar') });
       continue;
-    }
-    let stored;
-    try {
-      stored = storedBusyOf(root, window);
-    } catch (error) {
-      incomplete.push({ object, summary: '', reason: unreadableReason(error, 'iCalendar') });
-      stored = [];
-    }
-    if (stored.length > 0) {
-      published.push(object);
-      intervals.push(...stored);
     }
     const share = budget.take();
     const { occurrences, truncated, reason, shown } = busyOccurrencesOf(root, window, share);

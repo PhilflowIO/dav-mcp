@@ -161,4 +161,26 @@ describe('stored VFREEBUSY periods', () => {
     expect(behind).toContain(`${FREEBUSY}published.ics`);
     expect(behind).not.toContain('elsewhere');
   });
+
+  test('a period that cannot be read leaves the others counted and the answer incomplete', async () => {
+    stored[FREEBUSY] = [freebusy('published',
+      'FREEBUSY:20260525T100000Z/PT1H,garbage,20260525T120000Z/20260525T110000Z,20260525T140000Z/PT1H')];
+    const output = await call();
+    expect(busyLines(output)).toEqual(['10:00-11:00', '14:00-15:00']);
+    expect(output).toContain('**Warning**: incomplete');
+    expect(output).toContain(`Stored free/busy (${FREEBUSY}published.ics): cannot be read — 2 FREEBUSY periods in it`);
+  });
+
+  test('a very large object is read whole', async () => {
+    // 150,000 back-to-back one-minute periods, about 104 days: one busy block
+    const minute = 60000;
+    const first = Date.UTC(2026, 0, 1);
+    const stamp = (ms) => new Date(ms).toISOString().replace(/[-:]|\.\d{3}/g, '');
+    const values = Array.from({ length: 150000 }, (_, i) => `${stamp(first + i * minute)}/PT1M`);
+    stored[FREEBUSY] = [freebusy('published', `FREEBUSY:${values.join(',')}`)];
+    const output = await call({ time_range_start: '2026-01-01T00:00:00Z', time_range_end: '2026-06-01T00:00:00Z' });
+    expect(output).toContain('### Busy (1)');
+    expect(section(output, 'Busy')).toMatch(/January 1, 2026.*→ April 15, 2026, 04:00 AM/);
+    expect(output).not.toContain('incomplete');
+  });
 });
