@@ -15,7 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   when unset or empty, so most setups only add the URL. Basic and Digest
   only; OAuth ignores them. Each client keeps its own login and its own
   allowed URLs, so a calendar request never carries the calendar login to
-  the contacts host or the other way round, and an http contacts endpoint
+  the contacts host or the other way round (a redirect from one endpoint
+  onto the other's host fails the login), and an http contacts endpoint
   does not weaken the https rule of an https calendar one. Once any
   `CARDDAV_*` is set, both logins must succeed: the tolerance for a half
   the server does not serve (#152) only applies to a single server. An
