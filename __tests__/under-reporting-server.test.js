@@ -270,15 +270,20 @@ describe('extra recurring objects do not take expansion budget from the range an
 
   test.each([300, 5000])('with %i yearly series out of range, Friday the 13th is still listed and busy', async (count) => {
     use({ 'f13.ics': friday13, ...birthdays(count) });
-    const started = Date.now();
+    const { resetExpansionWork, expansionWork, REQUEST_UNITS, CALL_UNITS } = await import('../src/occurrences.js');
+    // the work of one call is bounded by the two pools, not by the number of
+    // extra objects (counted, not clocked: a clock measures the runner, #138)
+    const bound = 2 * REQUEST_UNITS + CALL_UNITS;
+    resetExpansionWork();
     const listed = text(await calendarQuery.handler(range('2026-11-13T00:00:00Z', '2026-11-14T00:00:00Z')));
+    expect(expansionWork.units).toBeLessThanOrEqual(bound);
     expect(listed).toContain('Friday the 13th');
     expect(listed).not.toMatch(/Friday the 13th[\s\S]*incomplete/);
+    resetExpansionWork();
     const busy = text(await freeBusyQuery.handler(range('2026-11-13T08:00:00Z', '2026-11-13T12:00:00Z')));
+    expect(expansionWork.units).toBeLessThanOrEqual(bound);
     expect(busy).toContain('### Busy (1)');
-    // the extra objects' expansion is bounded by their own pool, not by their number
-    expect(Date.now() - started).toBeLessThan(count > 1000 ? 30000 : 10000);
-  }, 60000);
+  }, 120000);
 
   test('series whose bounds rule the range out are dropped before any expansion', async () => {
     use({
