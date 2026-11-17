@@ -2,7 +2,7 @@ import ICAL from 'ical.js';
 import { resolveZone } from 'tsdav-utils';
 import { parseICal, unreadableReason } from '../../ical-parse.js';
 import { shareTimezones, toInstant } from './ical-dates.js';
-import { unfoldLines, parseContentLine } from './content-lines.js';
+import { logicalLines, parseContentLine } from './content-lines.js';
 import { setFloatingZone, objectFloatingZone, serverZone } from '../../calendar-zone.js';
 import { readSeries, blocksTime } from '../../ical-components.js';
 import { relateSeries, seriesOccurrences, spanOf, touchesRange, requestBudget, budgetPool } from '../../occurrences.js';
@@ -43,77 +43,88 @@ function busyType(fbtype) {
  * FREEBUSY period that is not FREE and touches the range, clipped to it, with
  * its busy type.
  *
- * A period is a start and an end or a start and a duration; one property may
- * list several. RFC 5545 3.8.2.6 requires them in UTC. One without a Z is
+ * A period is a start and an end o * list several. RFC 5545 3.8.2.6 requires them in UTC. One without a Z is
  * read like every other time here rather than dropped, which would report
  * published busy time as free: in the zone of its TZID parameter when it has
  * one, else as a floating time, in the calendar's zone.
+toInstant, the same lookup as for events).
  *
  * Read from the text, content line by content line (content-lines.js) and one
  * period at a time, rather than from ical.js's parse of the whole object:
  * ical.js refuses the whole object for one malformed period, and this keeps
  * the periods that can be read and counts the rest. Only FREEBUSY properties
- * of a VFREEBUSY directly in the VCALENDAR count. Time and memory are linear
- * in the text; only periods that touch the range are kept.
+ * of a VFREEBUSY directly in the VCALENDAR count. Components have to nest:
+ * an END that does not close the open component, or one left open, makes
+ * the object's structure unreadable (`broken`), and then none of its
+ * periods count. Time and memory are linear in the text; only periods that
+ * touch the range are kept.
  *
  * @param {string} text - the calendar object's iCalendar text
  * @param {Object} zone - the zone floating values are read in
  * @param {{start: number, end: number}} range - ms
- * @returns {{periods: Array<{start: number, end: number, type: string}>, unreadable: number, stored: boolean, events: boolean, rest: string|null}}
+ * @returns {{periods: Array<{start: number, end: number, type: string}>, unreadable: number, stored: boolean, events: boolean, broken: boolean, rest: string|null}}
  *   stored: whether the object has a VFREEBUSY; events: whether it has a
- *   VEVENT; rest: when it has a VFREEBUSY, the text without it, for reading
- *   its other components (a bad period does not cost the events their busy
- *   time)
+ *   VEVENT; rest: when it has a VFREEBUSY and nests properly, the text
+ *   without it, every other line byte for byte as written, for reading its
+ *   other components (a bad period does not cost the events their busy time)
  */
 export function storedBusyOf(text, zone, range) {
   const periods = [];
   let unreadable = 0;
   let stored = false;
   let events = false;
+  let broken = false;
   // the components the line is in, outermost first
   const stack = [];
-  // the object's VTIMEZONE lines, for a FREEBUSY with a TZID
+  const inStored = () => stack.length === 2 && stack[0] === 'VCALENDAR' && stack[1] === 'VFREEBUSY';
+  // where the top-level VFREEBUSY and VTIMEZONE components sit in the text
+  const cut = [];
   const vtimezones = [];
+  let opened = 0;
   // FREEBUSY properties to read once the whole text is seen: a VTIMEZONE
   // may come after the VFREEBUSY that uses it
   const properties = [];
-  // the logical lines outside a VFREEBUSY
-  const kept = [];
-  const inStored = () => stack.length === 2 && stack[0] === 'VCALENDAR' && stack[1] === 'VFREEBUSY';
-  for (const line of unfoldLines(text)) {
+  for (const { line, start, end } of logicalLines(text)) {
     const property = parseContentLine(line);
-    const outside = !(stack.length >= 2 && stack[0] === 'VCALENDAR' && stack[1] === 'VFREEBUSY');
-    const opens = property?.name === 'BEGIN' && stack.length === 1 && property.value.trim().toUpperCase() === 'VFREEBUSY';
-    if (outside && !opens) kept.push(line);
     if (!property) {
       // a FREEBUSY line that is not a content line is a period lost
       if (inStored() && /^FREEBUSY[;:]/i.test(line)) unreadable += 1;
       continue;
     }
     const { name, params, value } = property;
-    if (stack[1] === 'VTIMEZONE' || (name === 'BEGIN' && stack.length === 1 && value.trim().toUpperCase() === 'VTIMEZONE')) {
-      vtimezones.push(line);
-    }
     if (name === 'BEGIN') {
-      stack.push(value.trim().toUpperCase());
+      const component = value.trim().toUpperCase();
+      stack.push(component);
       if (stack.length === 2 && stack[0] === 'VCALENDAR') {
-        if (stack[1] === 'VFREEBUSY') stored = true;
-        if (stack[1] === 'VEVENT') events = true;
+        if (component === 'VFREEBUSY') stored = true;
+        if (component === 'VEVENT') events = true;
+        opened = start;
       }
       continue;
     }
     if (name === 'END') {
+      const component = value.trim().toUpperCase();
+      if (stack.at(-1) !== component) {
+        broken = true;
+        break;
+      }
       stack.pop();
+      if (stack.length === 1 && component === 'VFREEBUSY') cut.push([opened, end]);
+      if (stack.length === 1 && component === 'VTIMEZONE') vtimezones.push([opened, end]);
       continue;
     }
     if (name !== 'FREEBUSY' || !inStored()) continue;
     const type = busyType(params.get('FBTYPE')?.[0] ?? null);
     if (type) properties.push({ type, tzid: params.get('TZID')?.[0] ?? null, value });
   }
+  if (stack.length > 0) broken = true;
+  if (broken) return { periods: [], unreadable: 0, stored, events, broken, rest: null };
 
-  // a TZID is read as the rest of dav-mcp reads one: by the object's
-  // VTIMEZONE of that name, else the IANA zone (tsdav-utils' resolveZone)
-  const source = vtimezones.length > 0 ? ['BEGIN:VCALENDAR', ...vtimezones, 'END:VCALENDAR'].join('\r\n') : undefined;
+  // a TZID is read by the object's VTIMEZONE of that name, else the IANA
+  // zone (tsdav-utils' resolveZone)
+  const source = vtimezones.length > 0
+    ? ['BEGIN:VCALENDAR', ...vtimezones.map(([from, to]) => text.slice(from, to).replace(/\r?\n$|\r$/, '')), 'END:VCALENDAR'].join('\r\n')
+    : undefined;
   const zones = new Map();
   const zoneOf = (tzid) => {
     if (!zones.has(tzid)) {
@@ -155,7 +166,18 @@ export function storedBusyOf(text, zone, range) {
       periods.push({ start: Math.max(start, range.start), end: Math.min(end, range.end), type });
     }
   }
-  return { periods, unreadable, stored, events, rest: stored ? kept.join('\r\n') : null };
+
+  let rest = null;
+  if (stored) {
+    rest = '';
+    let from = 0;
+    for (const [to, next] of cut) {
+      rest += text.slice(from, to);
+      from = next;
+    }
+    rest += text.slice(from);
+  }
+  return { periods, unreadable, stored, events, broken, rest };
 }
 
 /**
@@ -296,7 +318,11 @@ export function calculateFreeBusy(calendarObjects, range) {
   for (const object of calendarObjects) {
     const text = typeof object.data === 'string' ? object.data : '';
     const stored = storedBusyOf(text, objectFloatingZone(object) ?? serverZone(), window);
-    if (stored.stored) {
+    if (stored.broken && stored.stored) {
+      // its periods cannot be told apart: the object is noted, and ical.js
+      // decides about its events below, from the text as it is
+      incomplete.push({ kind: 'stored', object, reason: 'its components do not nest (an END that closes no open BEGIN, or a BEGIN never closed)' });
+    } else if (stored.stored) {
       if (stored.periods.length > 0) published.push(object);
       // one at a time: a spread of a large object's periods overflows the stack
       for (const period of stored.periods) intervals.push(period);
@@ -309,7 +335,7 @@ export function calculateFreeBusy(calendarObjects, range) {
     let root;
     try {
       // with a VFREEBUSY, the rest of the object: its periods are read above
-      const data = stored.stored ? stored.rest : object.data;
+      const data = stored.rest ?? object.data;
       root = setFloatingZone(shareTimezones(new ICAL.Component(parseICal(data))), objectFloatingZone(object));
     } catch (error) {
       // A single unparseable object must not take the whole answer down,

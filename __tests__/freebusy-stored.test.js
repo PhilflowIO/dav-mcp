@@ -179,7 +179,7 @@ describe('stored VFREEBUSY periods', () => {
       'FREEBUSY:20260525T100000Z/PT1H,garbage,20260525T120000Z/20260525T110000Z,20260525T140000Z/PT1H')];
     const output = await call();
     expect(busyLines(output)).toEqual(['10:00-11:00', '14:00-15:00']);
-    expect(output).toContain('**Warning**: incomplete — stored free/busy in an object has periods that cannot be read');
+    expect(output).toContain('**Warning**: incomplete — stored free/busy in an object cannot be read in full');
     expect(output).toContain(`- ${FREEBUSY}published.ics: 2 FREEBUSY periods cannot be read`);
     expect(output).not.toContain('an event could not be read');
   });
@@ -251,6 +251,25 @@ describe('stored VFREEBUSY read as RFC 5545 content lines', () => {
     expect(busyLines(output)).toEqual(['10:00-11:00', '14:00-15:00']);
     expect(section(output, 'Events behind the busy blocks')).toContain('Planning');
     expect(output).toContain(`- ${FREEBUSY}mixed.ics: a FREEBUSY period cannot be read`);
+  });
+
+  test('components that do not nest make the object unreadable, and its event is still read', async () => {
+    stored[FREEBUSY] = [
+      // an X-FOO opened inside the VFREEBUSY and never closed
+      calendarObject('unclosed', [
+        'BEGIN:VFREEBUSY', 'UID:unclosed@test', 'BEGIN:X-FOO', 'FREEBUSY:20260525T140000Z/PT1H', 'END:VFREEBUSY',
+        'BEGIN:VEVENT', 'UID:unclosed-event@test', 'DTSTAMP:20260101T000000Z', 'SUMMARY:Kept',
+        'DTSTART:20260525T100000Z', 'DTEND:20260525T110000Z', 'END:VEVENT',
+      ]),
+      // an END:VEVENT inside the VFREEBUSY
+      calendarObject('stray', [
+        'BEGIN:VFREEBUSY', 'UID:stray@test', 'END:VEVENT', 'FREEBUSY:20260525T150000Z/PT1H', 'END:VFREEBUSY',
+      ]),
+    ];
+    const output = await call();
+    expect(output).not.toContain('Nothing blocks this window');
+    expect(output).toContain(`- ${FREEBUSY}unclosed.ics: cannot be read — its components do not nest`);
+    expect(output).toContain(`- ${FREEBUSY}stray.ics: cannot be read — its components do not nest`);
   });
 
   test('the event beside a VFREEBUSY is read from the object as written, lone CRs in a value included', async () => {

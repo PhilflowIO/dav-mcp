@@ -1249,9 +1249,10 @@ export function formatFreeBusy({ busy, free, range, zone = null, zoneNote = null
     output += '\n';
   }
   if (unreadStored.length > 0) {
-    output += `**Warning**: incomplete — stored free/busy ${unreadStored.length === 1 ? 'in an object' : `in ${unreadStored.length} objects`} has periods that cannot be read, so busy time from them may be missing and the free time below is not certain:\n`;
-    unreadStored.slice(0, LISTED_UNREADABLE).forEach(({ object, periods }) => {
-      output += `- ${object.url}: ${periods === 1 ? 'a FREEBUSY period' : `${periods} FREEBUSY periods`} cannot be read\n`;
+    output += `**Warning**: incomplete — stored free/busy ${unreadStored.length === 1 ? 'in an object' : `in ${unreadStored.length} objects`} cannot be read in full, so busy time from it may be missing and the free time below is not certain:\n`;
+    unreadStored.slice(0, LISTED_UNREADABLE).forEach(({ object, periods, reason }) => {
+      const what = periods ? `${periods === 1 ? 'a FREEBUSY period' : `${periods} FREEBUSY periods`} cannot be read` : `cannot be read — ${reason}`;
+      output += `- ${object.url}: ${what}\n`;
     });
     output += moreLine(unreadStored.length);
     output += '\n';
