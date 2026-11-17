@@ -215,6 +215,30 @@ describe('stored VFREEBUSY read as RFC 5545 content lines', () => {
     expect(busyLines(await call())).toEqual(['10:00-11:00', '12:00-13:00']);
   });
 
+  test('a TZID is honoured: the object\'s VTIMEZONE, else the IANA zone', async () => {
+    stored[FREEBUSY] = [
+      // 09:00 in New York (summer time) is 13:00 UTC
+      freebusy('iana', 'FREEBUSY;TZID=America/New_York:20260525T090000/PT1H'),
+      // the object's own zone, three hours east of UTC: 13:00 there is 10:00 UTC
+      calendarObject('own', [
+        'BEGIN:VTIMEZONE', 'TZID:Custom/East', 'BEGIN:STANDARD', 'DTSTART:19700101T000000',
+        'TZOFFSETFROM:+0300', 'TZOFFSETTO:+0300', 'END:STANDARD', 'END:VTIMEZONE',
+        'BEGIN:VFREEBUSY', 'UID:own@test', 'DTSTAMP:20260101T000000Z',
+        'FREEBUSY;TZID=Custom/East:20260525T130000/20260525T140000', 'END:VFREEBUSY',
+      ]),
+      // a Z is UTC whatever the TZID says
+      freebusy('utc', 'FREEBUSY;TZID=America/New_York:20260525T150000Z/PT1H'),
+    ];
+    expect(busyLines(await call())).toEqual(['10:00-11:00', '13:00-14:00', '15:00-16:00']);
+  });
+
+  test('a TZID that names no zone leaves the period unread and the answer incomplete', async () => {
+    stored[FREEBUSY] = [freebusy('published', 'FREEBUSY;TZID=Nowhere/Land:20260525T090000/PT1H')];
+    const output = await call();
+    expect(busyLines(output)).toEqual([]);
+    expect(output).toContain('**Warning**: incomplete');
+  });
+
   test('only FREEBUSY directly in the VFREEBUSY counts, not one in a component nested in it', async () => {
     stored[FREEBUSY] = [freebusy('published',
       'FREEBUSY:20260525T100000Z/PT1H',

@@ -1,4 +1,5 @@
 import ICAL from 'ical.js';
+import { resolveZone } from 'tsdav-utils';
 import { parseICal, unreadableReason } from '../../ical-parse.js';
 import { shareTimezones, toInstant } from './ical-dates.js';
 import { unfoldLines, parseContentLine } from './content-lines.js';
@@ -44,8 +45,9 @@ function busyType(fbtype) {
  *
  * A period is a start and an end or a start and a duration; one property may
  * list several. RFC 5545 3.8.2.6 requires them in UTC. One without a Z is
- * read like every other floating time here, in the calendar's zone, rather
- * than dropped: dropping it would report published busy time as free.
+ * read like every other time here rather than dropped, which would report
+ * published busy time as free: in the zone of its TZID parameter when it has
+ * one, else as a floating time, in the calendar's zone.
  *
  * Read from the text, content line by content line (content-lines.js) and one
  * period at a time, rather than from ical.js's parse of the whole object:
@@ -67,6 +69,11 @@ export function storedBusyOf(text, zone, range) {
   let events = false;
   // the components the line is in, outermost first
   const stack = [];
+  // the object's VTIMEZONE lines, for a FREEBUSY with a TZID
+  const vtimezones = [];
+  // FREEBUSY properties to read once the whole text is seen: a VTIMEZONE
+  // may come after the VFREEBUSY that uses it
+  const properties = [];
   const inStored = () => stack.length === 2 && stack[0] === 'VCALENDAR' && stack[1] === 'VFREEBUSY';
   for (const line of unfoldLines(text)) {
     const property = parseContentLine(line);
@@ -76,6 +83,9 @@ export function storedBusyOf(text, zone, range) {
       continue;
     }
     const { name, params, value } = property;
+    if (stack[1] === 'VTIMEZONE' || (name === 'BEGIN' && stack.length === 1 && value.trim().toUpperCase() === 'VTIMEZONE')) {
+      vtimezones.push(line);
+    }
     if (name === 'BEGIN') {
       stack.push(value.trim().toUpperCase());
       if (stack.length === 2 && stack[0] === 'VCALENDAR') {
@@ -90,19 +100,44 @@ export function storedBusyOf(text, zone, range) {
     }
     if (name !== 'FREEBUSY' || !inStored()) continue;
     const type = busyType(params.get('FBTYPE')?.[0] ?? null);
-    if (!type) continue;
-    for (const item of value.split(',')) {
-      let period;
+    if (type) properties.push({ type, tzid: params.get('TZID')?.[0] ?? null, value });
+  }
+
+  // a TZID is read as the rest of dav-mcp reads one: by the object's
+  // VTIMEZONE of that name, else the IANA zone (tsdav-utils' resolveZone)
+  const source = vtimezones.length > 0 ? ['BEGIN:VCALENDAR', ...vtimezones, 'END:VCALENDAR'].join('\r\n') : undefined;
+  const zones = new Map();
+  const zoneOf = (tzid) => {
+    if (!zones.has(tzid)) {
+      let converter = null;
       try {
-        period = ICAL.Property.fromString(`FREEBUSY:${item.trim()}`).getFirstValue();
+        converter = resolveZone(tzid, source);
+      } catch {
+        converter = null;
+      }
+      zones.set(tzid, converter && { converter });
+    }
+    return zones.get(tzid);
+  };
+
+  for (const { type, tzid, value } of properties) {
+    // no zone of its own: floating, read in the calendar's (a Z wins over it)
+    const own = tzid ? zoneOf(tzid) : zone;
+    for (const item of value.split(',')) {
+      let start;
+      let end;
+      try {
+        const period = ICAL.Property.fromString(`FREEBUSY:${item.trim()}`).getFirstValue();
+        // a TZID nobody knows leaves a time without a Z unreadable
+        if (!own && period.start.zone !== ICAL.Timezone.utcTimezone) throw new Error(`unknown TZID ${tzid}`);
+        start = toInstant(period.start, own ?? zone);
+        end = period.end
+          ? toInstant(period.end, own ?? zone)
+          : start + period.duration.toSeconds() * 1000;
       } catch {
         unreadable += 1;
         continue;
       }
-      const start = toInstant(period.start, zone);
-      const end = period.end
-        ? toInstant(period.end, zone)
-        : start + period.duration.toSeconds() * 1000;
       // RFC 5545 3.3.9: a period has a positive length
       if (!(end > start)) {
         unreadable += 1;
