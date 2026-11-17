@@ -46,6 +46,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without the matching `cancel_occurrences` (which the next call refused);
   they say the day cannot be checked and point to the raw tool.
 
+### Fixed
+- **Recurring events a server leaves out of a time-range answer** (#129):
+  `calendar_query`, `list_events` and `freebusy_query` with a range now
+  also fetch every recurring event of the calendar (any with a rule, extra
+  dates or a changed occurrence) without a time range, and decide on their
+  own expansion what touches the range. Baïkal 0.12.1 (sabre/dav 4.7.1,
+  sabre/vobject 4.6.1) answered a range without a series that has both a
+  rule and extra dates (only the extra dates counted), a series of extra
+  dates without a rule (only its first date counted), and a series whose
+  changed occurrence is stored before it (only that occurrence counted):
+  such meetings were missing from searches and their time showed as free.
+  Done for every server, since a server does not say which library
+  evaluates its ranges. Costs per calendar three small extra queries and
+  one fetch of the recurring events not already returned; a server that
+  refuses property filters is asked for all its events instead.
+
 ## [5.1.1] - 2026-11-18
 
 ### Security

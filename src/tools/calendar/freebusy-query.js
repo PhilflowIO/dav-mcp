@@ -3,7 +3,7 @@ import { validateInput, freeBusyQuerySchema } from '../../validation.js';
 import { formatFreeBusy } from '../../formatters.js';
 import { buildTimeRangeOptions, findCalendarOrThrow } from '../shared/helpers.js';
 import { calculateFreeBusy } from '../shared/freebusy.js';
-import { serverTimeRange } from '../../occurrences.js';
+import { fetchRangeCandidates } from '../shared/range-candidates.js';
 import { floatingZoneFor, withFloatingZone, displayZoneFor, withZoneNote } from '../../calendar-zone.js';
 
 /**
@@ -101,14 +101,9 @@ export const freeBusyQuery = {
       // floating times and dates are read in each calendar's own zone
       const zone = floatingZoneFor(calendar);
       zones.push(zone);
+      // calculateFreeBusy keeps what touches the window
       const found = withFloatingZone(
-        await client.fetchCalendarObjects({
-          calendar,
-          ...timeRangeOptions,
-          // wider than asked: the server reads floating times its own way;
-          // calculateFreeBusy keeps what touches the window
-          timeRange: serverTimeRange(timeRangeOptions.timeRange),
-        }), zone);
+        await fetchRangeCandidates(client, calendar, timeRangeOptions.timeRange), zone);
       events = events.concat(found);
       if (holdsFreeBusy(calendar)) {
         let stored;

@@ -4,7 +4,8 @@ import { formatEventList } from '../../formatters.js';
 import { findCalendarOrThrow, buildTimeRangeOptions } from '../shared/helpers.js';
 import { floatingZoneFor, withFloatingZone, withZoneNote } from '../../calendar-zone.js';
 import { shownEvent, shownTouchesRange } from '../../ical-components.js';
-import { budgetPool, serverTimeRange } from '../../occurrences.js';
+import { budgetPool } from '../../occurrences.js';
+import { fetchRangeCandidates } from '../shared/range-candidates.js';
 import { parseObjects } from '../shared/query-objects.js';
 
 /**
@@ -48,12 +49,10 @@ export const listEvents = {
     // buildTimeRangeOptions fills in an end when only a start was given, so use
     // its result rather than the raw arguments
     const { timeRange } = timeRangeOptions;
-    // wider than asked: the server reads floating times its own way
-    const options = { calendar, ...timeRangeOptions, timeRange: serverTimeRange(timeRange) };
 
     // floating times and dates are read in the calendar's zone
     const zone = floatingZoneFor(calendar);
-    const events = withFloatingZone(await client.fetchCalendarObjects(options), zone);
+    const events = withFloatingZone(await fetchRangeCandidates(client, calendar, timeRange), zone);
     if (!timeRange) return withZoneNote(formatEventList(events, calendar, null), [zone]);
 
     // what touches the range as read in the calendar's zone, each resolved

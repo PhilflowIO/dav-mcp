@@ -191,6 +191,10 @@ describe('recurring events', () => {
 describe('freebusy_query tool', () => {
   beforeEach(() => fetchCalendarObjects.mockReset());
 
+  // one time-range query per calendar searched (the recurring objects are
+  // asked for separately, see range-candidates.js)
+  const rangeQueries = () => fetchCalendarObjects.mock.calls.filter(([params]) => params.timeRange);
+
   const call = (args) => freeBusyQuery.handler({
     time_range_start: '2026-05-25T09:00:00Z',
     time_range_end: '2026-05-25T17:00:00Z',
@@ -200,14 +204,14 @@ describe('freebusy_query tool', () => {
   test('searches every calendar by default', async () => {
     fetchCalendarObjects.mockResolvedValue([]);
     const text = (await call({})).content[0].text;
-    expect(fetchCalendarObjects).toHaveBeenCalledTimes(2);
+    expect(rangeQueries()).toHaveLength(2);
     expect(text).toContain('**Scope**: 2 calendars');
   });
 
   test('can be restricted to one calendar', async () => {
     fetchCalendarObjects.mockResolvedValue([]);
     const text = (await call({ calendar_url: CALENDAR_URL })).content[0].text;
-    expect(fetchCalendarObjects).toHaveBeenCalledTimes(1);
+    expect(rangeQueries()).toHaveLength(1);
     expect(text).toContain('**Scope**: 1 calendar');
   });
 
