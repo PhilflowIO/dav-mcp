@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **Moved off the production dependencies with high advisories** (#155):
+  the MCP SDK to 1.32.2, zod to 4, and body-parser, qs, fast-uri,
+  ip-address and hono through the lockfile. `npm audit --omit=dev` reports
+  none again. The body-parser advisory reached dav-mcp's HTTP transport
+  before the bearer token was checked: a compressed request body with
+  trailing bytes could tie up the server. The SDK and zod advisories about
+  memory during validation concerned requests to the HTTP transport with a
+  valid token. The SDK advisory about experimental tasks did not apply:
+  dav-mcp offers no tasks. The stdio server reads only from its own client.
+- The tool schemas clients see are unchanged; zod only validates the
+  arguments, and accepts and refuses the same values as before. Two things
+  differ: a missing or mistyped parameter is reported in zod 4's words
+  ("Invalid input: expected string, received undefined" instead of
+  "Required"), and a URL with spaces around it is passed on without them.
+  The Claude plugin moves to zod 4 with the next release.
+
 ### Fixed
 - Listing a recurring event whose `EXDATE` lines are stored before
   `ORGANIZER` (as Google Calendar writes them) threw
