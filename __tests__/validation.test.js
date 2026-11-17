@@ -11,7 +11,8 @@ import {
   listEventsSchema,
   calendarQuerySchema,
   addressBookQuerySchema,
-  todoQuerySchema
+  todoQuerySchema,
+  freeBusyQuerySchema
 } from '../src/validation.js';
 
 describe('Validation Module', () => {
@@ -312,8 +313,15 @@ describe('Validation Module', () => {
 
 // zod 4 narrowed what its datetime and URL checks accept and how they word a
 // failure; the time-range parameters and URL messages keep their zod 3 form.
-describe('time-range datetimes', () => {
-  const range = (start) => ({ calendar_url: 'https://example.com/cal/', time_range_start: start, time_range_end: '2026-03-09T09:00:00Z' });
+// Every tool with a time range takes the same datetime, with or without a
+// zone, through the same date and time checks (#162).
+describe.each([
+  ['list_events', listEventsSchema, { calendar_url: 'https://example.com/cal/' }],
+  ['calendar_query', calendarQuerySchema, { calendar_url: 'https://example.com/cal/' }],
+  ['freebusy_query', freeBusyQuerySchema, {}],
+  ['todo_query', todoQuerySchema, {}],
+])('%s time-range datetimes', (_tool, schema, rest) => {
+  const range = (start) => ({ ...rest, time_range_start: start, time_range_end: '2026-03-09T09:00:00Z' });
 
   test.each([
     '2026-03-02T09:00:00Z',
@@ -323,18 +331,36 @@ describe('time-range datetimes', () => {
     '2026-03-02T09:00Z',
     '2026-03-02T09:00+01:00',
     '2026-03-02T09:00:00',
+    '2026-03-02T09:00:00.123',
+    '2026-03-02T09:00',
+    '2024-02-29T09:00:00',
+    '2026-03-02T09:00:00+23:59',
+    // RFC 3339's unknown offset, as zod's datetime({ offset: true }) takes it
+    '2026-03-02T09:00:00-00:00',
   ])('accepts %s', (start) => {
-    expect(validateInput(listEventsSchema, range(start)).time_range_start).toBe(start);
+    expect(validateInput(schema, range(start)).time_range_start).toBe(start);
   });
 
   test.each([
     '2026-03-02T09:00:00+01',
-    '2026-03-02T09:00',
+    // offsets out of range (review of #165)
+    '2026-03-02T09:00:00+99:99',
+    '2026-03-02T09:00:00+2400',
+    '2026-03-02T09:00:00+01:60',
     '2026-02-30T09:00:00Z',
+    '2026-13-45T25:61:00Z',
+    // the same impossible values without a zone (#162)
+    '2026-13-45T25:61:00',
+    '2026-02-30T09:00:00',
+    '2025-02-29T09:00:00',
+    '2026-03-02T24:00:00',
+    '2026-03-02T09:60:00',
+    '2026-03-02T09:00:60',
+    '2026-03-02T9:00:00',
     '2026-03-02',
     'tomorrow',
   ])('refuses %s', (start) => {
-    expect(() => validateInput(listEventsSchema, range(start))).toThrow('time_range_start: Invalid datetime');
+    expect(() => validateInput(schema, range(start))).toThrow('time_range_start: Invalid datetime');
   });
 });
 

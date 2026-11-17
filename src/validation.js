@@ -21,18 +21,24 @@ const formatMessage = (message) => ({
 // Helper: DateTime string with optional timezone offset
 // Accepts both "2026-03-02T09:00:00Z" and "2026-03-02T09:00:00"
 //
-// With a zone this is the grammar zod 3's datetime({ offset: true }) had:
-// seconds optional, offset with or without its colon ("+01:00", "+0100").
-// zod 4's z.iso.datetime() requires both (RFC 3339), and would now refuse
-// "2026-03-02T09:00Z" or "...+0100", which callers could send so far and
-// which the time-range code reads correctly (new Date). With a zone, the date
-// part is zod's own, so "2026-02-30T09:00Z" stays refused; the no-zone form
-// keeps main's looser pattern (#162 tracks tightening it).
+// The grammar is zod 3's datetime({ offset: true }) with the zone made
+// optional: seconds optional, offset with or without its colon ("+01:00",
+// "+0100"). zod 4's z.iso.datetime() requires both (RFC 3339), and would now
+// refuse "2026-03-02T09:00Z" or "...+0100", which callers could send so far
+// and which the time-range code reads correctly (new Date). The date part is
+// zod's own, so "2026-02-30T09:00" is refused with or without a zone (#162).
+// A value without a zone is not read as a floating time in the calendar's
+// zone: the time-range code reads it with new Date, in the zone dav-mcp runs
+// in (#169 tracks reading it in the calendar's zone).
+//
+// An offset is checked like the time: hours 00-23, minutes 00-59, so
+// "+24:00" or "+01:60" are refused rather than turning into Invalid Date.
+// "-00:00" (RFC 3339's "offset unknown") is accepted, as zod's
+// datetime({ offset: true }) does; new Date reads it as UTC.
 const DATE = z.regexes.date.source.replace(/^\^|\$$/g, '');
-const DATE_TIME = new RegExp(
-  `^${DATE}T(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|[+-]\\d{2}:?\\d{2})$` + // with a zone
-  '|^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}$', // without one
-);
+const TIME = '(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?';
+const ZONE = '(?:Z|[+-](?:[01]\\d|2[0-3]):?[0-5]\\d)';
+const DATE_TIME = new RegExp(`^${DATE}T${TIME}${ZONE}?$`);
 const dateTimeWithOptionalOffset = z.string().regex(DATE_TIME, 'Invalid datetime');
 
 /**
