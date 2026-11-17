@@ -288,6 +288,15 @@ describe('a split CardDAV endpoint', () => {
     expect(error.message).toContain('(CardDAV client)');
   });
 
+  test('credentials in CARDDAV_SERVER_URL are reported against the CARDDAV_* login variables', async () => {
+    const error = await loginError({ ...splitEnv, CARDDAV_SERVER_URL: 'https://alex:pw@contacts.example.com/' });
+
+    expect(error.name).toBe('ConfigurationError');
+    expect(error.message).toContain('CARDDAV_SERVER_URL contains a user name or password');
+    expect(error.message).toContain('pass them as CARDDAV_USERNAME and CARDDAV_PASSWORD');
+    expect(error.message).not.toContain('CALDAV_USERNAME');
+  });
+
   test('a bad GOOGLE_SERVER_URL is reported under its own name, not the CalDAV variable', async () => {
     const error = await loginError({ ...oauthEnv, GOOGLE_SERVER_URL: 'https://u:p@dav.example.com/' });
 

@@ -368,7 +368,11 @@ class TsdavClientManager {
           : splitServer ? { serverUrlName: 'CALDAV_SERVER_URL' } : {}),
       });
       const cardOrigins = splitServer
-        ? new RequestOrigins({ serverUrl: cardDavServerUrl, serverUrlName: 'CARDDAV_SERVER_URL' })
+        ? new RequestOrigins({
+          serverUrl: cardDavServerUrl,
+          serverUrlName: 'CARDDAV_SERVER_URL',
+          serverCredentials: 'CARDDAV_USERNAME and CARDDAV_PASSWORD',
+        })
         : calOrigins;
       const origins = { caldav: calOrigins, carddav: cardOrigins };
 
