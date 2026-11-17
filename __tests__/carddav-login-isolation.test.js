@@ -120,3 +120,28 @@ describe('a login redirected onto the other half\'s configured host', () => {
   });
 });
 
+describe('secrets in configuration errors', () => {
+  test('the plain-http refusal shows the CardDAV origin, not the password in its URL', () => {
+    let error;
+    try {
+      buildTsdavConfig({
+        CALDAV_SERVER_URL: 'https://dav.example.com/', CALDAV_USERNAME: 'alex', CALDAV_PASSWORD: 'cal-secret',
+        CARDDAV_SERVER_URL: 'http://bob:hunter2@card.example.com/dav/',
+      });
+    } catch (e) { error = e; }
+    expect(error?.name).toBe('ConfigurationError');
+    expect(error.message).toContain('http://card.example.com');
+    expect(error.message).not.toContain('hunter2');
+    expect(error.message).not.toContain('bob');
+  });
+
+  test('a non-http URL with credentials is named without them', async () => {
+    const error = await tsdavManager.initialize({
+      serverUrl: 'https://dav.example.com/', authMethod: 'Basic', username: 'alex', password: 'cal-secret',
+      cardDav: { serverUrl: 'ftp://bob:hunter2@card.example.com/', username: 'alex', password: 'cal-secret' },
+    }).then(() => null, e => e);
+    expect(error?.name).toBe('ConfigurationError');
+    expect(error.message).toContain('CARDDAV_SERVER_URL ftp://card.example.com/');
+    expect(error.message).not.toContain('hunter2');
+  });
+});

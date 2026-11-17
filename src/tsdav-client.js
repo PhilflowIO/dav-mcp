@@ -1,7 +1,7 @@
 import { DAVClient, isDAVAuthenticationError, isDAVResponseError } from 'tsdav';
 import { logger } from './logger.js';
 import { CalDAVError, CardDAVError, AuthenticationError, MCP_ERROR_CODES, codeForHttpStatus } from './error-handler.js';
-import { ConfigurationError, settingsHint } from './auth-config.js';
+import { ConfigurationError, settingsHint, withoutUserinfo } from './auth-config.js';
 import { RequestOrigins, activateRequestOrigins } from './request-origins.js';
 
 const DEFAULT_OAUTH_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -453,8 +453,9 @@ class TsdavClientManager {
         ? cause : loginError(cause, loginConfig, new LoginAnswers());
       logger.error({
         error: error.message,
-        serverUrl: config.serverUrl,
-        ...(splitServer && { cardDavServerUrl }),
+        // a URL refused for carrying a password is still in the config here
+        serverUrl: withoutUserinfo(config.serverUrl),
+        ...(splitServer && { cardDavServerUrl: withoutUserinfo(cardDavServerUrl) }),
         configuredAuthMethod: this.authMethod
       }, 'Failed to initialize tsdav clients');
       throw error;

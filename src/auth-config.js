@@ -177,12 +177,23 @@ export function buildTsdavConfig(env) {
   if (!env.CARDDAV_PASSWORD && protocolOf(env.CALDAV_SERVER_URL) === 'https:'
     && protocolOf(cardDav.serverUrl) === 'http:') {
     throw new ConfigurationError(
-      `CARDDAV_SERVER_URL ${cardDav.serverUrl} is plain http while CALDAV_SERVER_URL is https, and ` +
+      `CARDDAV_SERVER_URL ${new URL(String(cardDav.serverUrl).trim()).origin} is plain http while CALDAV_SERVER_URL is https, and ` +
       'CARDDAV_PASSWORD is not set, so the contacts login would send the calendar password (CALDAV_PASSWORD) ' +
       'over plain http. Use the https URL of the CardDAV server, or set CARDDAV_PASSWORD to a password ' +
       'of its own for that endpoint.');
   }
   return { ...config, cardDav };
+}
+
+/**
+ * A configured URL as an error message may show it: without the user name
+ * and password a URL may carry before its host (`http://bob:secret@host/`,
+ * or `bob:secret@host` with no scheme), since startup errors end up in logs.
+ * @param {string} value
+ * @returns {string}
+ */
+export function withoutUserinfo(value) {
+  return String(value).replace(/^([^/?#]*\/\/)?[^/?#@]*@/, '$1');
 }
 
 /**

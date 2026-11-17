@@ -1,6 +1,6 @@
 import convert from 'xml-js';
 import { MCP_ERROR_CODES } from './error-handler.js';
-import { ConfigurationError } from './auth-config.js';
+import { ConfigurationError, withoutUserinfo } from './auth-config.js';
 
 /**
  * Where dav-mcp may send a request, and with it the user's credentials.
@@ -238,7 +238,7 @@ export class RequestOrigins {
   }) {
     const server = parseUrl(serverUrl);
     if (!server || !isHttp(server)) {
-      throw new ConfigurationError(`The configured ${serverUrlName} ${serverUrl} is not an http(s) URL.`);
+      throw new ConfigurationError(`The configured ${serverUrlName} ${withoutUserinfo(serverUrl)} is not an http(s) URL.`);
     }
     if (server.username || server.password) {
       throw new ConfigurationError(
