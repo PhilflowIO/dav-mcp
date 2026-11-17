@@ -22,6 +22,18 @@ import {
 } from './calendar-zone.js';
 
 /**
+ * Label of the collapsed raw-JSON block every tool result ends with. One
+ * constant, so all tool output carries the same (English) wording.
+ */
+export const RAW_DATA_LABEL = 'Raw Data (JSON)';
+
+/** The collapsed raw-JSON block at the end of a tool result. */
+function rawDataSection(data) {
+  return `<details>\n<summary>${RAW_DATA_LABEL}</summary>\n\n\`\`\`json\n` +
+    JSON.stringify(data, null, 2) + '\n```\n</details>';
+}
+
+/**
  * Parse iCal data string to extract event properties (RFC 5545 compliant)
  *
  * When a time range is given, a recurring series resolves to the occurrence
@@ -586,9 +598,7 @@ export function formatEventList(events, calendar = 'Unknown Calendar', timeRange
   });
   output += unreadableLine(unreadable, 'events') + entries;
 
-  output += `---\n<details>\n<summary>Raw Data (JSON)</summary>\n\n\`\`\`json\n`;
-  output += JSON.stringify(toRawData(events), null, 2);
-  output += '\n```\n</details>';
+  output += '---\n' + rawDataSection(toRawData(events));
 
   return {
     content: [{
@@ -720,9 +730,7 @@ export function formatContactList(contacts, addressBook = 'Unknown Address Book'
   });
   output += unreadableLine(unreadable, 'contacts') + entries;
 
-  output += `---\n<details>\n<summary>Raw Data (JSON)</summary>\n\n\`\`\`json\n`;
-  output += JSON.stringify(toRawData(contacts), null, 2);
-  output += '\n```\n</details>';
+  output += '---\n' + rawDataSection(toRawData(contacts));
 
   // Add next action hints
   output += `\n💡 **What you can do next**:
@@ -797,16 +805,14 @@ export function formatCalendarList(calendars) {
     output += `- **URL**: ${cal.url}\n\n`;
   });
 
-  output += `---\n<details>\n<summary>Raw Data (JSON)</summary>\n\n\`\`\`json\n`;
-  output += JSON.stringify(calendars.map(cal => ({
+  output += '---\n' + rawDataSection(calendars.map(cal => ({
     displayName: cal.displayName,
     url: cal.url,
     components: cal.components,
     calendarColor: extractPropertyValue(cal.calendarColor) || undefined,
     description: extractPropertyValue(cal.description) || undefined,
     timezone: readCalendarTimezone(calendarTimezoneOf(cal))?.tzid,
-  })), null, 2);
-  output += '\n```\n</details>';
+  })));
 
   return {
     content: [{
@@ -841,13 +847,11 @@ export function formatAddressBookList(addressBooks) {
     output += `- **URL**: ${ab.url}\n\n`;
   });
 
-  output += `---\n<details>\n<summary>Raw Data (JSON)</summary>\n\n\`\`\`json\n`;
-  output += JSON.stringify(addressBooks.map(ab => ({
+  output += '---\n' + rawDataSection(addressBooks.map(ab => ({
     displayName: ab.displayName,
     url: ab.url,
     description: ab.description,
-  })), null, 2);
-  output += '\n```\n</details>';
+  })));
 
   return {
     content: [{
@@ -894,9 +898,7 @@ export function formatSuccess(operation, details = {}) {
     output += `- **Series**: ${details.series.summary}\n`;
   }
 
-  output += `\n---\n<details>\n<summary>Rohdaten (JSON)</summary>\n\n\`\`\`json\n`;
-  output += JSON.stringify({ success: true, ...details }, null, 2);
-  output += '\n```\n</details>';
+  output += '\n---\n' + rawDataSection({ success: true, ...details });
 
   return {
     content: [{
@@ -932,9 +934,7 @@ export function formatCalendarUpdateSuccess(calendar, updatedFields) {
     }
   }
 
-  output += `\n---\n<details>\n<summary>Raw Data (JSON)</summary>\n\n\`\`\`json\n`;
-  output += JSON.stringify({ success: true, calendar, updatedFields }, null, 2);
-  output += '\n```\n</details>';
+  output += '\n---\n' + rawDataSection({ success: true, calendar, updatedFields });
 
   return {
     content: [{
@@ -953,9 +953,7 @@ export function formatCalendarDeleteSuccess(calendarUrl) {
     `Servers with a trash bin keep them there for a while; on other servers they are gone for good.\n\n`;
   output += `- **Deleted URL**: ${calendarUrl}\n`;
 
-  output += `\n---\n<details>\n<summary>Raw Data (JSON)</summary>\n\n\`\`\`json\n`;
-  output += JSON.stringify({ success: true, deleted: true, url: calendarUrl }, null, 2);
-  output += '\n```\n</details>';
+  output += '\n---\n' + rawDataSection({ success: true, deleted: true, url: calendarUrl });
 
   return {
     content: [{
@@ -974,9 +972,7 @@ export function formatCalendarAlreadyDeleted(calendarUrl) {
   output += `The calendar at this URL is in the server's trash bin. Nothing was changed.\n\n`;
   output += `- **URL**: ${calendarUrl}\n`;
 
-  output += `\n---\n<details>\n<summary>Raw Data (JSON)</summary>\n\n\`\`\`json\n`;
-  output += JSON.stringify({ success: true, deleted: false, alreadyDeleted: true, url: calendarUrl }, null, 2);
-  output += '\n```\n</details>';
+  output += '\n---\n' + rawDataSection({ success: true, deleted: false, alreadyDeleted: true, url: calendarUrl });
 
   return {
     content: [{
@@ -1125,9 +1121,7 @@ export function formatTodoList(todos, calendar = 'Unknown Calendar', total = nul
   });
   output += unreadableLine(unreadable, 'todos') + entries;
 
-  output += `---\n<details>\n<summary>Raw Data (JSON)</summary>\n\n\`\`\`json\n`;
-  output += JSON.stringify(toRawData(todos), null, 2);
-  output += '\n```\n</details>';
+  output += '---\n' + rawDataSection(toRawData(todos));
 
   return {
     content: [{

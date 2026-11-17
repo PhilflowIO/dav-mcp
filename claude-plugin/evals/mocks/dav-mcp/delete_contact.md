@@ -3,7 +3,7 @@
 
 ---
 <details>
-<summary>Rohdaten (JSON)</summary>
+<summary>Raw Data (JSON)</summary>
 
 ```json
 {

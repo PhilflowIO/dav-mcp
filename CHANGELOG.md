@@ -67,6 +67,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   whatever its login fails with, and the CalDAV half stays required; with
   Google, contact tools now answer with that error instead of failing
   inside tsdav, and `availableAccountTypes` no longer lists `carddav`.
+- Write results (create, update and delete of events, todos and contacts,
+  `make_calendar`) labelled their raw JSON block "Rohdaten (JSON)"; every
+  tool result now says "Raw Data (JSON)", from one shared label (#146).
 
 ## [5.0.0] - 2026-10-09
 
