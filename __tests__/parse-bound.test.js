@@ -1,12 +1,21 @@
 import { describe, test, expect, beforeEach, afterEach, jest } from '@jest/globals';
+import ICAL from 'ical.js';
 import { connectTo } from './support/request-origins.js';
+import { countWork } from './support/work-count.js';
 
 // Issue #109: ical.js reads a property's parameters in time that grows with
 // the number of parameters times the length of the line, so one 1 MB line
 // with 500 000 of them (`X-A;x;x;…:v`) took ~11-17 s and stalled the event
 // loop. Every parse in dav-mcp — vCard and iCalendar — is bounded first:
 // a stored object that is over the bound is skipped in a listing, and an
-// edit of it is refused, both in well under a second.
+// edit of it is refused, both before ical.js reads it.
+//
+// #138: that is asserted by counting, not timing. The stall is ical.js's
+// parameter loop, which costs (parameters x line length) per line; what
+// bounds it is that ical.js is never handed a line over the bound. So every
+// text handed to ICAL.parse is checked for one, and such a parse is counted
+// and not run (it would take seconds). A milliseconds bound failed on a slow
+// runner and passed a regression on a fast one.
 const CALENDAR_URL = 'https://dav.example.com/calendars/user/main/';
 const ADDRESSBOOK_URL = 'https://dav.example.com/addressbooks/user/default/';
 connectTo('https://dav.example.com/');
@@ -58,16 +67,40 @@ const HOSTILE_LINE = `X-A${';x'.repeat(500_000)}:v`;
 // the same in iCalendar, where a parameter needs a name to be read as one
 const HOSTILE_ICAL_LINE = `X-A${';X-P=x'.repeat(170_000)}:v`;
 
-/** run fn, return [result or error, milliseconds] */
-async function timed(fn) {
-  const start = performance.now();
+/** whether a line of `text`, unfolded, has more than MAX_PARAMETERS semicolons */
+function overTheBound(text) {
+  let semicolons = 0;
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (char === '\n' && text[i + 1] !== ' ' && text[i + 1] !== '\t') semicolons = 0;
+    else if (char === ';' && ++semicolons > MAX_PARAMETERS) return true;
+  }
+  return false;
+}
+
+/**
+ * run fn, return [result or error, how many texts ICAL.parse was handed that
+ * have a line over the bound]
+ */
+async function guarded(fn) {
+  const parse = ICAL.parse;
+  let overBound = 0;
+  const spy = jest.spyOn(ICAL, 'parse').mockImplementation((text, ...rest) => {
+    if (typeof text === 'string' && overTheBound(text)) {
+      overBound++;
+      throw new Error('ICAL.parse was handed a line over the parameter bound');
+    }
+    return parse(text, ...rest);
+  });
   let outcome;
   try {
     outcome = await fn();
   } catch (error) {
     outcome = error;
+  } finally {
+    spy.mockRestore();
   }
-  return [outcome, performance.now() - start];
+  return [outcome, overBound];
 }
 
 let consoleError;
@@ -79,18 +112,18 @@ beforeEach(() => {
 afterEach(() => consoleError.mockRestore());
 
 describe('the parameter bound', () => {
-  test('the vCard from the issue is refused in well under a second, naming the property and the limit', async () => {
-    const [error, ms] = await timed(() => readVCard(vcard('FN:Mallory', HOSTILE_LINE)));
-    expect(ms).toBeLessThan(500);
+  test('the vCard from the issue is refused before ical.js reads it, naming the property and the limit', async () => {
+    const [error, overBound] = await guarded(() => readVCard(vcard('FN:Mallory', HOSTILE_LINE)));
+    expect(overBound).toBe(0);
     expect(error).toBeInstanceOf(ValidationError);
     expect(error.message).toContain('X-A');
     expect(error.message).toContain(String(MAX_PARAMETERS));
     expect(error.details).toMatchObject({ code: 'TOO_MANY_PARAMETERS', property: 'X-A', limit: MAX_PARAMETERS });
   });
 
-  test('the same shape in iCalendar is refused in well under a second', async () => {
-    const [error, ms] = await timed(() => parseICal(ics('UID:hostile', HOSTILE_ICAL_LINE)));
-    expect(ms).toBeLessThan(500);
+  test('the same shape in iCalendar is refused before ical.js reads it', async () => {
+    const [error, overBound] = await guarded(() => parseICal(ics('UID:hostile', HOSTILE_ICAL_LINE)));
+    expect(overBound).toBe(0);
     expect(error).toBeInstanceOf(ValidationError);
     expect(error.details).toMatchObject({ property: 'X-A', limit: MAX_PARAMETERS });
   });
@@ -130,9 +163,9 @@ describe('the parameter bound', () => {
     ['iCalendar, a quoted multi-value going on through ","', () => parseICal(ics('UID:m', `ATTENDEE;MEMBER="mailto:a","b:c"${PARAMS}:mailto:a@b`))],
     ['vCard, a quoted multi-value going on through ","', () => readVCard(vcard('FN:T', `TEL;TYPE="cell","b:c"${PARAMS}:123`))],
     ['vCard, a lone CR before a quote', () => readVCard(vcard('FN:C', `TEL;A=\r"${PARAMS}:123`))],
-  ])('%s is refused in well under a second', async (_, read) => {
-    const [error, ms] = await timed(read);
-    expect(ms).toBeLessThan(500);
+  ])('%s is refused before ical.js reads it', async (_, read) => {
+    const [error, overBound] = await guarded(read);
+    expect(overBound).toBe(0);
     expect(error).toBeInstanceOf(ValidationError);
     expect(error.details).toMatchObject({ code: 'TOO_MANY_PARAMETERS' });
   });
@@ -151,7 +184,7 @@ describe('the parameter bound', () => {
     }
   });
 
-  test('a large real card is read: many typed numbers and addresses, a 1 MB photo', async () => {
+  test('a large real card is read: many typed numbers and addresses, a 1 MB photo', () => {
     const photo = 'QUJD'.repeat(262_144).match(/.{1,74}/g).join('\r\n ');
     const lines = ['FN:Big Card', 'N:Card;Big;;;'];
     for (let i = 0; i < 200; i++) {
@@ -159,10 +192,14 @@ describe('the parameter bound', () => {
       lines.push(`EMAIL;TYPE=INTERNET;TYPE=WORK;TYPE=pref;X-LABEL=Work ${i}:user${i}@example.com`);
     }
     lines.push(`PHOTO;ENCODING=b;TYPE=JPEG:${photo}`);
-    const [card, ms] = await timed(() => readVCard(vcard(...lines)));
+    // what keeps a real card fast is that reading it is linear: count the
+    // text scanned and built, about 7 characters per character of the card
+    // (see support/work-count.js), against a bound of 20
+    const data = vcard(...lines);
+    const { work, outcome: card } = countWork(() => readVCard(data), 20 * data.length);
+    expect(work).toBeLessThanOrEqual(20 * data.length);
     expect(card).not.toBeInstanceOf(Error);
     expect(card.getAllProperties('tel')).toHaveLength(200);
-    expect(ms).toBeLessThan(1000);
   });
 });
 
@@ -178,10 +215,10 @@ describe('a stored object over the bound', () => {
   };
   const BOUND_REASON = `its X-A property has more than ${MAX_PARAMETERS} parameters`;
 
-  test('list_contacts lists the other cards fast and says which one it could not read, and why', async () => {
+  test('list_contacts lists the other cards and says which one it could not read, and why', async () => {
     storedCards = [hostileCard, goodCard];
-    const [result, ms] = await timed(() => listContacts.handler({ addressbook_url: ADDRESSBOOK_URL }));
-    expect(ms).toBeLessThan(1000);
+    const [result, overBound] = await guarded(() => listContacts.handler({ addressbook_url: ADDRESSBOOK_URL }));
+    expect(overBound).toBe(0);
     const text = result.content[0].text;
     expect(text).toContain('Alice Good');
     expect(text).toContain('**1 of these contacts could not be read**');
@@ -197,10 +234,10 @@ describe('a stored object over the bound', () => {
     expect(text).not.toContain('secret');
   });
 
-  test('addressbook_query filters past it fast and says it could not search it', async () => {
+  test('addressbook_query filters past it and says it could not search it', async () => {
     storedCards = [hostileCard, goodCard];
-    const [result, ms] = await timed(() => addressbookQuery.handler({ addressbook_url: ADDRESSBOOK_URL, name_filter: 'a' }));
-    expect(ms).toBeLessThan(1000);
+    const [result, overBound] = await guarded(() => addressbookQuery.handler({ addressbook_url: ADDRESSBOOK_URL, name_filter: 'a' }));
+    expect(overBound).toBe(0);
     const text = result.content[0].text;
     expect(text).toContain('Alice Good');
     expect(text).toContain('Not searched: **1** contacts could not be read');
@@ -225,10 +262,10 @@ describe('a stored object over the bound', () => {
   test('update_todo refuses to edit it and writes nothing', async () => {
     storedTodos = [hostileTodo];
     for (const args of [{ fields: { SUMMARY: 'Renamed' } }, { cancel_occurrences: ['2026-01-05'] }]) {
-      const [error, ms] = await timed(() => updateTodoFields.handler({
+      const [error, overBound] = await guarded(() => updateTodoFields.handler({
         todo_url: hostileTodo.url, todo_etag: '"1"', ...args,
       }));
-      expect(ms).toBeLessThan(500);
+      expect(overBound).toBe(0);
       expect(error).toBeInstanceOf(ValidationError);
       expect(error.details).toMatchObject({ code: 'TOO_MANY_PARAMETERS' });
     }
@@ -237,11 +274,11 @@ describe('a stored object over the bound', () => {
 
   test('free/busy names it as missing instead of dropping its busy time silently', async () => {
     storedEvents = [hostileEvent, goodEvent];
-    const [result, ms] = await timed(() => freeBusyQuery.handler({
+    const [result, overBound] = await guarded(() => freeBusyQuery.handler({
       time_range_start: '2026-01-05T00:00:00Z', time_range_end: '2026-01-06T00:00:00Z',
     }));
     if (result instanceof Error) throw result;
-    expect(ms).toBeLessThan(1000);
+    expect(overBound).toBe(0);
     const text = result.content[0].text;
     expect(text).toContain('**Warning**: incomplete');
     expect(text).toContain(`(${hostileEvent.url}): cannot be read — ${BOUND_REASON}`);
@@ -258,23 +295,23 @@ describe('a stored object over the bound', () => {
 
   test('update_contact refuses to edit it, says why, and writes nothing', async () => {
     storedCards = [hostileCard];
-    const [error, ms] = await timed(() => updateContactFields.handler({
+    const [error, overBound] = await guarded(() => updateContactFields.handler({
       vcard_url: hostileCard.url, vcard_etag: '"1"', fields: { FN: 'Renamed' },
     }));
-    expect(ms).toBeLessThan(500);
+    expect(overBound).toBe(0);
     expect(error).toBeInstanceOf(ValidationError);
     expect(error.message).toContain('X-A');
     expect(updateVCard).not.toHaveBeenCalled();
   });
 
-  test('list_events and calendar_query list the other events fast', async () => {
+  test('list_events and calendar_query list the other events', async () => {
     storedEvents = [hostileEvent, goodEvent];
     for (const run of [
       () => listEvents.handler({ calendar_url: CALENDAR_URL }),
       () => calendarQuery.handler({ calendar_url: CALENDAR_URL, summary_filter: 'Standup' }),
     ]) {
-      const [result, ms] = await timed(run);
-      expect(ms).toBeLessThan(1000);
+      const [result, overBound] = await guarded(run);
+      expect(overBound).toBe(0);
       expect(result.content[0].text).toContain('Standup');
     }
   });
@@ -282,10 +319,10 @@ describe('a stored object over the bound', () => {
   test('update_event refuses to edit it and writes nothing', async () => {
     storedEvents = [hostileEvent];
     for (const args of [{ fields: { SUMMARY: 'Renamed' } }, { cancel_occurrences: ['2026-01-05'] }]) {
-      const [error, ms] = await timed(() => updateEventFields.handler({
+      const [error, overBound] = await guarded(() => updateEventFields.handler({
         event_url: hostileEvent.url, event_etag: '"1"', ...args,
       }));
-      expect(ms).toBeLessThan(500);
+      expect(overBound).toBe(0);
       expect(error).toBeInstanceOf(ValidationError);
       expect(error.details).toMatchObject({ code: 'TOO_MANY_PARAMETERS' });
     }
