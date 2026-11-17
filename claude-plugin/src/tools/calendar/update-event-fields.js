@@ -21,7 +21,7 @@ import {
  * end move together, and an explicit end has to replace a stored DURATION; see
  * writeEventFields in src/tools/shared/ical-dates.js.
  */
-const updateEventFieldsSchema = z.object({
+const updateEventFieldsSchema = z.strictObject({
   event_url: davUrl('Event URL must be a valid URL'),
   event_etag: entityTag,
   fields: davFieldMapSchema,
@@ -29,7 +29,7 @@ const updateEventFieldsSchema = z.object({
   end_date: dateOrDateTime.optional(),
   all_day: z.boolean().optional(),
   ...occurrenceEditSchema,
-}).strict().superRefine((data, ctx) => {
+}).superRefine((data, ctx) => {
   // EXDATE/RDATE are lists: written as a field they replace the whole list
   // (tsdav-utils 0.7.0), so single occurrences go through their own
   // parameters; see src/tools/shared/occurrence-edits.js
@@ -43,7 +43,7 @@ const updateEventFieldsSchema = z.object({
   for (const key of ['DTSTART', 'DTEND', 'DURATION']) {
     if (data.fields && key in data.fields) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: 'custom',
         path: ['fields', key],
         message: `Set the dates with start_date/end_date/all_day, not with fields.${key}`,
       });
@@ -61,7 +61,7 @@ const updateEventFieldsSchema = z.object({
   for (const key of ['start_date', 'end_date']) {
     if (data[key] === undefined) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: 'custom',
         path: [key],
         message: `${key} is required when changing the event dates (start_date, end_date and all_day are set together)`,
       });

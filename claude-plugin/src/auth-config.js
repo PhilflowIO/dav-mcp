@@ -50,7 +50,9 @@ export function settingsHint(authMethod) {
     'Claude Code plugin: /plugin → Installed → dav-mcp → Configure options; ' +
     'Claude Desktop extension: Settings → Extensions → dav-mcp: Calendars, Contacts & Tasks; ' +
     'npx, Docker or a checkout: CALDAV_SERVER_URL, CALDAV_USERNAME and CALDAV_PASSWORD ' +
-    '(the MCP client\'s config, docker -e, or .env).';
+    '(the MCP client\'s config, docker -e, or .env). ' +
+    'A separate CardDAV endpoint (e.g. Fastmail) is set with CARDDAV_SERVER_URL, ' +
+    'CARDDAV_USERNAME and CARDDAV_PASSWORD; unset, each falls back to its CALDAV_* value.';
 }
 
 /**
@@ -112,6 +114,24 @@ export function parseAuthMethod(value) {
 /**
  * Build the configuration for tsdavManager.initialize() from the environment.
  *
+ * Under Basic and Digest the optional CARDDAV_SERVER_URL, CARDDAV_USERNAME and
+ * CARDDAV_PASSWORD point the contacts client at a separate CardDAV endpoint
+ * (Fastmail serves calendars and contacts on two hosts). Unset or empty, each
+ * falls back to its CALDAV_* value, so an empty user-config field behaves like
+ * a missing one. OAuth ignores them: it has one Google server.
+ *
+ * `cardDav` is only present when at least one of them is set: that is the
+ * user saying where contacts are, and the client manager then fails the
+ * login when either half fails instead of leaving a half out (see
+ * tsdav-client.js). With none of them set, the configuration is the one
+ * server for both halves it always was.
+ *
+ * The CardDAV login falls back to CALDAV_PASSWORD. When that would carry it
+ * over plain http although CALDAV_SERVER_URL is https, the configuration is
+ * refused: the https rule (request-origins.js) never lets the login leave
+ * https once it is configured, and a fallback must not open that way around
+ * it.
+ *
  * @param {Object} env - Environment variables (usually process.env)
  * @returns {Object} tsdav client configuration
  */
@@ -136,10 +156,56 @@ export function buildTsdavConfig(env) {
   if (!env.CALDAV_SERVER_URL || !env.CALDAV_USERNAME || !env.CALDAV_PASSWORD) {
     throw new ConfigurationError(`${authMethod} Auth requires CALDAV_SERVER_URL, CALDAV_USERNAME, and CALDAV_PASSWORD`);
   }
-  return {
+  const config = {
     serverUrl: env.CALDAV_SERVER_URL,
     authMethod,
     username: env.CALDAV_USERNAME,
     password: env.CALDAV_PASSWORD,
   };
+  // trimmed so a whitespace-only value (a stray space in a user-config field
+  // or an env file) falls back instead of becoming the endpoint; usernames
+  // and passwords may legitimately contain spaces
+  const cardDavUrl = String(env.CARDDAV_SERVER_URL ?? '').trim();
+  if (!cardDavUrl && !env.CARDDAV_USERNAME && !env.CARDDAV_PASSWORD) {
+    return config;
+  }
+  const cardDav = {
+    serverUrl: cardDavUrl || env.CALDAV_SERVER_URL,
+    username: env.CARDDAV_USERNAME || env.CALDAV_USERNAME,
+    password: env.CARDDAV_PASSWORD || env.CALDAV_PASSWORD,
+  };
+  if (!env.CARDDAV_PASSWORD && protocolOf(env.CALDAV_SERVER_URL) === 'https:'
+    && protocolOf(cardDav.serverUrl) === 'http:') {
+    throw new ConfigurationError(
+      `CARDDAV_SERVER_URL ${new URL(String(cardDav.serverUrl).trim()).origin} is plain http while CALDAV_SERVER_URL is https, and ` +
+      'CARDDAV_PASSWORD is not set, so the contacts login would send the calendar password (CALDAV_PASSWORD) ' +
+      'over plain http. Use the https URL of the CardDAV server, or set CARDDAV_PASSWORD to a password ' +
+      'of its own for that endpoint.');
+  }
+  return { ...config, cardDav };
+}
+
+/**
+ * A configured URL as an error message may show it: without the user name
+ * and password a URL may carry before its host (`http://bob:secret@host/`,
+ * or `bob:secret@host` with no scheme), since startup errors end up in logs.
+ * @param {string} value
+ * @returns {string}
+ */
+export function withoutUserinfo(value) {
+  return String(value).replace(/^([^/?#]*\/\/)?[^/?#@]*@/, '$1');
+}
+
+/**
+ * The scheme of a configured URL ('https:', 'http:', ...), or undefined if it
+ * is not a URL; RequestOrigins reports a malformed one with its variable.
+ * @param {string} value
+ * @returns {string|undefined}
+ */
+function protocolOf(value) {
+  try {
+    return new URL(String(value).trim()).protocol;
+  } catch {
+    return undefined;
+  }
 }

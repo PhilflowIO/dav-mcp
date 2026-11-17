@@ -8,12 +8,32 @@ import { readEntityTag, MAX_ETAG_LENGTH } from './etags.js';
  * Validation schemas for all MCP tools
  */
 
+/**
+ * A schema option that words only a malformed value. zod 4 applies a
+ * schema's message to every issue it raises, so a plain message on z.url()
+ * would also stand for a missing or non-string parameter ("Invalid calendar
+ * URL" instead of saying it is required); zod's own wording stays for those.
+ */
+const formatMessage = (message) => ({
+  error: (issue) => (issue.code === 'invalid_format' ? message : undefined),
+});
+
 // Helper: DateTime string with optional timezone offset
 // Accepts both "2026-03-02T09:00:00Z" and "2026-03-02T09:00:00"
-const dateTimeWithOptionalOffset = z.union([
-  z.string().datetime({ offset: true }), // With timezone (Z or +00:00)
-  z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/, 'Invalid datetime format') // Without timezone
-]);
+//
+// With a zone this is the grammar zod 3's datetime({ offset: true }) had:
+// seconds optional, offset with or without its colon ("+01:00", "+0100").
+// zod 4's z.iso.datetime() requires both (RFC 3339), and would now refuse
+// "2026-03-02T09:00Z" or "...+0100", which callers could send so far and
+// which the time-range code reads correctly (new Date). With a zone, the date
+// part is zod's own, so "2026-02-30T09:00Z" stays refused; the no-zone form
+// keeps main's looser pattern (#162 tracks tightening it).
+const DATE = z.regexes.date.source.replace(/^\^|\$$/g, '');
+const DATE_TIME = new RegExp(
+  `^${DATE}T(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|[+-]\\d{2}:?\\d{2})$` + // with a zone
+  '|^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}$', // without one
+);
+const dateTimeWithOptionalOffset = z.string().regex(DATE_TIME, 'Invalid datetime');
 
 /**
  * A date or date-time a write tool accepts, parsed with the grammar tsdav-utils
@@ -43,7 +63,7 @@ export const dateOrDateTime = z.string().superRefine((value, ctx) => {
   try {
     parseDateValue(value);
   } catch (error) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: error.message });
+    ctx.addIssue({ code: 'custom', message: error.message });
   }
 });
 
@@ -92,7 +112,7 @@ export function refineDateRange(data, ctx, { startKey, endKey, mixedZones = 'all
 
   if (startIsDate !== endIsDate) {
     ctx.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: 'custom',
       path: [endIsDate ? endKey : startKey],
       message:
         `${startKey} and ${endKey} must both be date-only (YYYY-MM-DD, an all-day event) ` +
@@ -104,7 +124,7 @@ export function refineDateRange(data, ctx, { startKey, endKey, mixedZones = 'all
   if (mixedZones === 'refuse' && !startIsDate &&
       (startParsed.kind === 'floating') !== (endParsed.kind === 'floating')) {
     ctx.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: 'custom',
       path: [endParsed.kind === 'floating' ? endKey : startKey],
       message:
         `${startKey} and ${endKey} must both name a timezone (Z or an offset) or both leave it out; ` +
@@ -117,7 +137,7 @@ export function refineDateRange(data, ctx, { startKey, endKey, mixedZones = 'all
 
   if (allDay && !startIsDate) {
     ctx.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: 'custom',
       path: [startKey],
       message:
         `all_day is true, so ${startKey}/${endKey} must be date-only (YYYY-MM-DD); ` +
@@ -128,7 +148,7 @@ export function refineDateRange(data, ctx, { startKey, endKey, mixedZones = 'all
 
   if (!allDay && startIsDate) {
     ctx.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: 'custom',
       path: [startKey],
       message:
         `all_day is false, but ${startKey}="${start}" carries no time. ` +
@@ -139,7 +159,7 @@ export function refineDateRange(data, ctx, { startKey, endKey, mixedZones = 'all
 
   if (allDay && startParsed.jcal === endParsed.jcal) {
     ctx.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: 'custom',
       path: [endKey],
       message:
         `An all-day ${endKey} is exclusive: to block ${start} alone, ` +
@@ -156,7 +176,7 @@ export function refineDateRange(data, ctx, { startKey, endKey, mixedZones = 'all
   const comparable = allDay || (startParsed.kind === 'utc' && endParsed.kind === 'utc');
   if (comparable && endParsed.jcal <= startParsed.jcal) {
     ctx.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: 'custom',
       path: [endKey],
       message: allDay
         ? `${endKey} must be after ${startKey} and is exclusive: to block ${start} alone, use ${endKey}="${nextDay(start)}"`
@@ -186,7 +206,7 @@ export const davFieldMapSchema = z.record(z.string(), z.string())
       const upper = key.toUpperCase();
       if (seen.has(upper)) {
         ctx.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: 'custom',
           path: [key],
           message: `"${key}" and "${seen.get(upper)}" name the same property; give it once`,
         });
@@ -196,14 +216,14 @@ export const davFieldMapSchema = z.record(z.string(), z.string())
     for (const [key, value] of Object.entries(fields)) {
       if (!DAV_PROPERTY_NAME.test(key)) {
         ctx.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: 'custom',
           path: [key],
           message: `"${key}" is not a bare property name. Use letters, digits and "-" only (e.g. SUMMARY, X-ZOOM-LINK); parameters such as ";VALUE=DATE" are not supported here`,
         });
       }
       if (/[\r\n]/.test(value)) {
         ctx.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: 'custom',
           path: [key],
           message: `value for "${key}" must not contain line breaks`,
         });
@@ -224,11 +244,11 @@ export const davFieldMapSchema = z.record(z.string(), z.string())
  * with a message naming the allowed origins, before the tool does anything.
  */
 export const davUrl = (message) =>
-  z.string().url(message).superRefine((url, ctx) => {
+  z.url(formatMessage(message)).superRefine((url, ctx) => {
     // not a URL at all: .url() has said so already, in the caller's words
     if (!URL.canParse(url)) return;
     const problem = requestUrlProblem(url);
-    if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem });
+    if (problem) ctx.addIssue({ code: 'custom', message: problem });
   });
 
 /**
@@ -246,7 +266,10 @@ export const davUrl = (message) =>
  * rule itself is readEntityTag (etags.js), which also decides what the list
  * and write tools hand out as an etag.
  */
-export const entityTag = z.string({ required_error: 'ETag is required' }).transform((value, ctx) => {
+export const entityTag = z.string({
+  // a missing etag reads as "required"; any other non-string keeps zod's message
+  error: (issue) => (issue.input === undefined ? 'ETag is required' : undefined),
+}).transform((value, ctx) => {
   const read = readEntityTag(value);
   if (read.ifMatch) return read.ifMatch;
   const message = {
@@ -258,7 +281,7 @@ export const entityTag = z.string({ required_error: 'ETag is required' }).transf
       'shows for the object; if it shows only a weak one, the server gives this object no ETag a write can be checked against',
     malformed: 'not an ETag; pass the etag exactly as the list, query or get tool returned it, e.g. "abc123"',
   }[read.problem];
-  ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+  ctx.addIssue({ code: 'custom', message });
   return z.NEVER;
 });
 
@@ -311,7 +334,7 @@ export const listEventsSchema = z.object({
   time_range_end: dateTimeWithOptionalOffset.optional(),
 });
 
-export const createEventSchema = z.object({
+export const createEventSchema = z.strictObject({
   calendar_url: davUrl('Invalid calendar URL'),
   summary: z.string().min(1, 'Summary is required').max(500),
   start_date: dateOrDateTime,
@@ -319,21 +342,21 @@ export const createEventSchema = z.object({
   all_day: z.boolean().optional(),
   description: z.string().max(5000).optional(),
   location: z.string().max(500).optional(),
-}).strict().superRefine((data, ctx) => refineDateRange(data, ctx, {
+}).superRefine((data, ctx) => refineDateRange(data, ctx, {
   startKey: 'start_date',
   endKey: 'end_date',
 }));
 
-export const updateEventSchema = z.object({
+export const updateEventSchema = z.strictObject({
   event_url: davUrl('Invalid event URL'),
   event_etag: entityTag,
   updated_ical_data: z.string().min(1, 'iCal data is required'),
-}).strict();
+});
 
-export const deleteEventSchema = z.object({
+export const deleteEventSchema = z.strictObject({
   event_url: davUrl('Invalid event URL'),
   event_etag: entityTag,
-}).strict();
+});
 
 export const calendarQuerySchema = z.object({
   limit: resultLimit,
@@ -366,30 +389,30 @@ export const freeBusyQuerySchema = z.object({
   path: ['time_range_end'],
 });
 
-export const makeCalendarSchema = z.object({
+export const makeCalendarSchema = z.strictObject({
   display_name: z.string().min(1, 'Display name is required').max(200),
   description: z.string().max(500).optional(),
   color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
   timezone: z.string().optional(),
   components: z.array(z.enum(['VEVENT', 'VTODO', 'VJOURNAL'])).optional(),
-}).strict();
+});
 
-export const updateCalendarSchema = z.object({
+export const updateCalendarSchema = z.strictObject({
   calendar_url: davUrl('Invalid calendar URL'),
   display_name: z.string().min(1).max(200).optional(),
   description: z.string().max(500).optional(),
   color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
   timezone: z.string().optional(),
-}).strict().refine(data => {
+}).refine(data => {
   // At least one field must be provided for update
   return data.display_name || data.description || data.color || data.timezone;
 }, {
   message: 'At least one field (display_name, description, color, or timezone) must be provided for update',
 });
 
-export const deleteCalendarSchema = z.object({
+export const deleteCalendarSchema = z.strictObject({
   calendar_url: davUrl('Invalid calendar URL'),
-}).strict();
+});
 
 export const calendarMultiGetSchema = z.object({
   calendar_url: davUrl('Invalid calendar URL'),
@@ -403,27 +426,27 @@ export const listContactsSchema = z.object({
   addressbook_url: davUrl('Invalid addressbook URL'),
 });
 
-export const createContactSchema = z.object({
+export const createContactSchema = z.strictObject({
   addressbook_url: davUrl('Invalid addressbook URL'),
   full_name: z.string().min(1, 'Full name is required').max(200),
   family_name: z.string().max(100).optional(),
   given_name: z.string().max(100).optional(),
-  email: z.string().email('Invalid email format').optional(),
+  email: z.email(formatMessage('Invalid email format')).optional(),
   phone: z.string().max(50).optional(),
   organization: z.string().max(200).optional(),
   note: z.string().max(1000).optional(),
-}).strict();
+});
 
-export const updateContactSchema = z.object({
+export const updateContactSchema = z.strictObject({
   vcard_url: davUrl('Invalid vCard URL'),
   vcard_etag: entityTag,
   updated_vcard_data: z.string().min(1, 'vCard data is required'),
-}).strict();
+});
 
-export const deleteContactSchema = z.object({
+export const deleteContactSchema = z.strictObject({
   vcard_url: davUrl('Invalid vCard URL'),
   vcard_etag: entityTag,
-}).strict();
+});
 
 export const addressBookQuerySchema = z.object({
   limit: resultLimit,
@@ -450,7 +473,7 @@ export const listTodosSchema = z.object({
   calendar_url: davUrl('Invalid calendar URL'),
 });
 
-export const createTodoSchema = z.object({
+export const createTodoSchema = z.strictObject({
   calendar_url: davUrl('Invalid calendar URL'),
   summary: z.string().min(1, 'Summary is required').max(500),
   description: z.string().max(5000).optional(),
@@ -458,18 +481,18 @@ export const createTodoSchema = z.object({
   priority: z.number().int().min(0).max(9).optional(), // 0=undefined, 1=highest, 9=lowest
   status: z.enum(['NEEDS-ACTION', 'IN-PROCESS', 'COMPLETED', 'CANCELLED']).optional(),
   percent_complete: z.number().int().min(0).max(100).optional(),
-}).strict();
+});
 
-export const updateTodoSchema = z.object({
+export const updateTodoSchema = z.strictObject({
   todo_url: davUrl('Invalid todo URL'),
   todo_etag: entityTag,
   updated_ical_data: z.string().min(1, 'iCal data is required'),
-}).strict();
+});
 
-export const deleteTodoSchema = z.object({
+export const deleteTodoSchema = z.strictObject({
   todo_url: davUrl('Invalid todo URL'),
   todo_etag: entityTag,
-}).strict();
+});
 
 export const todoQuerySchema = z.object({
   limit: resultLimit,
@@ -502,7 +525,7 @@ export const todoMultiGetSchema = z.object({
 export function validateInput(schema, data) {
   const result = schema.safeParse(data);
   if (!result.success) {
-    const errors = result.error.errors.map((err) => {
+    const errors = result.error.issues.map((err) => {
       // a write tool refuses what it does not take, rather than drop it and
       // report success for a change it never made
       if (err.code === 'unrecognized_keys') {
