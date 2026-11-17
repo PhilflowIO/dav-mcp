@@ -59,8 +59,11 @@ function busyType(fbtype) {
  * @param {string} text - the calendar object's iCalendar text
  * @param {Object} zone - the zone floating values are read in
  * @param {{start: number, end: number}} range - ms
- * @returns {{periods: Array<{start: number, end: number, type: string}>, unreadable: number, stored: boolean, events: boolean}}
- *   stored: whether the object has a VFREEBUSY; events: whether it has a VEVENT
+ * @returns {{periods: Array<{start: number, end: number, type: string}>, unreadable: number, stored: boolean, events: boolean, rest: string|null}}
+ *   stored: whether the object has a VFREEBUSY; events: whether it has a
+ *   VEVENT; rest: when it has a VFREEBUSY, the text without it, for reading
+ *   its other components (a bad period does not cost the events their busy
+ *   time)
  */
 export function storedBusyOf(text, zone, range) {
   const periods = [];
@@ -74,9 +77,14 @@ export function storedBusyOf(text, zone, range) {
   // FREEBUSY properties to read once the whole text is seen: a VTIMEZONE
   // may come after the VFREEBUSY that uses it
   const properties = [];
+  // the logical lines outside a VFREEBUSY
+  const kept = [];
   const inStored = () => stack.length === 2 && stack[0] === 'VCALENDAR' && stack[1] === 'VFREEBUSY';
   for (const line of unfoldLines(text)) {
     const property = parseContentLine(line);
+    const outside = !(stack.length >= 2 && stack[0] === 'VCALENDAR' && stack[1] === 'VFREEBUSY');
+    const opens = property?.name === 'BEGIN' && stack.length === 1 && property.value.trim().toUpperCase() === 'VFREEBUSY';
+    if (outside && !opens) kept.push(line);
     if (!property) {
       // a FREEBUSY line that is not a content line is a period lost
       if (inStored() && /^FREEBUSY[;:]/i.test(line)) unreadable += 1;
@@ -147,7 +155,7 @@ export function storedBusyOf(text, zone, range) {
       periods.push({ start: Math.max(start, range.start), end: Math.min(end, range.end), type });
     }
   }
-  return { periods, unreadable, stored, events };
+  return { periods, unreadable, stored, events, rest: stored ? kept.join('\r\n') : null };
 }
 
 /**
@@ -285,8 +293,6 @@ export function calculateFreeBusy(calendarObjects, range) {
 
   for (const object of calendarObjects) {
     const text = typeof object.data === 'string' ? object.data : '';
-    // an incomplete-note for this object already given (stored periods)
-    let noted = false;
     const stored = storedBusyOf(text, objectFloatingZone(object) ?? serverZone(), window);
     if (stored.stored) {
       if (stored.periods.length > 0) published.push(object);
@@ -298,18 +304,19 @@ export function calculateFreeBusy(calendarObjects, range) {
           summary: 'Stored free/busy',
           reason: `${stored.unreadable === 1 ? 'a FREEBUSY period' : `${stored.unreadable} FREEBUSY periods`} in it`,
         });
-        noted = true;
       }
       // nothing else in it blocks time: no event to parse
       if (!stored.events) continue;
     }
     let root;
     try {
-      root = setFloatingZone(shareTimezones(new ICAL.Component(parseICal(object.data))), objectFloatingZone(object));
+      // with a VFREEBUSY, the rest of the object: its periods are read above
+      const data = stored.stored ? stored.rest : object.data;
+      root = setFloatingZone(shareTimezones(new ICAL.Component(parseICal(data))), objectFloatingZone(object));
     } catch (error) {
       // A single unparseable object must not take the whole answer down,
       // nor its busy time vanish unsaid: the answer is incomplete
-      if (!noted) incomplete.push({ object, summary: '', reason: unreadableReason(error, 'iCalendar') });
+      incomplete.push({ object, summary: '', reason: unreadableReason(error, 'iCalendar') });
       continue;
     }
     const share = budget.take();

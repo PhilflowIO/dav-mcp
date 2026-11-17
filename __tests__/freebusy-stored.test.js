@@ -239,6 +239,19 @@ describe('stored VFREEBUSY read as RFC 5545 content lines', () => {
     expect(output).toContain('**Warning**: incomplete');
   });
 
+  test('a resource with a VEVENT and a VFREEBUSY with a bad period keeps the event\'s busy time', async () => {
+    stored[FREEBUSY] = [calendarObject('mixed', [
+      'BEGIN:VEVENT', 'UID:mixed@test', 'DTSTAMP:20260101T000000Z', 'SUMMARY:Planning',
+      'DTSTART:20260525T100000Z', 'DTEND:20260525T110000Z', 'END:VEVENT',
+      'BEGIN:VFREEBUSY', 'UID:mixed-fb@test', 'DTSTAMP:20260101T000000Z',
+      'FREEBUSY:20260525T140000Z/PT1H,garbage', 'END:VFREEBUSY',
+    ])];
+    const output = await call({ include_event_details: true });
+    expect(busyLines(output)).toEqual(['10:00-11:00', '14:00-15:00']);
+    expect(section(output, 'Events behind the busy blocks')).toContain('Planning');
+    expect(output).toContain('a FREEBUSY period in it');
+  });
+
   test('only FREEBUSY directly in the VFREEBUSY counts, not one in a component nested in it', async () => {
     stored[FREEBUSY] = [freebusy('published',
       'FREEBUSY:20260525T100000Z/PT1H',
