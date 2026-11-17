@@ -20,9 +20,10 @@ import { relateSeries, seriesOccurrences, spanOf, touchesRange, requestBudget, b
 /**
  * The busy types of RFC 5545 3.2.9, strongest first: where periods of
  * several types overlap, the time is reported as the strongest of them.
- * Busy time from events is BUSY.
+ * BUSY-UNAVAILABLE ("busy and cannot be scheduled") outranks BUSY, which
+ * outranks BUSY-TENTATIVE. Busy time from events is BUSY.
  */
-export const BUSY_TYPES = ['BUSY', 'BUSY-UNAVAILABLE', 'BUSY-TENTATIVE'];
+export const BUSY_TYPES = ['BUSY-UNAVAILABLE', 'BUSY', 'BUSY-TENTATIVE'];
 
 /**
  * The busy type a FREEBUSY property stands for, or null for free time.

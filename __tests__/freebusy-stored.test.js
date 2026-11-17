@@ -162,6 +162,12 @@ describe('stored VFREEBUSY periods', () => {
     expect(behind).not.toContain('elsewhere');
   });
 
+  test('BUSY-UNAVAILABLE outranks an event over it (RFC 5545 3.2.9)', async () => {
+    events[FREEBUSY] = [event('Meeting', '20260525T113000Z', '20260525T120000Z')];
+    stored[FREEBUSY] = [freebusy('published', 'FREEBUSY;FBTYPE=BUSY-UNAVAILABLE:20260525T110000Z/20260525T130000Z')];
+    expect(busyLines(await call())).toEqual(['11:00-13:00 BUSY-UNAVAILABLE']);
+  });
+
   test('a period that cannot be read leaves the others counted and the answer incomplete', async () => {
     stored[FREEBUSY] = [freebusy('published',
       'FREEBUSY:20260525T100000Z/PT1H,garbage,20260525T120000Z/20260525T110000Z,20260525T140000Z/PT1H')];
