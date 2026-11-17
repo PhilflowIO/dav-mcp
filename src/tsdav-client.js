@@ -359,9 +359,9 @@ class TsdavClientManager {
       // policy, even on the same URL: a policy learns every host its login
       // was redirected to, so a shared one would hand the CardDAV login to a
       // host only the calendar login was sent to. Each policy also refuses
-      // every host the other half's login may go to, configured or learned
-      // (see keepApartFrom), so a redirect cannot carry one login to the
-      // other half's hosts. Without CARDDAV_* one login serves both
+      // the other half's configured host (see keepApartFrom), so a redirect
+      // cannot carry one login to the other half's endpoint; the hosts a
+      // configured server redirects to are trusted as it names them. Without CARDDAV_* one login serves both
       // halves, and they share one policy, as before. The names make
       // configuration errors point at the setting that caused them.
       const calOrigins = new RequestOrigins({

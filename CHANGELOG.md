@@ -16,7 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   only; OAuth ignores them. Each client keeps its own login and its own
   allowed URLs, so a calendar request never carries the calendar login to
   the contacts host or the other way round (a redirect from one endpoint
-  onto the other's host fails the login), and an http contacts endpoint
+  onto the other's configured host fails the login; the hosts a configured
+  server redirects its own login to, such as iCloud's per-account hosts,
+  are trusted as that server names them, as with a single server), and an
+  http contacts endpoint
   does not weaken the https rule of an https calendar one. Once any
   `CARDDAV_*` is set, both logins must succeed: the tolerance for a half
   the server does not serve (#152) only applies to a single server. An

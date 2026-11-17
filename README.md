@@ -244,6 +244,12 @@ One fallback is refused: with an https `CALDAV_SERVER_URL` and a plain http
 password would otherwise go over plain http. dav-mcp then stops at startup and
 says so.
 
+Each login stays on its own endpoint: a redirect from one configured
+endpoint onto the other's is refused, and the login fails. The hosts a
+configured server redirects its own login to (iCloud's per-account hosts, a
+proxy in front of the DAV server) are trusted as that server names them,
+just as with a single server.
+
 As soon as one `CARDDAV_*` variable is set, both endpoints are required: if
 either login fails (refused, unreachable, or the URL serves no calendars or no
 contacts), startup fails with an error naming the half and the endpoint that

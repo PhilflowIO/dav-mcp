@@ -243,7 +243,8 @@ export class RequestOrigins {
     this.secure = server.protocol === 'https:';
     this.serves = serves;
     this.configuredOrigin = server.origin;
-    // the other half's policy, when each half has its own (see keepApartFrom)
+    // the other half's configured host, when each half has its own policy
+    // (see keepApartFrom)
     this.apart = null;
     this.scopes = [];
     this.loginOrigins = new Set([server.origin]);
@@ -269,33 +270,38 @@ export class RequestOrigins {
   }
 
   /**
-   * Keep this login off every host the other half's login may go to: its
-   * configured host and every host it learned (a discovery redirect, a
-   * per-account host like iCloud's pNN-caldav.icloud.com), at the moment of
-   * each check, so it does not matter which half logged in first. Set on
+   * Keep this login off the other half's configured host, so neither
+   * endpoint can redirect its login onto the other half's endpoint. Set on
    * both policies, so the rule holds both ways. A host both halves were
    * configured with stays shared: that is the user's own setting.
+   *
+   * Only the configured host is refused, not the hosts the other half
+   * learned while logging in. A server's own redirects (iCloud's per-account
+   * pNN-caldav and pNN-contacts hosts, a front proxy pointing at its DAV host)
+   * are trusted as that configured server names them, as on a single
+   * server; and two configured hosts may well redirect to one shared DAV
+   * host. At the level of origins such a legitimate shared host cannot be
+   * told from a malicious redirect, and a rule that refused the other half's
+   * learned hosts would depend on which half logged in first, and on later
+   * address-book listings.
    *
    * Hosts are compared by origin as written (scheme, host name, port): two
    * names for one machine (localhost and 127.0.0.1, a CNAME) cannot be told
    * apart without resolving them, which this check does not do.
    *
-   * @param {RequestOrigins} other - the other half's policy
+   * @param {RequestOrigins} other - the other half's policy; only its
+   *   configured host is read, once
    * @param {{name: string, own: string}} names - the other half's server
    *   variable and this one's, for messages
    */
   keepApartFrom(other, names) {
-    this.apart = { policy: other, ...names };
-  }
-
-  /** The origins the other half's login may currently go to. */
-  #trustedOrigins() {
-    return new Set([...this.loginOrigins, ...this.scopes.map(scope => scope.origin)]);
+    this.apart = other.configuredOrigin === this.configuredOrigin
+      ? null
+      : { origin: other.configuredOrigin, ...names };
   }
 
   #otherHalfHas(origin) {
-    if (!this.apart || origin === this.configuredOrigin) return false;
-    return this.apart.policy.#trustedOrigins().has(origin);
+    return Boolean(this.apart) && origin === this.apart.origin;
   }
 
   /**
@@ -365,11 +371,8 @@ export class RequestOrigins {
         `requests are only sent over https. Allowed: ${allowed}.`;
     }
     if (this.#otherHalfHas(url.origin)) {
-      const { policy, name, own } = this.apart;
-      const whose = url.origin === policy.configuredOrigin
-        ? `the server configured as ${name}`
-        : `a host the login for ${name} goes to`;
-      return `${url.origin} is ${whose}, and the login configured for ${own} is never sent there: each half ` +
+      const { name, own } = this.apart;
+      return `${url.origin} is the server configured as ${name}, and the login configured for ${own} is never sent there: each half ` +
         `keeps its login on its own endpoint. If ${own} redirects there, set ${own} to the URL that serves ` +
         `this half. Allowed: ${allowed}.`;
     }
