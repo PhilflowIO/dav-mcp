@@ -1,12 +1,14 @@
 import { describe, test, expect, beforeAll, afterAll } from '@jest/globals';
 import http from 'node:http';
 
-// An iCloud-like split server: the server serves one account type's home
-// and answers the other's home-set request with the property EMPTY — the
-// shape caldav.icloud.com and contacts.icloud.com each present.
+// Servers that serve only one half (CalDAV or CardDAV) at the configured URL
+// (#152): iCloud answers the other half's home-set request with the property
+// EMPTY (caldav.icloud.com and contacts.icloud.com each), all-inkl answers it
+// with a 404. Such a half is left out; any other failure of a half (refused,
+// a server fault, ...) still fails the login, so it is retried.
 const { tsdavManager } = await import('../src/tsdav-client.js');
 const { requestUrlProblem } = await import('../src/request-origins.js');
-const { CardDAVError, CalDAVError } = await import('../src/error-handler.js');
+const { CardDAVError, CalDAVError, MCP_ERROR_CODES } = await import('../src/error-handler.js');
 const { tools } = await import('../src/tools/index.js');
 
 const multistatus = (responses) =>
@@ -17,9 +19,15 @@ const propResponse = (href, prop) =>
   `<d:response><d:href>${href}</d:href><d:propstat><d:prop>${prop}</d:prop>` +
   '<d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>';
 
-// mode 'caldav': serves a calendar home, addressbook-home-set empty (caldav.icloud.com).
-// mode 'carddav': the mirror (contacts.icloud.com).
-function splitServer(mode) {
+const HOMES = {
+  calendar: ['calendar-home-set', 'cal', '/calendars/user/'],
+  addressbook: ['addressbook-home-set', 'card', '/addressbooks/user/'],
+};
+
+// Each home is 'served', 'empty' (the property comes back without an href,
+// the iCloud shape) or an HTTP status the home-set request is answered with
+// (404 is the all-inkl shape). Settable while the server runs.
+function davServer(homes) {
   const server = http.createServer((req, res) => {
     let body = '';
     req.on('data', chunk => { body += chunk; });
@@ -29,22 +37,22 @@ function splitServer(mode) {
         res.writeHead(status, { 'content-type': 'application/xml; charset=utf-8' });
         res.end(multistatus(responses));
       };
+      if (path === '/token') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ access_token: 'token', expires_in: 3600, token_type: 'Bearer' }));
+      }
       if (path.startsWith('/.well-known/')) { res.writeHead(404); return res.end(); }
       if (body.includes('current-user-principal')) {
         return xml(207, propResponse(path,
           '<d:current-user-principal><d:href>/principals/user/</d:href></d:current-user-principal>'));
       }
-      if (body.includes('calendar-home-set')) {
-        const prop = mode === 'caldav'
-          ? '<cal:calendar-home-set><d:href>/calendars/user/</d:href></cal:calendar-home-set>'
-          : '<cal:calendar-home-set/>';
-        return xml(207, propResponse(path, prop));
-      }
-      if (body.includes('addressbook-home-set')) {
-        const prop = mode === 'carddav'
-          ? '<card:addressbook-home-set><d:href>/addressbooks/user/</d:href></card:addressbook-home-set>'
-          : '<card:addressbook-home-set/>';
-        return xml(207, propResponse(path, prop));
+      for (const [kind, [property, ns, href]] of Object.entries(HOMES)) {
+        if (!body.includes(property)) continue;
+        const home = server.homes[kind];
+        if (Number.isInteger(home)) { res.writeHead(home); return res.end(); }
+        return xml(207, propResponse(path, home === 'served'
+          ? `<${ns}:${property}><d:href>${href}</d:href></${ns}:${property}>`
+          : `<${ns}:${property}/>`));
       }
       if (req.method === 'PROPFIND' && path === '/calendars/user/') {
         return xml(207, propResponse('/calendars/user/work/',
@@ -60,7 +68,9 @@ function splitServer(mode) {
       res.end();
     });
   });
+  server.homes = homes;
   return {
+    server,
     async start() {
       await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
       this.origin = `http://127.0.0.1:${server.address().port}`;
@@ -70,19 +80,24 @@ function splitServer(mode) {
   };
 }
 
-describe('password login against a CalDAV-only server (iCloud caldav.icloud.com shape)', () => {
-  let server;
+const passwordLogin = (dav) => tsdavManager.initialize({
+  serverUrl: `${dav.origin}/`, authMethod: 'Basic', username: 'user', password: 'secret',
+});
+
+const failedLogin = (dav) => passwordLogin(dav).then(() => null, e => e);
+
+describe('password login against a CalDAV-only server (iCloud caldav.icloud.com shape: empty home set)', () => {
+  let dav;
   beforeAll(async () => {
-    server = await splitServer('caldav').start();
-    await tsdavManager.initialize({
-      serverUrl: `${server.origin}/`, authMethod: 'Basic', username: 'user', password: 'secret',
-    });
+    dav = await davServer({ calendar: 'served', addressbook: 'empty' }).start();
+    await passwordLogin(dav);
   });
-  afterAll(() => server.stop());
+  afterAll(() => dav.stop());
 
   test('initialize resolves with the CalDAV half and a null CardDAV half', () => {
     expect(tsdavManager.calDavClient).toBeTruthy();
     expect(tsdavManager.cardDavClient).toBeNull();
+    expect(tsdavManager.availableAccountTypes()).toEqual(['caldav']);
   });
 
   test('the working half still lists calendars', async () => {
@@ -90,35 +105,60 @@ describe('password login against a CalDAV-only server (iCloud caldav.icloud.com 
     expect(calendars.map(c => c.displayName)).toEqual(['Work']);
   });
 
-  test('getCardDavClient throws the typed error', () => {
-    expect(() => tsdavManager.getCardDavClient()).toThrow(CardDAVError);
-    expect(() => tsdavManager.getCardDavClient()).toThrow(/not initialized/i);
+  test('getCardDavClient says the server does not serve CardDAV, why, and where the URL is set', () => {
+    let error;
+    try { tsdavManager.getCardDavClient(); } catch (e) { error = e; }
+    expect(error).toBeInstanceOf(CardDAVError);
+    expect(error.message).toContain(`${dav.origin}/ does not serve CardDAV`);
+    expect(error.message).toContain('contact tools are not available');
+    expect(error.message).toContain('cannot find homeUrl');
+    expect(error.message).toContain('CALDAV_SERVER_URL');
+    expect(error.message).not.toMatch(/not initialized/i);
+    expect(error.details).toMatchObject({ accountType: 'carddav', serverUrl: `${dav.origin}/` });
   });
 
-  test('a contacts tool fails cleanly per call', async () => {
+  test('a contacts tool fails per call with that typed error', async () => {
     const listAddressbooks = tools.find(t => t.name === 'list_addressbooks');
-    await expect(listAddressbooks.handler({})).rejects.toThrow(/not initialized/i);
+    await expect(listAddressbooks.handler({})).rejects.toThrow(CardDAVError);
+    await expect(listAddressbooks.handler({})).rejects.toThrow(/does not serve CardDAV/);
   });
 
   test('request origins stay scoped to the working half', () => {
-    expect(requestUrlProblem(`${server.origin}/calendars/user/work/`)).toBeNull();
+    expect(requestUrlProblem(`${dav.origin}/calendars/user/work/`)).toBeNull();
     expect(requestUrlProblem('https://foreign.example.com/x.ics')).toMatch(/outside/);
   });
 });
 
-describe('password login against a CardDAV-only server (iCloud contacts.icloud.com shape)', () => {
-  let server;
+describe('password login against a CalDAV-only server (all-inkl shape: 404 for the address book home)', () => {
+  let dav;
   beforeAll(async () => {
-    server = await splitServer('carddav').start();
-    await tsdavManager.initialize({
-      serverUrl: `${server.origin}/`, authMethod: 'Basic', username: 'user', password: 'secret',
-    });
+    dav = await davServer({ calendar: 'served', addressbook: 404 }).start();
+    await passwordLogin(dav);
   });
-  afterAll(() => server.stop());
+  afterAll(() => dav.stop());
+
+  test('initialize resolves with the CalDAV half only', () => {
+    expect(tsdavManager.availableAccountTypes()).toEqual(['caldav']);
+  });
+
+  test('the CardDAV error names the 404', () => {
+    expect(() => tsdavManager.getCardDavClient()).toThrow(CardDAVError);
+    expect(() => tsdavManager.getCardDavClient()).toThrow(/does not serve CardDAV.*the server answered 404/);
+  });
+});
+
+describe('password login against a CardDAV-only server (iCloud contacts.icloud.com shape)', () => {
+  let dav;
+  beforeAll(async () => {
+    dav = await davServer({ calendar: 'empty', addressbook: 'served' }).start();
+    await passwordLogin(dav);
+  });
+  afterAll(() => dav.stop());
 
   test('initialize resolves with the CardDAV half and a null CalDAV half', () => {
     expect(tsdavManager.cardDavClient).toBeTruthy();
     expect(tsdavManager.calDavClient).toBeNull();
+    expect(tsdavManager.availableAccountTypes()).toEqual(['carddav']);
   });
 
   test('the working half still lists address books', async () => {
@@ -128,6 +168,40 @@ describe('password login against a CardDAV-only server (iCloud contacts.icloud.c
 
   test('getCalDavClient throws the typed error', () => {
     expect(() => tsdavManager.getCalDavClient()).toThrow(CalDAVError);
+    expect(() => tsdavManager.getCalDavClient()).toThrow(/does not serve CalDAV, so the calendar and task tools/);
+  });
+});
+
+// A half that fails for a reason that may be gone on the next try must not
+// leave the server running without that half for good: the login fails, as
+// it did before split servers were tolerated, and stdio retries it on the
+// next tool call.
+describe('a half failing for another reason still fails the login', () => {
+  let dav;
+  beforeAll(async () => { dav = await davServer({ calendar: 'served', addressbook: 'served' }).start(); });
+  afterAll(() => dav.stop());
+
+  // a server fault, a rate limit, forbidden
+  test.each([503, 429, 403])('CardDAV home answered %i: initialize rejects', async (status) => {
+    dav.server.homes = { calendar: 'served', addressbook: status };
+    const error = await failedLogin(dav);
+    expect(error).toBeTruthy();
+    expect(error.code).not.toBe(MCP_ERROR_CODES.CONFIGURATION_ERROR);
+    expect(error.message).toContain(`the server answered ${status}`);
+  });
+
+  test('CardDAV refused (401) while CalDAV logs in: an authentication error', async () => {
+    dav.server.homes = { calendar: 'served', addressbook: 401 };
+    const error = await failedLogin(dav);
+    expect(error.name).toBe('AuthenticationError');
+  });
+
+  test('a retry once the fault is gone logs in both halves', async () => {
+    dav.server.homes = { calendar: 'served', addressbook: 503 };
+    expect(await failedLogin(dav)).toBeTruthy();
+    dav.server.homes = { calendar: 'served', addressbook: 'served' };
+    await passwordLogin(dav);
+    expect(tsdavManager.availableAccountTypes()).toEqual(['caldav', 'carddav']);
   });
 });
 
@@ -145,5 +219,53 @@ describe('both halves failing is still a failed login', () => {
     await new Promise(resolve => dead.close(resolve));
     expect(error).toBeTruthy();
     expect(error.name).toBe('AuthenticationError');
+  });
+
+  test('a server serving neither half is the CalDAV configuration error', async () => {
+    const dav = await davServer({ calendar: 'empty', addressbook: 404 }).start();
+    const error = await failedLogin(dav);
+    await dav.stop();
+    expect(error.code).toBe(MCP_ERROR_CODES.CONFIGURATION_ERROR);
+    expect(error.message).toContain('cannot find homeUrl');
+    expect(error.message).toContain('does not lead to a CalDAV/CardDAV server');
+  });
+});
+
+// Google serves no CardDAV at its CalDAV URL. The CardDAV half used to stay
+// in place without an account, and contact tools failed inside tsdav ("no
+// account for fetchAddressBooks"); now it is left out like any unserved half.
+describe('OAuth login against a server without CardDAV (Google shape)', () => {
+  let dav;
+  beforeAll(async () => {
+    dav = await davServer({ calendar: 'served', addressbook: 'empty' }).start();
+    await tsdavManager.initialize({
+      serverUrl: `${dav.origin}/`, authMethod: 'OAuth', username: 'alex@example.com',
+      clientId: 'id', clientSecret: 'secret', refreshToken: 'refresh', tokenUrl: `${dav.origin}/token`,
+    });
+  });
+  afterAll(() => dav.stop());
+
+  test('the CardDAV half is null and not reported as available', () => {
+    expect(tsdavManager.calDavClient).toBeTruthy();
+    expect(tsdavManager.cardDavClient).toBeNull();
+    expect(tsdavManager.availableAccountTypes()).toEqual(['caldav']);
+  });
+
+  test('a contacts tool fails with the typed error naming the GOOGLE_ settings', async () => {
+    const listAddressbooks = tools.find(t => t.name === 'list_addressbooks');
+    const error = await listAddressbooks.handler({}).then(() => null, e => e);
+    expect(error).toBeInstanceOf(CardDAVError);
+    expect(error.message).toContain('does not serve CardDAV');
+    expect(error.message).toContain('GOOGLE_SERVER_URL');
+  });
+
+  test('a CardDAV fault under OAuth fails the login instead of dropping the half', async () => {
+    dav.server.homes = { calendar: 'served', addressbook: 503 };
+    const error = await tsdavManager.initialize({
+      serverUrl: `${dav.origin}/`, authMethod: 'OAuth', username: 'alex@example.com',
+      clientId: 'id', clientSecret: 'secret', refreshToken: 'refresh', tokenUrl: `${dav.origin}/token`,
+    }).then(() => null, e => e);
+    expect(error).toBeTruthy();
+    expect(error.message).toContain('the server answered 503');
   });
 });
