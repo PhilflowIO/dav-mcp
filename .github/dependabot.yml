@@ -1,0 +1,22 @@
+# Every action in .github/workflows is pinned to a commit SHA with its
+# release in a trailing comment. Dependabot moves both together, so the pins
+# keep up with security fixes instead of staying at the day they were set.
+# Only GitHub Actions: npm dependencies and the mirrored CI images
+# (.github/ci-images.txt) are updated by hand.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # Minor and patch releases come in one pull request; a major release,
+    # which may change inputs or behaviour, gets one of its own.
+    groups:
+      github-actions:
+        patterns:
+          - '*'
+        update-types:
+          - minor
+          - patch
+    commit-message:
+      prefix: ci

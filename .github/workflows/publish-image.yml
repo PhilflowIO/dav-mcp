@@ -124,6 +124,11 @@ jobs:
 
       # Built and smoke-tested before anything is pushed, so a release can
       # never publish an image that was not observed booting.
+      # No GitHub Actions cache, here or in the two builds below: any job on
+      # main can write any cache entry (docker.yml does on every push), and a
+      # scope name only names entries, it does not protect them. A release
+      # image is built from the tag alone. The builds of this job still share
+      # layers through the Buildx builder they all run on.
       - name: Build image for verification
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
@@ -131,7 +136,6 @@ jobs:
           load: true
           tags: dav-mcp:verify
           build-args: ${{ steps.base.outputs.build-args }}
-          cache-from: type=gha
 
       # The server exits 1 when CalDAV initialization fails
       # (src/server-http.js:166), so the smoke test needs a real backend.
@@ -171,7 +175,6 @@ jobs:
           load: true
           tags: dav-mcp:verify-arm64
           build-args: ${{ steps.base.outputs.build-args }}
-          cache-from: type=gha
 
       # Same backend as the amd64 check; the arm64 container runs under QEMU,
       # so it gets a longer window to report healthy.
@@ -224,7 +227,13 @@ jobs:
           labels: |
             org.opencontainers.image.revision=${{ steps.base.outputs.sha }}
 
-      # docker format keeps HEALTHCHECK, which the OCI format drops.
+      # provenance adds a SLSA provenance attestation per platform (mode=max:
+      # the build arguments, here the base image references, are in it; no
+      # secret is passed to this build). BuildKit then pushes an OCI image
+      # index with the attestations as extra manifests of platform
+      # unknown/unknown; docker pull skips those, and the image config,
+      # HEALTHCHECK included, is the same as in the docker format. The verify
+      # jobs below pull this index by digest and wait for the health check.
       - name: Build and push
         id: push
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
@@ -235,9 +244,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: ${{ steps.base.outputs.build-args }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: false
+          provenance: mode=max
 
   # The checks above run before the push, on locally built images, and the
   # arm64 one under QEMU: they prove the build. This job proves the published

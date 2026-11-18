@@ -27,7 +27,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
 
@@ -73,7 +73,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Resolve mirrored CI images
         id: images
@@ -82,7 +82,7 @@ jobs:
       # Before QEMU and Buildx: both start containers from mirrored images,
       # and BuildKit pulls the base images with these credentials too.
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -119,12 +119,12 @@ jobs:
       # QEMU and BuildKit come from the mirror (.github/ci-images.txt).
       - name: Set up QEMU
         if: matrix.arch == 'amd64'
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
         with:
           image: ${{ steps.images.outputs.binfmt }}
 
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
         with:
           driver-opts: image=${{ steps.images.outputs.buildkit }}
 
@@ -133,12 +133,13 @@ jobs:
       # does not exercise that path, so this stays, on the amd64 leg only.
       # Nothing is loaded: --load holds a single platform; the native build
       # below is the one that gets booted.
-      # This step exports the cache, not the amd64-only one: the GHA cache scope
-      # is shared with publish-image.yml, and an amd64-only export from main
-      # would replace the release's multi-arch cache and drop its arm64 layers.
+      # This step exports the cache, not the amd64-only one: an amd64-only
+      # export would replace the multi-arch cache and drop the arm64 layers
+      # the arm64 leg reads. The release build (publish-image.yml) reads no
+      # GHA cache, so nothing written here reaches a published image.
       - name: Build all published platforms
         if: matrix.arch == 'amd64'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -149,7 +150,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           load: true

@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+- **The container image carries a build provenance attestation** (#177).
+  `docker buildx imagetools inspect ghcr.io/philflowio/dav-mcp:<version>
+  --format '{{json .Provenance}}'` shows the commit, workflow run and base
+  images it was built from. The release build no longer reads the GitHub
+  Actions build cache that every push to main writes, so a published image
+  comes from the tag's sources alone.
+- CI pins every GitHub Action to a commit SHA, as the release workflows
+  already did, Dependabot keeps those pins current, and the test and lint
+  jobs install from the lockfile with `npm ci` (#177).
+
 ## [5.1.2] - 2026-11-18
 
 ### Changed
