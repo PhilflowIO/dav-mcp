@@ -834,8 +834,8 @@ function calendarPlan(event, rule, parts) {
  * BYYEARDAY within ±365; a BYWEEKNO within ±52 with BYDAY; DTSTART's day
  * when it is 1-28; BYSETPOS only over plain weekdays, within the four of
  * each a month surely has. Combinations that intersect (BYMONTHDAY with
- * BYDAY, ...) can be empty; so can MONTHLY;BYMONTH, which ical.js also does
- * not repeat by INTERVAL.
+ * BYDAY, ...) can be empty; so is every month of MONTHLY;BYMONTH that the
+ * list leaves out.
  */
 function everyPeriodHasOne(rule, parts, startWall) {
   const yearly = rule.freq === 'YEARLY';
