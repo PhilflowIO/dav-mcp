@@ -11,6 +11,9 @@ describe('checkBearerToken', () => {
     ['the README example', 'your-secret-token', /example value/],
     ['the MIGRATION.md example', 'YOUR_BEARER_TOKEN', /example value/],
     ['one character short', 'x'.repeat(MIN_BEARER_TOKEN_LENGTH - 1), /has 31 characters; at least 32/],
+    ['32 spaces', ' '.repeat(32), /contains whitespace/],
+    ['a token with a space inside', `${'a'.repeat(20)} ${'b'.repeat(20)}`, /contains whitespace/],
+    ['a token with a trailing newline', `${'f'.repeat(64)}\n`, /contains whitespace/],
   ])('refuses %s, and says how to generate a token', (_, value, reason) => {
     let error;
     try {

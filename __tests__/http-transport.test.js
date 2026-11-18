@@ -221,6 +221,7 @@ describe('HTTP transport: BEARER_TOKEN is checked before the server listens', ()
     ['the .env.example placeholder', 'your-secure-token-here', 'BEARER_TOKEN is the example value'],
     ['the README example', 'your-secret-token', 'BEARER_TOKEN is the example value'],
     ['31 characters', 'a'.repeat(31), 'BEARER_TOKEN has 31 characters; at least 32 are required'],
+    ['32 spaces', ' '.repeat(32), 'BEARER_TOKEN contains whitespace'],
   ])('%s: exits 1 and says how to generate a token', async (_, token, message) => {
     const { code, output } = await startRefused(davPort, { BEARER_TOKEN: token });
     expect(code).toBe(1);

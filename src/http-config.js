@@ -12,7 +12,8 @@ import { ConfigurationError } from './auth-config.js';
 export const MIN_BEARER_TOKEN_LENGTH = 32;
 
 // Values the documentation has shown as examples. Anyone can read them, so a
-// server that accepts one has no authentication.
+// server that accepts one has no authentication. All are shorter than the
+// minimum too; they are named so the error says what is wrong with them.
 const PLACEHOLDER_TOKENS = new Set([
   'your-secure-token-here',
   'your-secret-token',
@@ -24,13 +25,22 @@ const HOW_TO_GENERATE = 'Generate one with `openssl rand -hex 32` and set it as 
 /**
  * @param {string|undefined} value - BEARER_TOKEN as read from the environment
  * @returns {string} the token
- * @throws {ConfigurationError} when the token is unset, a documented example
- *   value, or shorter than MIN_BEARER_TOKEN_LENGTH characters
+ * @throws {ConfigurationError} when the token is unset, contains whitespace,
+ *   is a documented example value, or is shorter than MIN_BEARER_TOKEN_LENGTH
+ *   characters
  */
 export function checkBearerToken(value) {
   if (!value) {
     throw new ConfigurationError(
       `BEARER_TOKEN is not set; the HTTP transport refuses every request without it. ${HOW_TO_GENERATE}`,
+    );
+  }
+  // Length alone would pass 32 spaces. Whitespace is also what a wrapped
+  // line or a stray quote in an env file adds, and an Authorization header
+  // cannot carry it reliably.
+  if (/\s/.test(value)) {
+    throw new ConfigurationError(
+      `BEARER_TOKEN contains whitespace; a token is one unbroken string. ${HOW_TO_GENERATE}`,
     );
   }
   if (PLACEHOLDER_TOKENS.has(value)) {

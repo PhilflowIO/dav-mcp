@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Breaking changes
 - **The HTTP transport does not start without a strong `BEARER_TOKEN`**
   (#177). An HTTP deployment that has no token, the `.env.example` value
-  (`your-secure-token-here`) or one shorter than 32 characters now exits 1
+  (`your-secure-token-here`), one shorter than 32 characters or one
+  containing whitespace now exits 1
   at startup instead of serving. **Fix:** set `BEARER_TOKEN=$(openssl rand -hex 32)`
   and give the new value to your MCP clients. Without a token the server
   answered 500 to every MCP request while `/health` said healthy; with the
