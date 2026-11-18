@@ -8,22 +8,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- **Dependencies: @philflow/tsdav-utils 0.8.0.** Recurring events are read
+- **Dependencies: @philflow/tsdav-utils 0.8.1.** Recurring events are read
   from near the queried range by the library itself, so an old open-ended
   series that used to come back "incomplete" (an every-second rule since 1950
   limited to 09:00, say) is now answered in full. A yearly series with several
   hours (`FREQ=YEARLY;BYHOUR=17,13`) now shows at the smallest of them (13:00)
   instead of the first listed; the calendar library uses only one of them
   either way, which RFC 5545 does not.
-- **A rule the calendar library gives up on is named as such.** ical.js
-  ends a rule after 28 years without an occurrence (a fifth Sunday of
-  February, say) and cannot compute what follows. Until tsdav-utils 0.7.0
-  that passed for the end of the series; now `free_busy_query`,
-  `calendar_query` and `list_events` mark the series incomplete and say
-  that the calendar library cannot compute its occurrences from that point
-  on, instead of "too many occurrences". A field update whose new rule or
-  added exclusion cannot be checked for that reason is refused with the
-  library's code `CHECK_LIBRARY_STOPPED` and the route through the raw tool.
+- **Monthly and yearly series follow RFC 5545 where the calendar library did
+  not.** Every candidate is checked against RFC 5545. `MONTHLY;INTERVAL=2;BYMONTH=…`
+  keeps to every second month instead of every listed one, so an override of
+  a month outside that grid no longer shows; a day a month lacks
+  (`YEARLY;BYMONTH=2;BYMONTHDAY=30`) no longer becomes 1 or 2 March; a
+  `MONTHLY;BYMONTHDAY` series whose first month lacks the day keeps its
+  INTERVAL grid instead of running a month early. A rule that never recurs
+  after its start (`BYDAY=5MO;BYSETPOS=5`) is answered completely again.
+- **A rule the calendar library cannot compute in full is named as such.**
+  ical.js skips occurrences RFC 5545 requires in some rules
+  (`FREQ=YEARLY;BYMONTHDAY=15` without BYMONTH gets only DTSTART's month;
+  `YEARLY;BYMONTH=6;BYDAY=MO;BYHOUR=0,9` only one of the hours) and ends a
+  rule after 28 years without an occurrence. Until tsdav-utils 0.7.0 such
+  results passed for complete; now `free_busy_query`, `calendar_query` and
+  `list_events` mark the series incomplete and say that the calendar library
+  cannot compute its occurrences from some point on, instead of "too many
+  occurrences". A field update whose new rule or added exclusion cannot be
+  checked for that reason is refused with the library's code
+  `CHECK_LIBRARY_STOPPED` and the route through the raw tool.
+- **A rule that would hang the calendar library is a series that cannot be
+  read.** ical.js searched without end for a fifth weekday in some monthly
+  rules (`MONTHLY;INTERVAL=24;BYDAY=-1TH,5MO` from 14 February 2019), so the
+  tool call never returned; such a series is now listed as one that cannot
+  be read, with the reason.
 
 ## [5.1.0] - 2026-11-17
 

@@ -411,16 +411,25 @@ describe('times are shown as tsdav-utils converts them', () => {
     expect(text).toMatch(/cannot be read — .*floating/);
   });
 
-  test('MONTHLY;BYMONTH, which ical.js yields out of order, loses no occurrence near a window end', () => {
+  test.each([
+    // every month: 27 February 2005 is an occurrence, its override moved in
+    ['FREQ=MONTHLY;BYMONTH=11,2', ['Moved']],
+    // RFC 5545: INTERVAL=2 from November keeps the odd months, so February is
+    // never in it and the override names no occurrence (tsdav-utils 0.8.1;
+    // ical.js ignored INTERVAL here and yielded every listed month)
+    ['FREQ=MONTHLY;INTERVAL=2;BYMONTH=11,2', []],
+  ])('%s, listed out of order, loses no occurrence near a window end', (rule, names) => {
     const series = relateSeries(...(() => {
       const root = new ICAL.Component(ICAL.parse(object(
-        vevent('SUMMARY:x', 'DTSTART:19951127T030000Z', 'DURATION:PT1H', 'RRULE:FREQ=MONTHLY;INTERVAL=2;BYMONTH=11,2'),
+        vevent('SUMMARY:x', 'DTSTART:19951127T030000Z', 'DURATION:PT1H', `RRULE:${rule}`),
         vevent('SUMMARY:Moved', 'RECURRENCE-ID:20050227T030000Z', 'DTSTART:20241214T081500Z', 'DURATION:PT15M')).data));
       const { master, overrides } = readSeries(root, 'vevent');
       return [master, overrides];
     })());
     const range = { start: Date.UTC(2024, 11, 14), end: Date.UTC(2024, 11, 15) };
-    expect(seriesOccurrences(series, range).occurrences.map((o) => o.item.summary)).toEqual(['Moved']);
+    const result = seriesOccurrences(series, range);
+    expect(result.truncated).toBe(false);
+    expect(result.occurrences.map((o) => o.item.summary)).toEqual(names);
   });
 });
 
@@ -446,15 +455,16 @@ describe('periods that can be empty, and BY lists out of order (review of #110)'
     expect(fast(text, range)).toEqual(full(text, range));
   });
 
-  test('a fifth Monday by BYSETPOS=5, which ical.js gives up on, is incomplete, not empty', () => {
-    // BYSETPOS=5 of a set of at most one Monday: nothing after DTSTART, and
-    // ical.js ends the walk after 336 months without one; since tsdav-utils
-    // 0.8.0 that is reported, not passed off as the end of the rule
+  test('a fifth Monday by BYSETPOS=5 has no occurrence after DTSTART, and says so completely', () => {
+    // RFC 5545: BYSETPOS=5 of a set of at most one Monday never matches, so
+    // the series is DTSTART alone. ical.js gives the walk up after 336
+    // months; tsdav-utils 0.8.1 counts the rule's whole cycle and calls the
+    // empty answer complete
     const text = object(BERLIN, vevent('SUMMARY:x', 'DTSTART;TZID=Europe/Berlin:19711005T233000', 'DURATION:PT1H',
       'RRULE:FREQ=MONTHLY;INTERVAL=2;BYDAY=5MO;BYSETPOS=5')).data;
     const { master, overrides } = readSeries(setFloatingZone(new ICAL.Component(ICAL.parse(text)), UTC_ZONE), 'vevent');
     const result = seriesOccurrences(relateSeries(master, overrides), { start: 1855094400000, end: 1857772800000 });
-    expect(result).toMatchObject({ occurrences: [], truncated: true, stops: ['library'] });
+    expect(result).toMatchObject({ occurrences: [], truncated: false, stops: [] });
   });
 
   test.each([
@@ -544,6 +554,16 @@ describe('a rule the calendar library gives up on is named as such (tsdav-utils 
       expect(text).toContain('- **Note**: incomplete — this series could not be expanded (the calendar library gives this rule up after 28 years without an occurrence, so it cannot compute the occurrences from that point on)');
       expect(text).not.toContain('too many occurrences');
     }
+  });
+
+  test('a rule that would hang ical.js is a series that cannot be read, with the library\'s reason', async () => {
+    // tsdav-utils 0.8.1 refuses it; 0.8.0 never returned
+    stored = [object(vevent('SUMMARY:Hangs', 'DTSTART:20190214T090000Z', 'DURATION:PT1H', 'RRULE:FREQ=MONTHLY;INTERVAL=24;BYDAY=-1TH,5MO'))];
+    const range = { time_range_start: '2026-01-01T00:00:00Z', time_range_end: '2027-01-01T00:00:00Z' };
+    const query = (await calendarQuery.handler(range)).content[0].text;
+    expect(query).toMatch(/- \*\*Note\*\*: incomplete — this series cannot be read \(.*fifth or fifth-last weekday without end\)/);
+    const freebusy = (await freeBusyQuery.handler(range)).content[0].text;
+    expect(freebusy).toMatch(/Hangs \(.*\): cannot be read — .*without end/);
   });
 
   test('a window before the stop is answered in full', async () => {
