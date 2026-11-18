@@ -396,9 +396,10 @@ export function relateSeries(master, overrides) {
  *   override that could not be checked is left out, and so is every
  *   occurrence a THISANDFUTURE override that could not be checked might
  *   move. stops: why expansions ended early — 'budget' (the work budget ran
- *   out) and 'library' (ical.js ends a rule after a long stretch without an
- *   occurrence, 28 years, and tsdav-utils reports it as stoppedBy
- *   'library'); empty when none did.
+ *   out) and 'library' (from some point on ical.js cannot give the rule's
+ *   occurrences as RFC 5545 has them: it skips one, or ends the rule after
+ *   28 years without one; tsdav-utils' stoppedBy 'library'); empty when
+ *   none did.
  */
 export function seriesOccurrences(series, range, { filter = null, first = false, budget = requestBudget() } = {}) {
   if (!series.frame) return { occurrences: [], truncated: false, stops: [] };
@@ -543,8 +544,8 @@ function durationOf(event) {
  *
  * @returns {{occurrences: Object[], complete: boolean, stoppedBy: 'budget'|'library'|null, reached: number}|{unreadable: string}}
  *   occurrences: {wall, overridden, start, end} (the library's times);
- *   stoppedBy: why an incomplete list ended (the budget, or ical.js giving
- *   the rule up); reached: the wall clock up to which the list is whole
+ *   stoppedBy: why an incomplete list ended (the budget, or ical.js unable
+ *   to go on as RFC 5545 has it); reached: the wall clock up to which the list is whole
  */
 function expand(series, from, to, overrides, budget) {
   const { frame, plan } = series;
@@ -619,7 +620,7 @@ function expand(series, from, to, overrides, budget) {
     expansionWork.calls += 1;
     expansionWork.overridesHanded += overrides.length;
   }
-  // ical.js giving a rule up spends no budget: the rest of the call may go on
+  // a library stop spends no budget: the rest of the call may go on
   const stoppedBy = result.complete ? null : result.stoppedBy === 'library' ? 'library' : 'budget';
   if (stoppedBy === 'budget') budget.exhausted = true;
 

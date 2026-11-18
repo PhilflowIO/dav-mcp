@@ -296,7 +296,8 @@ function busyBlocks(intervals) {
  *   objects the server returned for the range that block none of it.
  *   published: each object whose stored VFREEBUSY makes up busy time.
  *   incomplete: series too dense to expand fully (the iteration cap) or
- *   whose rule the calendar library gives up on (`stops` 'library'), and
+ *   whose rule the calendar library cannot compute in full (`stops`
+ *   'library'), and
  *   objects that could not be read at all, and (kind 'stored', with the
  *   count of `periods`) stored free/busy with periods that could not be
  *   read: busy time from them may be missing, so the free time is not

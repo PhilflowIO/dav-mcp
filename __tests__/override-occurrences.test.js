@@ -542,7 +542,7 @@ describe('a rule the calendar library gives up on is named as such (tsdav-utils 
     stored = [FEB()];
     const text = (await freeBusyQuery.handler(LATER)).content[0].text;
     expect(text).toContain('**Warning**');
-    expect(text).toContain(`- Leap Sunday (${CALENDAR_URL}standup.ics): the calendar library gives this rule up after 28 years without an occurrence, so it cannot compute the occurrences from that point on`);
+    expect(text).toContain(`- Leap Sunday (${CALENDAR_URL}standup.ics): the calendar library cannot compute the occurrences of this rule from some point on: it skips occurrences RFC 5545 requires, or gives the rule up after a long stretch without one`);
     expect(text).not.toContain('Nothing blocks this window');
   });
 
@@ -551,9 +551,24 @@ describe('a rule the calendar library gives up on is named as such (tsdav-utils 
     for (const [tool, args] of [[calendarQuery, {}], [listEvents, { calendar_url: CALENDAR_URL }]]) {
       const text = (await tool.handler({ ...LATER, ...args })).content[0].text;
       expect(text).toContain('Leap Sunday');
-      expect(text).toContain('- **Note**: incomplete — this series could not be expanded (the calendar library gives this rule up after 28 years without an occurrence, so it cannot compute the occurrences from that point on)');
+      expect(text).toContain('- **Note**: incomplete — this series could not be expanded (the calendar library cannot compute the occurrences of this rule from some point on: it skips occurrences RFC 5545 requires, or gives the rule up after a long stretch without one)');
       expect(text).not.toContain('too many occurrences');
     }
+  });
+
+  test.each([
+    // RFC 5545 takes the 15th of every month, ical.js DTSTART's month only
+    ['YEARLY;BYMONTHDAY=15', 'DTSTART:20260115T090000Z', '2026-03-01T00:00:00Z', '2026-04-01T00:00:00Z'],
+    // ical.js keeps one of the two hours (tsdav-utils 0.8.1)
+    ['YEARLY;BYMONTH=6;BYDAY=MO;BYHOUR=0,9', 'DTSTART:20210607T000000Z', '2026-06-01T00:00:00Z', '2026-07-01T00:00:00Z'],
+  ])('FREQ=%s, whose occurrences ical.js skips, gets the same note', async (rule, dtstart, start, end) => {
+    stored = [object(vevent('SUMMARY:Skipped', dtstart, 'DURATION:PT1H', `RRULE:FREQ=${rule}`))];
+    const range = { time_range_start: start, time_range_end: end };
+    const query = (await calendarQuery.handler(range)).content[0].text;
+    expect(query).toMatch(/could not be expanded( fully)? \(the calendar library cannot compute the occurrences of this rule from some point on/);
+    const freebusy = (await freeBusyQuery.handler(range)).content[0].text;
+    expect(freebusy).toContain("Skipped (" + CALENDAR_URL + "standup.ics): the calendar library cannot compute");
+    expect(freebusy).not.toContain('28 years');
   });
 
   test('a rule that would hang ical.js is a series that cannot be read, with the library\'s reason', async () => {

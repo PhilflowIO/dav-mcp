@@ -1167,14 +1167,15 @@ function unreadableLine(count, noun) {
  */
 const LISTED_UNREADABLE = 10;
 
-// ical.js ends a rule after 28 years (336 months) without an occurrence
-const LIBRARY_STOP = 'the calendar library gives this rule up after 28 years without an occurrence, so it cannot compute the occurrences from that point on';
+// ical.js skips an occurrence RFC 5545 requires, or ends a rule after 28
+// years without one; tsdav-utils reports either as stoppedBy 'library'
+const LIBRARY_STOP = 'the calendar library cannot compute the occurrences of this rule from some point on: it skips occurrences RFC 5545 requires, or gives the rule up after a long stretch without one';
 
 /**
  * What ended the expansion of a series early, in words: the work budget
- * (too many occurrences), or ical.js, which ends a rule after 28 years
- * without an occurrence and so cannot say what follows (tsdav-utils reports
- * it as stoppedBy 'library'). Without a reason given, the budget.
+ * (too many occurrences), or the calendar library, which from some point
+ * on cannot give a rule's occurrences as RFC 5545 has them (LIBRARY_STOP).
+ * Without a reason given, the budget.
  *
  * @param {Array<'budget'|'library'>} [stops] - seriesOccurrences' `stops`
  */
@@ -1259,7 +1260,7 @@ export function formatFreeBusy({ busy, free, range, zone = null, zoneNote = null
   const unreadStored = incomplete.filter(({ kind }) => kind === 'stored');
   const unasked = incomplete.filter(({ kind }) => kind === 'query');
   if (unreadEvents.length > 0) {
-    output += `**Warning**: incomplete — ${unreadEvents.length === 1 ? 'an event' : `${unreadEvents.length} events`} could not be read or expanded fully (an object that cannot be read, a series that cannot be read, a rule the calendar library gives up on, or too many occurrences), so busy time from ${unreadEvents.length === 1 ? 'it' : 'them'} may be missing and the free time below is not certain:\n`;
+    output += `**Warning**: incomplete — ${unreadEvents.length === 1 ? 'an event' : `${unreadEvents.length} events`} could not be read or expanded fully (an object that cannot be read, a series that cannot be read, a rule the calendar library cannot compute in full, or too many occurrences), so busy time from ${unreadEvents.length === 1 ? 'it' : 'them'} may be missing and the free time below is not certain:\n`;
     unreadEvents.slice(0, LISTED_UNREADABLE).forEach(({ object, summary, reason, stops = [] }) => {
       const why = reason ? `: cannot be read — ${reason}` : stops.includes('library') ? `: ${LIBRARY_STOP}` : '';
       output += `- ${summary || 'Untitled Event'} (${object.url})${why}\n`;
