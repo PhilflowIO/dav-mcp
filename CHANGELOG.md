@@ -12,9 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from near the queried range by the library itself, so an old open-ended
   series that used to come back "incomplete" (an every-second rule since 1950
   limited to 09:00, say) is now answered in full. A yearly series with several
-  hours (`FREQ=YEARLY;BYHOUR=17,13`) now shows at the smallest of them (13:00)
-  instead of the first listed; the calendar library uses only one of them
-  either way, which RFC 5545 does not.
+  hours (`FREQ=YEARLY;BYHOUR=17,13`) is now marked incomplete: the calendar
+  library computes only one of the hours where RFC 5545 has both, so no
+  occurrence of it is shown in a queried range and the note says why; until
+  0.7.0 it showed the first listed hour only, as if that were the series.
 - **Monthly and yearly series follow RFC 5545 where the calendar library did
   not.** Every candidate is checked against RFC 5545. `MONTHLY;INTERVAL=2;BYMONTH=…`
   keeps to every second month instead of every listed one, so an override of
@@ -39,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rules (`MONTHLY;INTERVAL=24;BYDAY=-1TH,5MO` from 14 February 2019), so the
   tool call never returned; such a series is now listed as one that cannot
   be read, with the reason.
+
 ## [5.1.1] - 2026-11-18
 
 ### Security
