@@ -6,6 +6,7 @@
  * rather than serve with a setting the operator did not mean.
  */
 
+import express from 'express';
 import net from 'net';
 import { ConfigurationError } from './auth-config.js';
 
@@ -89,6 +90,52 @@ const LIST_THE_PROXY =
   'for several: TRUST_PROXY=172.18.0.2 for a proxy container on a compose network ' +
   '(`docker network inspect <network>` shows its address), TRUST_PROXY=127.0.0.1 for a proxy on the same host.';
 
+// The widest raw CIDR range TRUST_PROXY takes. /8 is the largest block a
+// proxy network plausibly needs (10.0.0.0/8, 127.0.0.0/8); /32 is the
+// smallest IPv6 allocation a provider gets, so anything wider spans networks
+// nobody runs proxies across. A wider range trusts so many peers that a
+// client reaching the port directly is likely inside it. fc00::/7 is
+// available as the name `uniquelocal`, not as a raw range.
+export const MIN_IPV4_PREFIX = 8;
+export const MIN_IPV6_PREFIX = 32;
+
+// Express matches IPv4 peers against IPv6 ranges in their mapped form
+// (::ffff:a.b.c.d), so an IPv6 range that reaches into ::ffff:0:0/96 is an
+// IPv4 range of (prefix - 96) bits — ::/32 and ::ffff:0.0.0.0/96 both trust
+// every IPv4 client.
+const MAPPED_BLOCK = new net.BlockList();
+MAPPED_BLOCK.addSubnet('::ffff:0.0.0.0', 96, 'ipv6');
+
+// The IPv4 prefix length a range has for IPv4 peers, or undefined if it
+// matches none
+const ipv4PrefixOf = (address, family, prefix) => {
+  if (family === 4) return prefix;
+  if (prefix <= 96) {
+    const range = new net.BlockList();
+    range.addSubnet(address, prefix, 'ipv6');
+    return range.check('::ffff:0.0.0.0', 'ipv6') ? 0 : undefined;
+  }
+  return MAPPED_BLOCK.check(address, 'ipv6') ? prefix - 96 : undefined;
+};
+
+// Why a range is too wide, or undefined if it is not
+const tooWide = (entry) => {
+  if (NAMED_RANGES.has(entry) || !entry.includes('/')) return undefined;
+  const [address, prefixText] = entry.split('/');
+  const family = net.isIP(address);
+  const prefix = Number(prefixText);
+  const ipv4Prefix = ipv4PrefixOf(address, family, prefix);
+  if (ipv4Prefix !== undefined && ipv4Prefix < MIN_IPV4_PREFIX) {
+    return family === 4
+      ? `'${entry}' is wider than /${MIN_IPV4_PREFIX}`
+      : `'${entry}' covers IPv4 clients as /${ipv4Prefix}, wider than /${MIN_IPV4_PREFIX}`;
+  }
+  if (family === 6 && ipv4Prefix === undefined && prefix < MIN_IPV6_PREFIX) {
+    return `'${entry}' is wider than /${MIN_IPV6_PREFIX}`;
+  }
+  return undefined;
+};
+
 const isAddressOrRange = (entry) => {
   if (NAMED_RANGES.has(entry)) return true;
   const [address, prefix, ...rest] = entry.split('/');
@@ -118,6 +165,8 @@ const isAddressOrRange = (entry) => {
  * header — a fresh rate-limit counter per request, or a private address for
  * the raised limit:
  *   - `true`, which trusts every hop;
+ *   - a range wider than /8 for IPv4 or /32 for IPv6, counting an IPv6 range
+ *     that covers IPv4-mapped addresses as the IPv4 range it trusts;
  *   - a hop count. `1` trusts whatever connects to the socket, and the
  *     server listens on every interface by default, so a client that reaches
  *     the published port directly instead of through the proxy is trusted
@@ -153,6 +202,21 @@ export function parseTrustProxy(value) {
       `${invalid.map(entry => `'${entry}'`).join(', ')}. ` +
       LIST_THE_PROXY,
     );
+  }
+  const wide = entries.map(tooWide).filter(Boolean);
+  if (wide.length > 0) {
+    throw new ConfigurationError(
+      `TRUST_PROXY ranges must not be wider than /${MIN_IPV4_PREFIX} for IPv4 or /${MIN_IPV6_PREFIX} for IPv6: ` +
+      `${wide.join('; ')}. A range that wide would trust clients that reach dav-mcp directly. ${LIST_THE_PROXY}`,
+    );
+  }
+  // Compile the list the way the server will, with Express's own 'trust
+  // proxy' compiler, so a value Express would reject is a configuration error
+  // here and not an exception after startup.
+  try {
+    express().set('trust proxy', entries);
+  } catch (error) {
+    throw new ConfigurationError(`TRUST_PROXY is not accepted by Express: ${error.message}. ${LIST_THE_PROXY}`);
   }
   return entries;
 }

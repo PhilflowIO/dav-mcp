@@ -39,9 +39,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   who the client is** (#177): proxy addresses, CIDR ranges and
   `loopback`/`linklocal`/`uniquelocal`, comma-separated. Rate limits then
   count per client. A range trusts every peer in it (`uniquelocal`: every
-  container on the compose network). `TRUST_PROXY=true` and hop counts are
-  refused: either lets a client that reaches the port directly choose its
-  own address.
+  container on the compose network). `TRUST_PROXY=true`, hop counts and
+  ranges wider than /8 (IPv4) or /32 (IPv6) are refused: each lets a client
+  that reaches the port directly choose its own address.
 
 ### Security
 - **The container image carries a build provenance attestation** (#177).

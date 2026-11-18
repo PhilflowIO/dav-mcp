@@ -342,6 +342,16 @@ describe('HTTP transport: rate-limit client identification', () => {
     expect(output).toContain('TRUST_PROXY=true would trust X-Forwarded-For from any client');
   }, 20000);
 
+  // Express itself refuses /0 when it compiles the setting; that used to
+  // surface as an unexplained startup crash. ::ffff:0.0.0.0/96 it accepted,
+  // trusting every IPv4 client.
+  test.each(['0.0.0.0/0', '::ffff:0.0.0.0/96'])('TRUST_PROXY=%s stops the server as a configuration error', async (range) => {
+    const { code, output } = await startRefused(davPort, { TRUST_PROXY: range });
+    expect(code).toBe(1);
+    expect(output).toContain('Invalid configuration');
+    expect(output).toContain(`'${range}'`);
+  }, 20000);
+
   // With a hop count, a client that reaches the port directly would be
   // trusted as the proxy and could name any address in X-Forwarded-For.
   test('a hop count in TRUST_PROXY stops the server at startup', async () => {

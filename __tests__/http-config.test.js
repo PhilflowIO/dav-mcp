@@ -73,9 +73,37 @@ describe('parseTrustProxy', () => {
     ['172.18.0.0/16', ['172.18.0.0/16']],
     ['loopback', ['loopback']],
     ['loopback, uniquelocal,linklocal', ['loopback', 'uniquelocal', 'linklocal']],
-    ['::1, fd00::/8, 192.168.1.1/32', ['::1', 'fd00::/8', '192.168.1.1/32']],
+    ['::1, fd00:1::/48, 192.168.1.1/32', ['::1', 'fd00:1::/48', '192.168.1.1/32']],
+    ['10.0.0.0/8', ['10.0.0.0/8']],
+    ['2001:db8::/32', ['2001:db8::/32']],
+    ['::ffff:10.0.0.0/104', ['::ffff:10.0.0.0/104']],
+    ['::ffff:172.18.0.2', ['::ffff:172.18.0.2']],
   ])('%s is a list of proxies', (value, list) => {
     expect(parseTrustProxy(value)).toEqual(list);
+  });
+
+  // A range that wide trusts clients that reach the port directly, which
+  // reopens the hop-count hole by configuration (#177 re-review).
+  test.each([
+    ['all of IPv4', '0.0.0.0/0', "'0.0.0.0/0' is wider than /8"],
+    ['one bit wider than /8', '10.0.0.0/7', "'10.0.0.0/7' is wider than /8"],
+    ['all of IPv6', '::/0', "'::/0' covers IPv4 clients as /0"],
+    ['all of IPv4 in mapped form', '::ffff:0.0.0.0/96', "'::ffff:0.0.0.0/96' covers IPv4 clients as /0"],
+    ['a mapped range wider than /8', '::ffff:10.0.0.0/103', "'::ffff:10.0.0.0/103' covers IPv4 clients as /7"],
+    ['an IPv6 /32 that holds the mapped block', '::/32', "'::/32' covers IPv4 clients as /0"],
+    ['one bit wider than /32', '2001:db8::/31', "'2001:db8::/31' is wider than /32"],
+    ['unique local as a raw range', 'fc00::/7', "'fc00::/7' is wider than /32"],
+    ['a wide entry among narrow ones', '172.18.0.2, 0.0.0.0/1', "'0.0.0.0/1' is wider than /8"],
+  ])('refuses %s', (_, value, reason) => {
+    let error;
+    try {
+      parseTrustProxy(value);
+    } catch (e) {
+      error = e;
+    }
+    expect(error?.name).toBe('ConfigurationError');
+    expect(error.message).toContain(reason);
+    expect(error.message).toContain('TRUST_PROXY=172.18.0.2');
   });
 
   test('true is refused: it would let every client choose its address', () => {
