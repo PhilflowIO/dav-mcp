@@ -3,7 +3,7 @@ import { validateInput, freeBusyQuerySchema } from '../../validation.js';
 import { formatFreeBusy } from '../../formatters.js';
 import { buildTimeRangeOptions, findCalendarOrThrow } from '../shared/helpers.js';
 import { calculateFreeBusy } from '../shared/freebusy.js';
-import { serverTimeRange } from '../../occurrences.js';
+import { fetchRangeCandidates } from '../shared/range-candidates.js';
 import { floatingZoneFor, withFloatingZone, displayZoneFor, withZoneNote } from '../../calendar-zone.js';
 
 /**
@@ -93,6 +93,8 @@ export const freeBusyQuery = {
     );
 
     let events = [];
+    // recurring events that could not be checked against the window
+    const unchecked = [];
     // each calendar's zone, for a note when one could not be read
     const zones = [];
     // calendars whose stored free/busy could not be asked for
@@ -101,15 +103,10 @@ export const freeBusyQuery = {
       // floating times and dates are read in each calendar's own zone
       const zone = floatingZoneFor(calendar);
       zones.push(zone);
-      const found = withFloatingZone(
-        await client.fetchCalendarObjects({
-          calendar,
-          ...timeRangeOptions,
-          // wider than asked: the server reads floating times its own way;
-          // calculateFreeBusy keeps what touches the window
-          timeRange: serverTimeRange(timeRangeOptions.timeRange),
-        }), zone);
-      events = events.concat(found);
+      // calculateFreeBusy keeps what touches the window
+      const fetched = await fetchRangeCandidates(client, calendar, timeRangeOptions.timeRange, zone);
+      events = events.concat(withFloatingZone(fetched.objects, zone));
+      unchecked.push(...fetched.unchecked);
       if (holdsFreeBusy(calendar)) {
         let stored;
         try {
@@ -121,7 +118,8 @@ export const freeBusyQuery = {
           stored = [];
         }
         // a server that ignores the comp-filter answers with the events again
-        const seen = new Set(found.map((object) => object.url));
+        // (and the recurring objects fetched on top: dedupe across both by URL)
+        const seen = new Set([...fetched.objects, ...fetched.unchecked.map(({ object }) => object)].map((object) => object.url));
         events = events.concat(withFloatingZone(stored.filter((object) => !seen.has(object.url)), zone));
       }
     }
@@ -132,6 +130,7 @@ export const freeBusyQuery = {
     };
 
     const { busy, free, blocking, published, incomplete } = calculateFreeBusy(events, range);
+    incomplete.push(...unchecked.map(({ object, reason }) => ({ object, summary: '', reason })));
 
     // shown in the zone the listings read these calendars in (#125)
     const { zone, why } = displayZoneFor(calendarsToSearch);
