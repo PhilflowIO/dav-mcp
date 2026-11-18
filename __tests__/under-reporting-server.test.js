@@ -314,15 +314,32 @@ describe('extra recurring objects do not take expansion budget from the range an
     expect(busy).not.toContain('Warning**: incomplete');
   };
 
-  test('with 300 yearly series out of range, Friday the 13th is still listed and busy, nothing unchecked', () => friday13Among(300), 120000);
-
-  // Each series is walked from its DTSTART, so a birthday from 1980 costs 46
-  // years of candidates and some 1 600 of them exhaust the extra pool: the
-  // rest are reported as not checked on a correct server. The fix is a
-  // bounded start in the library (PhilflowIO/tsdav-utils#37); pinned until
-  // that release, then these become plain tests.
-  test.failing.each([2500, 5000])('with %i yearly series out of range, nothing is reported unchecked (tsdav-utils#37)',
+  // tsdav-utils 0.8 starts each walk near the range (tsdav-utils#37), so a
+  // birthday from 1980 no longer costs 46 years of candidates; and a series
+  // whose days miss the range is not handed to the library at all, since
+  // every call costs CALL_COST whatever it finds: 5 000 calls would spend
+  // the extra pool (300 000 units) on nothing and leave 2 000 unchecked
+  test.each([300, 2500, 5000])('with %i yearly series out of range, Friday the 13th is listed and busy, nothing unchecked',
     (count) => friday13Among(count), 120000);
+
+  test.each([
+    ['birthdays', (m, d) => [`DTSTART;VALUE=DATE:1980${m}${d}`, 'RRULE:FREQ=YEARLY']],
+    ['fixed days', (m, d) => [`DTSTART;VALUE=DATE:1980${m}${d}`, `RRULE:FREQ=YEARLY;BYMONTH=${+m};BYMONTHDAY=${+d}`]],
+    ['first Sundays of a month (a rule the library walks, tsdav-utils#40)', (m) => [`DTSTART:1960${m}05T090000Z`, 'DURATION:PT1H', `RRULE:FREQ=YEARLY;BYMONTH=${+m};BYDAY=1SU`]],
+  ])('5000 %s outside the range are never handed to the library', async (_, shape) => {
+    use({ 'f13.ics': friday13, ...Object.fromEntries(Array.from({ length: 5000 }, (_, i) => {
+      const month = String(1 + (i % 9)).padStart(2, '0');
+      const day = String(1 + (i % 28)).padStart(2, '0');
+      return [`s${i}.ics`, ical([`UID:s${i}`, ...shape(month, day), `SUMMARY:Series ${i}`])];
+    })) });
+    const { resetExpansionWork, expansionWork } = await import('../src/occurrences.js');
+    resetExpansionWork();
+    const listed = text(await calendarQuery.handler(range('2026-11-13T00:00:00Z', '2026-11-14T00:00:00Z')));
+    // Friday the 13th alone, from the server's answer
+    expect(expansionWork.calls).toBe(1);
+    expect(listed).toContain('Friday the 13th');
+    expect(listed).not.toContain('Not checked');
+  }, 120000);
 
   test('series whose bounds rule the range out are dropped before any expansion', async () => {
     use({

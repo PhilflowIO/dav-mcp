@@ -60,7 +60,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Done for every server, since a server does not say which library
   evaluates its ranges. Costs per calendar three small extra queries and
   one fetch of the recurring events not already returned; a server that
-  refuses property filters is asked for all its events instead.
+  refuses property filters is asked for all its events instead. A recurring
+  event whose rule cannot fall in the range (a birthday in March for a week
+  in November) is ruled out from the rule alone, so a calendar of 5 000
+  birthdays is checked in full.
 
 ## [5.1.1] - 2026-11-18
 

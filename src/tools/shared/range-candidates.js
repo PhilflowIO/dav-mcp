@@ -36,8 +36,10 @@ import { logger } from '../../logger.js';
  * at its own pace.
  *
  * The extra objects must not cost what the server's answer needs: the ones
- * whose bounds rule the range out (seriesOutside) are dropped here, before
- * any expansion, and the rest expand from a pool of their own
+ * whose bounds or whose rule's days rule the range out (seriesOutside: a
+ * finished series, a birthday in March for a week in November) are dropped
+ * here, before any call into the calendar library, and the rest expand from
+ * a pool of their own
  * (rangeBudgetPool, isRangeExtra). Nor may they fail the call: if listing or
  * fetching them fails, the calendar's answer stands with a note that a
  * recurring event the server left out may be missing; an extra object that
