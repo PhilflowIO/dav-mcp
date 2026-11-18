@@ -59,10 +59,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   15 minutes before the bearer token check instead of 100. A request that
   says it was forwarded and is not resolved through `TRUST_PROXY` now gets
   the standard limit, and so does a request whose address is a trusted
-  proxy (one that sent no `X-Forwarded-For`); a container that connects
+  proxy (one that sent no `X-Forwarded-For`). A container that connects
   directly, n8n in the same compose network for example, keeps the raised
-  one — now also over IPv6, where unique local (fc00::/7) and link-local
-  (fe80::/10) addresses count as private like the RFC 1918 ranges.
+  limit unless `TRUST_PROXY` covers its address: with `uniquelocal`, or a
+  range that includes it, it counts as a proxy and gets the standard limit,
+  and with `loopback` so does every client on the same host. List only the
+  proxy's own address so other local clients keep the raised limit. Unique
+  local (fc00::/7) and link-local (fe80::/10) IPv6 addresses now count as
+  private like the RFC 1918 ranges.
 
 ## [5.1.2] - 2026-11-18
 
