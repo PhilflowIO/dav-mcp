@@ -1,6 +1,6 @@
 {
   "name": "dav-mcp",
-  "version": "5.1.0",
+  "version": "5.1.1",
   "private": true,
   "description": "Dependencies of the dav-mcp server inside the Claude plugin. Written by `npm run plugin:sync`; do not edit.",
   "license": "MIT",
