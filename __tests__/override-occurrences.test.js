@@ -440,11 +440,21 @@ describe('periods that can be empty, and BY lists out of order (review of #110)'
   test.each([
     ['29 February', ['DTSTART:20040118T094500Z'], 'FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=29;UNTIL=20290622T120000Z', [1803686400000, 1811635200000]],
     ['the 31st every fifth month', ['DTSTART;VALUE=DATE:19920630'], 'FREQ=MONTHLY;INTERVAL=5;BYMONTHDAY=31,-31', [1779321600000, 1787270400000]],
-    ['a fifth Monday by BYSETPOS', ['DTSTART;TZID=Europe/Berlin:19711005T233000'], 'FREQ=MONTHLY;INTERVAL=2;BYDAY=5MO;BYSETPOS=5', [1855094400000, 1857772800000]],
   ])('%s: a moved start would shift ical.js\' grid, so it walks from DTSTART', (_, [dtstart], rule, [start, end]) => {
     const text = object(BERLIN, vevent('SUMMARY:x', dtstart, 'DURATION:PT1H', `RRULE:${rule}`)).data;
     const range = { start, end };
     expect(fast(text, range)).toEqual(full(text, range));
+  });
+
+  test('a fifth Monday by BYSETPOS=5, which ical.js gives up on, is incomplete, not empty', () => {
+    // BYSETPOS=5 of a set of at most one Monday: nothing after DTSTART, and
+    // ical.js ends the walk after 336 months without one; since tsdav-utils
+    // 0.8.0 that is reported, not passed off as the end of the rule
+    const text = object(BERLIN, vevent('SUMMARY:x', 'DTSTART;TZID=Europe/Berlin:19711005T233000', 'DURATION:PT1H',
+      'RRULE:FREQ=MONTHLY;INTERVAL=2;BYDAY=5MO;BYSETPOS=5')).data;
+    const { master, overrides } = readSeries(setFloatingZone(new ICAL.Component(ICAL.parse(text)), UTC_ZONE), 'vevent');
+    const result = seriesOccurrences(relateSeries(master, overrides), { start: 1855094400000, end: 1857772800000 });
+    expect(result).toMatchObject({ occurrences: [], truncated: true });
   });
 
   test.each([
@@ -522,9 +532,19 @@ describe('no series can stall a tool call (ical.js loops between candidates)', (
   };
   const one = (uid, ...lines) => ({ ...object(vevent('SUMMARY:x', ...lines)), url: `${CALENDAR_URL}${uid}.ics` });
 
-  test('a limiting BYHOUR on SECONDLY since 1950 is reported incomplete, fast', async () => {
+  test('a limiting BYHOUR on SECONDLY since 1950 is answered from near the range', async () => {
+    // tsdav-utils 0.8.0 starts the walk of an open-ended rule near `from`
     const { text, work } = await timed([one('s', 'DTSTART:19500101T090000Z', 'DURATION:PT1M',
       'RRULE:FREQ=SECONDLY;BYHOUR=9;BYMINUTE=0;BYSECOND=0')]);
+    expect(text).toContain('### Busy (7)');
+    expect(text).not.toContain('Warning');
+    expect(work.units).toBeLessThan(CALL_UNITS);
+  });
+
+  test('the same rule with COUNT, walked from 1950, is reported incomplete, fast', async () => {
+    // COUNT has to be counted from DTSTART, so the library walks it in full
+    const { text, work } = await timed([one('s', 'DTSTART:19500101T090000Z', 'DURATION:PT1M',
+      'RRULE:FREQ=SECONDLY;BYHOUR=9;BYMINUTE=0;BYSECOND=0;COUNT=100000')]);
     expect(text).toContain('**Warning**');
     // ended by the cap on one call into the library (100 102 candidates),
     // not by the clock; without the cap it spends the tool call's budget
@@ -570,11 +590,10 @@ describe('the expansion still starts near the range', () => {
     expect(truncated).toBe(false);
     expect(occurrences.map((o) => o.item.summary)).toEqual(['Daily', 'Standup (01)']);
     // ~9700 days since DTSTART, ~1800 more to the override: what a walk from
-    // DTSTART spends, a near start does not
-    series.plan = null;
-    const far = createRecurrenceBudget(1e6);
-    seriesOccurrences(series, { start, end: start + 86400000 }, { budget: far });
-    expect(1e6 - near.remaining).toBeLessThan((1e6 - far.remaining) / 20);
+    // DTSTART spends, a near start does not (two calls, CALL_COST each, and
+    // a few candidates). Since tsdav-utils 0.8.0 the library starts near
+    // `from` too, so a series without a plan is no walk from DTSTART either.
+    expect(1e6 - near.remaining).toBeLessThan(2 * CALL_COST + 9700 / 20);
   });
 
   test('1000 overrides of an every-minute series from 2000 on are checked within one budget', async () => {

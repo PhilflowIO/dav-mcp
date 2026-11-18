@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Dependencies: @philflow/tsdav-utils 0.8.0.** Recurring events are read
+  from near the queried range by the library itself, so an old open-ended
+  series that used to come back "incomplete" (an every-second rule since 1950
+  limited to 09:00, say) is now answered in full. A yearly series with several
+  hours (`FREQ=YEARLY;BYHOUR=17,13`) now shows at the smallest of them (13:00)
+  instead of the first listed; the calendar library uses only one of them
+  either way, which RFC 5545 does not.
+
 ## [5.1.0] - 2026-11-17
 
 ### Added
