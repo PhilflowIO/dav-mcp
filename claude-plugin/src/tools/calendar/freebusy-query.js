@@ -7,14 +7,44 @@ import { serverTimeRange } from '../../occurrences.js';
 import { floatingZoneFor, withFloatingZone, displayZoneFor, withZoneNote } from '../../calendar-zone.js';
 
 /**
- * Answer "when am I free?" from the events themselves.
+ * Answer "when am I free?" from the calendar objects themselves.
  *
  * Deliberately not the native CalDAV free-busy-query REPORT: Google and iCloud
  * do not answer it, Radicale never implemented it, and Nextcloud and Baikal
  * have open bugs, so it fails on most of the servers people actually run.
- * Deriving the answer from the events works everywhere at the cost of needing
+ * Deriving the answer from the events, and from the VFREEBUSY components a
+ * calendar stores (RFC 4791 7.10), works everywhere at the cost of needing
  * read access to the calendar.
  */
+
+/**
+ * The calendar-query filter for stored VFREEBUSY components.
+ *
+ * tsdav's default filter asks for VEVENTs only, and comp-filters in one query
+ * all have to match (RFC 4791 9.7.1), so VFREEBUSY needs a query of its own.
+ * It carries no time-range: SabreDAV (Nextcloud, Baikal) refuses a time-range
+ * on VFREEBUSY as not implemented, and Radicale ignores it. calculateFreeBusy
+ * keeps the periods that touch the window.
+ */
+const STORED_FREEBUSY = [{
+  'comp-filter': {
+    _attributes: { name: 'VCALENDAR' },
+    'comp-filter': { _attributes: { name: 'VFREEBUSY' } },
+  },
+}];
+
+/**
+ * Can this calendar hold VFREEBUSY components? A calendar that names the
+ * component types it accepts (supported-calendar-component-set) holds only
+ * those; one that names none accepts every type (RFC 4791 5.2.3). Calendars
+ * that leave VFREEBUSY out, which is most of them, cost no second query.
+ */
+function holdsFreeBusy(calendar) {
+  const components = calendar.components ?? [];
+  return components.length === 0
+    || components.some((name) => String(name).toUpperCase() === 'VFREEBUSY');
+}
+
 export const freeBusyQuery = {
   name: 'freebusy_query',
   annotations: {
@@ -24,7 +54,7 @@ export const freeBusyQuery = {
     idempotentHint: true,
     openWorldHint: true,
   },
-  description: 'Find free and busy time in a date range — use for "when am I free?", "am I available Tuesday afternoon?" or finding a slot for a new meeting. Searches all calendars unless one is given. Events marked TRANSPARENT (does not block time) and cancelled events are ignored; recurring events are expanded, each occurrence at its own time and status, so a single cancelled occurrence is free and a moved one is busy where it moved to. A recurring event too dense to expand fully is named in a warning. Times are shown in the calendar\'s time zone (several calendars in different zones: the zone dav-mcp runs in), named in the answer; list_events shows an event that has a zone of its own in that zone instead.',
+  description: 'Find free and busy time in a date range — use for "when am I free?", "am I available Tuesday afternoon?" or finding a slot for a new meeting. Searches all calendars unless one is given. Free/busy time a calendar stores (VFREEBUSY, e.g. published by another system) counts too, a tentative or unavailable period marked as such. Events marked TRANSPARENT (does not block time) and cancelled events are ignored; recurring events are expanded, each occurrence at its own time and status, so a single cancelled occurrence is free and a moved one is busy where it moved to. A recurring event too dense to expand fully is named in a warning. Times are shown in the calendar\'s time zone (several calendars in different zones: the zone dav-mcp runs in), named in the answer; list_events shows an event that has a zone of its own in that zone instead.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -42,7 +72,7 @@ export const freeBusyQuery = {
       },
       include_event_details: {
         type: 'boolean',
-        description: 'Optional: also list the events behind the busy blocks, with titles (a recurring one as its occurrence in the range). Off by default — the answer to "when am I free" is the slots, not the meetings.',
+        description: 'Optional: also list the events behind the busy blocks, with titles (a recurring one as its occurrence in the range), and the stored free/busy objects behind them. Off by default — the answer to "when am I free" is the slots, not the meetings.',
       },
     },
     required: ['time_range_start', 'time_range_end'],
@@ -65,6 +95,8 @@ export const freeBusyQuery = {
     let events = [];
     // each calendar's zone, for a note when one could not be read
     const zones = [];
+    // calendars whose stored free/busy could not be asked for
+    const unqueried = [];
     for (const calendar of calendarsToSearch) {
       // floating times and dates are read in each calendar's own zone
       const zone = floatingZoneFor(calendar);
@@ -78,6 +110,20 @@ export const freeBusyQuery = {
           timeRange: serverTimeRange(timeRangeOptions.timeRange),
         }), zone);
       events = events.concat(found);
+      if (holdsFreeBusy(calendar)) {
+        let stored;
+        try {
+          stored = await client.fetchCalendarObjects({ calendar, filters: STORED_FREEBUSY });
+        } catch (error) {
+          // the query only adds busy time: a server that refuses it leaves
+          // the answer incomplete, not failed
+          unqueried.push({ kind: 'query', object: { url: calendar.url }, reason: String(error?.message ?? error) });
+          stored = [];
+        }
+        // a server that ignores the comp-filter answers with the events again
+        const seen = new Set(found.map((object) => object.url));
+        events = events.concat(withFloatingZone(stored.filter((object) => !seen.has(object.url)), zone));
+      }
     }
 
     const range = {
@@ -85,7 +131,7 @@ export const freeBusyQuery = {
       end: new Date(validated.time_range_end),
     };
 
-    const { busy, free, blocking, incomplete } = calculateFreeBusy(events, range);
+    const { busy, free, blocking, published, incomplete } = calculateFreeBusy(events, range);
 
     // shown in the zone the listings read these calendars in (#125)
     const { zone, why } = displayZoneFor(calendarsToSearch);
@@ -98,7 +144,8 @@ export const freeBusyQuery = {
       zoneNote: why,
       calendarCount: calendarsToSearch.length,
       events: validated.include_event_details ? blocking : null,
-      incomplete,
+      published: validated.include_event_details ? published : null,
+      incomplete: [...unqueried, ...incomplete],
     }), zones);
   },
 };

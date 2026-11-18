@@ -2,7 +2,6 @@ import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, deleteCalendarSchema } from '../../validation.js';
 import { formatCalendarDeleteSuccess, formatCalendarAlreadyDeleted } from '../../formatters.js';
 import { assertDeleted, inspectCollection, findCalendarOrThrow } from '../shared/helpers.js';
-import { MCP_ERROR_CODES } from '../../error-handler.js';
 
 /**
  * Delete a calendar and all its events
@@ -39,6 +38,13 @@ export const deleteCalendar = {
       return formatCalendarAlreadyDeleted(validated.calendar_url);
     }
 
+    // Only a calendar list_calendars names may be deleted. The URL check lets
+    // through anything inside the account — the calendar home, the principal,
+    // the configured root — and a DELETE there takes every calendar with it
+    // on servers that allow it. A URL from event or contact data a model was
+    // steered by must not get that far, so this is decided before the DELETE.
+    findCalendarOrThrow(await client.fetchCalendars(), validated.calendar_url);
+
     // No headers here: tsdav's client merges its auth headers into ours, and
     // tsdav before the v2.3.5 sync replaced them instead — a body-less DELETE
     // has no use for a Content-Type, and passing one sent it unauthenticated.
@@ -48,18 +54,7 @@ export const deleteCalendar = {
     // A 404 after the lookup saw the calendar means it went away in between:
     // it existed and is gone. Without a successful lookup a 404 means there
     // was no calendar to delete.
-    try {
-      await assertDeleted(response, 'calendar', validated.calendar_url, { existedBefore: Boolean(target) });
-    } catch (error) {
-      // Nothing was there: if the URL is not one of the calendars either, say
-      // which ones there are, as every tool taking calendar_url does. Decided
-      // on the server's 404, not on a lookup that failed for another reason
-      // (a 401 would otherwise read as "no such calendar").
-      if (error.code === MCP_ERROR_CODES.NOT_FOUND_ERROR && !target) {
-        findCalendarOrThrow(await client.fetchCalendars(), validated.calendar_url);
-      }
-      throw error;
-    }
+    await assertDeleted(response, 'calendar', validated.calendar_url, { existedBefore: Boolean(target) });
 
     return formatCalendarDeleteSuccess(validated.calendar_url);
   },
