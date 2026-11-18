@@ -63,7 +63,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   refuses property filters is asked for all its events instead. A recurring
   event whose rule cannot fall in the range (a birthday in March for a week
   in November) is ruled out from the rule alone, so a calendar of 5 000
-  birthdays is checked in full.
+  birthdays is checked in full. One the calendar library cannot compute in
+  the range is noted with that reason, as listed series are.
 
 ## [5.1.1] - 2026-11-18
 

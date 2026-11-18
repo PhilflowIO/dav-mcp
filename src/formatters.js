@@ -1179,7 +1179,7 @@ const LIBRARY_STOP = 'the calendar library cannot compute the occurrences of thi
  *
  * @param {Array<'budget'|'library'>} [stops] - seriesOccurrences' `stops`
  */
-function whyStopped(stops = []) {
+export function whyStopped(stops = []) {
   const library = stops.includes('library');
   const budget = stops.includes('budget') || !library;
   return [budget && 'too many occurrences', library && LIBRARY_STOP].filter(Boolean).join('; and ');

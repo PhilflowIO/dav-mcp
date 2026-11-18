@@ -6,6 +6,7 @@ import { readSeries } from '../../ical-components.js';
 import { setFloatingZone } from '../../calendar-zone.js';
 import { shareTimezones } from './ical-dates.js';
 import { logger } from '../../logger.js';
+import { whyStopped } from '../../formatters.js';
 
 /**
  * The events of one calendar a range query has to look at (calendar_query,
@@ -74,13 +75,24 @@ export function isRangeExtra(object) {
 }
 
 /**
- * An extra recurring object  whose expansion stopped before an
- * occurrence in the range was found: the server did not return it and we
- * could not tell, so it is reported rather than listed at its series start.
+ * Why an extra recurring object cannot be checked against the range, or null
+ * when it can: its expansion stopped before an occurrence in the range was
+ * found. The server did not return it and we could not tell, so it is
+ * reported rather than listed at its series start, with the reason the
+ * listing gives a series it shows (whyStopped): the work budget, or a rule
+ * the calendar library cannot compute in full, or a series that cannot be
+ * read.
+ *
+ * @param {ReturnType<typeof import('../../ical-components.js').shownEvent>|null} shown - null: it could not be expanded at all
+ * @returns {string|null}
  */
-export const UNCHECKABLE = 'too many occurrences to check against the range in this call';
-export function uncheckable(shown) {
-  return !shown || (shown.expansionTruncated && !shown.occurrence);
+export function uncheckedReason(shown) {
+  if (!shown) return 'it could not be expanded';
+  if (!shown.expansionTruncated || shown.occurrence) return null;
+  if (shown.expansionReason) return `the series cannot be read (${shown.expansionReason})`;
+  const stops = shown.expansionStops ?? [];
+  if (stops.includes('library')) return whyStopped(stops);
+  return 'too many occurrences to check against the range in this call';
 }
 
 /** calendar-query filter: VEVENTs, with `property` defined if given */

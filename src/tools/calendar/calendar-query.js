@@ -5,7 +5,7 @@ import { buildTimeRangeOptions, limitResults, DEFAULT_RESULT_LIMIT, findCalendar
 import ICAL from 'ical.js';
 import { shownEvent, shownTouchesRange } from '../../ical-components.js';
 import { ZONE_SLACK_MS, rangeBudgetPool } from '../../occurrences.js';
-import { fetchRangeCandidates, isRangeExtra, UNCHECKABLE, uncheckable } from '../shared/range-candidates.js';
+import { fetchRangeCandidates, isRangeExtra, uncheckedReason } from '../shared/range-candidates.js';
 import { instantOf, hasAbsoluteInstant } from '../shared/ical-dates.js';
 import { floatingZoneFor, withFloatingZone, withZoneNote } from '../../calendar-zone.js';
 import { parseObjects, unsearchedObjects, textValues, containsText, dateKey, orNull } from '../shared/query-objects.js';
@@ -100,8 +100,9 @@ export const calendarQuery = {
       parsed = parsed.filter((p) => {
         if (!p.root) return true;
         const shown = shownOf(p, matches, timeRange, budget);
-        if (isRangeExtra(p.object) && uncheckable(shown)) {
-          unchecked.push({ object: p.object, reason: UNCHECKABLE });
+        const reason = isRangeExtra(p.object) ? uncheckedReason(shown) : null;
+        if (reason) {
+          unchecked.push({ object: p.object, reason });
           return false;
         }
         return shownTouchesRange(shown, timeRange);

@@ -341,6 +341,24 @@ describe('extra recurring objects do not take expansion budget from the range an
     expect(listed).not.toContain('Not checked');
   }, 120000);
 
+  // tsdav-utils 0.8.1 reports a rule ical.js cannot compute as RFC 5545 has
+  // it as stoppedBy 'library' (#174): an extra series stopped there is named
+  // for that, as the listing names a series it shows, not for the budget
+  test('an extra series the calendar library cannot compute in the range is named for that, not for the budget', async () => {
+    // RFC 5545: the 15th of every month; ical.js: of June only
+    use({ 'f13.ics': friday13, 'mid.ics': ical(['UID:mid', 'DTSTART:20200615T090000Z', 'DURATION:PT1H',
+      'RRULE:FREQ=YEARLY;BYMONTHDAY=15', 'SUMMARY:Mid-month review']) });
+    const library = 'the calendar library cannot compute the occurrences of this rule from some point on';
+    const listed = text(await calendarQuery.handler(range('2026-11-15T00:00:00Z', '2026-11-16T00:00:00Z')));
+    expect(listed).toMatch(new RegExp(`Not checked: \\*\\*1\\*\\*[\\s\\S]*mid\\.ics — ${library}`));
+    expect(listed).not.toContain('too many occurrences');
+    const events = text(await listEvents.handler({ calendar_url: `${dav.origin}${CALENDAR}`, ...range('2026-11-15T00:00:00Z', '2026-11-16T00:00:00Z') }));
+    expect(events).toMatch(new RegExp(`mid\\.ics — ${library}`));
+    expect(events).not.toContain('too many occurrences');
+    const busy = text(await freeBusyQuery.handler(range('2026-11-15T08:00:00Z', '2026-11-15T12:00:00Z')));
+    expect(busy).toMatch(new RegExp(`Mid-month review \\([^)]*mid\\.ics\\): ${library}`));
+  });
+
   test('series whose bounds rule the range out are dropped before any expansion', async () => {
     use({
       'f13.ics': friday13,

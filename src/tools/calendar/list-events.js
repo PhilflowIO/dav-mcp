@@ -5,7 +5,7 @@ import { findCalendarOrThrow, buildTimeRangeOptions } from '../shared/helpers.js
 import { floatingZoneFor, withFloatingZone, withZoneNote } from '../../calendar-zone.js';
 import { shownEvent, shownTouchesRange } from '../../ical-components.js';
 import { rangeBudgetPool } from '../../occurrences.js';
-import { fetchRangeCandidates, isRangeExtra, UNCHECKABLE, uncheckable } from '../shared/range-candidates.js';
+import { fetchRangeCandidates, isRangeExtra, uncheckedReason } from '../shared/range-candidates.js';
 import { parseObjects } from '../shared/query-objects.js';
 
 /**
@@ -70,8 +70,9 @@ export const listEvents = {
         view = null;
       }
       budget.give(share);
-      if (isRangeExtra(object) && uncheckable(view)) {
-        unchecked.push({ object, reason: UNCHECKABLE });
+      const reason = isRangeExtra(object) ? uncheckedReason(view) : null;
+      if (reason) {
+        unchecked.push({ object, reason });
         return false;
       }
       if (view) shown.set(object, view);
