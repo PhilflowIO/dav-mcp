@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hours (`FREQ=YEARLY;BYHOUR=17,13`) now shows at the smallest of them (13:00)
   instead of the first listed; the calendar library uses only one of them
   either way, which RFC 5545 does not.
+- **A rule the calendar library gives up on is named as such.** ical.js
+  ends a rule after 28 years without an occurrence (a fifth Sunday of
+  February, say) and cannot compute what follows. Until tsdav-utils 0.7.0
+  that passed for the end of the series; now `free_busy_query`,
+  `calendar_query` and `list_events` mark the series incomplete and say
+  that the calendar library cannot compute its occurrences from that point
+  on, instead of "too many occurrences". A field update whose new rule or
+  added exclusion cannot be checked for that reason is refused with the
+  library's code `CHECK_LIBRARY_STOPPED` and the route through the raw tool.
 
 ## [5.1.0] - 2026-11-17
 

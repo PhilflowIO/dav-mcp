@@ -108,7 +108,8 @@ function msRange(timeRange) {
  *   vevent: ICAL.Component, event: ICAL.Event,
  *   occurrence: Object|null, item: ICAL.Event,
  *   outsideRange: boolean, expansionTruncated: boolean,
- * } | null}
+ *   expansionReason: string|null, expansionStops: Array<'budget'|'library'>,
+ * } | null} expansionStops: why the expansion ended early (seriesOccurrences)
  */
 export function shownEvent(calendar, timeRange = null, matches = null, budget = undefined) {
   const series = readSeries(calendar, 'vevent');
@@ -127,6 +128,7 @@ export function shownEvent(calendar, timeRange = null, matches = null, budget = 
   let outsideRange = false;
   let expansionTruncated = false;
   let expansionReason = null;
+  let expansionStops = [];
   if (range && event.isRecurring()) {
     const filter = matches ? (o) => matches(o.item.component) : null;
     const result = seriesOccurrences(related, range, { filter, first: true, budget });
@@ -134,13 +136,14 @@ export function shownEvent(calendar, timeRange = null, matches = null, budget = 
     // capped: the occurrence found may not be the earliest, or none was found
     expansionTruncated = result.truncated;
     expansionReason = result.reason ?? null;
+    expansionStops = result.stops ?? [];
     outsideRange = !occurrence && !result.truncated;
   }
 
   return {
     vevent, event, occurrence,
     item: occurrence ? occurrence.item : event,
-    outsideRange, expansionTruncated, expansionReason,
+    outsideRange, expansionTruncated, expansionReason, expansionStops,
   };
 }
 

@@ -454,7 +454,7 @@ describe('periods that can be empty, and BY lists out of order (review of #110)'
       'RRULE:FREQ=MONTHLY;INTERVAL=2;BYDAY=5MO;BYSETPOS=5')).data;
     const { master, overrides } = readSeries(setFloatingZone(new ICAL.Component(ICAL.parse(text)), UTC_ZONE), 'vevent');
     const result = seriesOccurrences(relateSeries(master, overrides), { start: 1855094400000, end: 1857772800000 });
-    expect(result).toMatchObject({ occurrences: [], truncated: true });
+    expect(result).toMatchObject({ occurrences: [], truncated: true, stops: ['library'] });
   });
 
   test.each([
@@ -509,6 +509,47 @@ describe('BY lists out of order, read in time order by tsdav-utils (tsdav-utils#
     })).content[0].text;
     expect(text).toContain('### Busy (1)');
     expect(text).toContain('Moved');
+    expect(text).not.toContain('Warning');
+  });
+});
+
+describe('a rule the calendar library gives up on is named as such (tsdav-utils 0.8.0)', () => {
+  // a fifth Sunday of February: 2060 and 2088, then ical.js ends the yearly
+  // rule after 28 years without one and cannot say what follows
+  const FEB = () => object(vevent('SUMMARY:Leap Sunday', 'DTSTART:20580203T100000Z', 'DURATION:PT1H',
+    'RRULE:FREQ=YEARLY;BYMONTH=2;BYDAY=5SU'));
+  const LATER = { time_range_start: '2150-01-01T00:00:00Z', time_range_end: '2151-01-01T00:00:00Z' };
+
+  test('seriesOccurrences reports the library stop, and spends no budget on it', () => {
+    const { master, overrides } = readSeries(new ICAL.Component(ICAL.parse(FEB().data)), 'vevent');
+    const budget = createRecurrenceBudget(1e6);
+    const result = seriesOccurrences(relateSeries(master, overrides), { start: Date.UTC(2150, 0, 1), end: Date.UTC(2151, 0, 1) }, { budget });
+    expect(result).toMatchObject({ occurrences: [], truncated: true, stops: ['library'] });
+    expect(budget.exhausted).toBeFalsy();
+  });
+
+  test('free/busy says the calendar library cannot compute the occurrences, not that there are too many', async () => {
+    stored = [FEB()];
+    const text = (await freeBusyQuery.handler(LATER)).content[0].text;
+    expect(text).toContain('**Warning**');
+    expect(text).toContain(`- Leap Sunday (${CALENDAR_URL}standup.ics): the calendar library gives this rule up after 28 years without an occurrence, so it cannot compute the occurrences from that point on`);
+    expect(text).not.toContain('Nothing blocks this window');
+  });
+
+  test('calendar_query and list_events say the same in the series note', async () => {
+    stored = [FEB()];
+    for (const [tool, args] of [[calendarQuery, {}], [listEvents, { calendar_url: CALENDAR_URL }]]) {
+      const text = (await tool.handler({ ...LATER, ...args })).content[0].text;
+      expect(text).toContain('Leap Sunday');
+      expect(text).toContain('- **Note**: incomplete — this series could not be expanded (the calendar library gives this rule up after 28 years without an occurrence, so it cannot compute the occurrences from that point on)');
+      expect(text).not.toContain('too many occurrences');
+    }
+  });
+
+  test('a window before the stop is answered in full', async () => {
+    stored = [FEB()];
+    const text = (await freeBusyQuery.handler({ time_range_start: '2088-02-01T00:00:00Z', time_range_end: '2088-03-01T00:00:00Z' })).content[0].text;
+    expect(text).toContain('### Busy (1)');
     expect(text).not.toContain('Warning');
   });
 });
