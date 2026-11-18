@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking changes
+- **The HTTP transport does not start without a strong `BEARER_TOKEN`**
+  (#177). An HTTP deployment that has no token, the `.env.example` value
+  (`your-secure-token-here`) or one shorter than 32 characters now exits 1
+  at startup instead of serving. **Fix:** set `BEARER_TOKEN=$(openssl rand -hex 32)`
+  and give the new value to your MCP clients. Without a token the server
+  answered 500 to every MCP request while `/health` said healthy; with the
+  example value anybody who had read the README could use it. stdio is not
+  affected.
+- **Behind a reverse proxy, forwarded requests lose the raised rate limit
+  unless `TRUST_PROXY` is set** (#177). See Security. A deployment behind a
+  proxy that sends `X-Forwarded-For` or `Forwarded` and does not set
+  `TRUST_PROXY` now shares one counter of 100 requests per 15 minutes
+  across all clients instead of 10,000. **Fix:** set `TRUST_PROXY` to the
+  number of proxies in front of dav-mcp (usually `TRUST_PROXY=1`).
+
+### Added
+- **`HOST` (and `--host=`) sets the HTTP listen address** (#177): an IP
+  address or `localhost`, default every interface as before, which the
+  Docker image needs. `HOST=127.0.0.1` keeps a workstation setup off the
+  network. The startup log names the address and port actually bound.
+- **`TRUST_PROXY` names the reverse proxies whose `X-Forwarded-For` says
+  who the client is** (#177): a hop count, or proxy addresses, CIDR ranges
+  and `loopback`/`linklocal`/`uniquelocal`, comma-separated. Rate limits
+  then count per client. `TRUST_PROXY=true` is refused, because any client
+  could then choose its own address.
+
 ### Security
 - **The container image carries a build provenance attestation** (#177).
   `docker buildx imagetools inspect ghcr.io/philflowio/dav-mcp:<version>
@@ -17,6 +44,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI pins every GitHub Action to a commit SHA, as the release workflows
   already did, Dependabot keeps those pins current, and the test and lint
   jobs install from the lockfile with `npm ci` (#177).
+- **The raised rate limit for private addresses no longer reaches every
+  client behind a reverse proxy** (#177). The proxy's private address was
+  taken for the client's, so each internet client got 10,000 requests per
+  15 minutes before the bearer token check instead of 100. A request that
+  says it was forwarded and is not resolved through `TRUST_PROXY` now gets
+  the standard limit; a container that connects directly, n8n in the same
+  compose network for example, keeps the raised one.
 
 ## [5.1.2] - 2026-11-18
 
