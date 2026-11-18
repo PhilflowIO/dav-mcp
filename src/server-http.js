@@ -81,7 +81,8 @@ app.use(express.json());
 // key), which TRUST_PROXY decides behind a reverse proxy.
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: (req) => (getsRaisedRateLimit(req, trustProxy) ? 10000 : 100),
+  // 'trust proxy fn' is the check Express itself resolves req.ip with
+  max: (req) => (getsRaisedRateLimit(req, trustProxy, req.app.get('trust proxy fn')) ? 10000 : 100),
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,

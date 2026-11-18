@@ -52,8 +52,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   taken for the client's, so each internet client got 10,000 requests per
   15 minutes before the bearer token check instead of 100. A request that
   says it was forwarded and is not resolved through `TRUST_PROXY` now gets
-  the standard limit; a container that connects directly, n8n in the same
-  compose network for example, keeps the raised one.
+  the standard limit, and so does a request whose address is a trusted
+  proxy (one that sent no `X-Forwarded-For`); a container that connects
+  directly, n8n in the same compose network for example, keeps the raised
+  one.
 
 ## [5.1.2] - 2026-11-18
 

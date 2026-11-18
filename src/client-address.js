@@ -21,6 +21,12 @@
  * that says it was forwarded (X-Forwarded-For or Forwarded) and is not
  * resolved through TRUST_PROXY gets the standard limit: its address belongs
  * to a proxy, not to the client. Issue #177.
+ *
+ * With TRUST_PROXY the same holds for an address that is itself a trusted
+ * proxy. Express ends at one when the proxy sent no X-Forwarded-For (or only
+ * Forwarded, which Express does not read) or when every entry is trusted;
+ * the client behind it is then unknown, and the proxy's private address must
+ * not hand the raised limit to everybody who goes through it.
  */
 
 const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
@@ -50,11 +56,17 @@ export function isLocalOrPrivateAddress(ip) {
 
 /**
  * @param {import('express').Request} req
- * @param {false|number|string[]} trustProxy - the parsed TRUST_PROXY setting
+ * @param {false|string[]} trustProxy - the parsed TRUST_PROXY setting
+ * @param {(address: string, hop: number) => boolean} isTrustedProxy - the
+ *   check Express resolves req.ip with (app.get('trust proxy fn'))
  * @returns {boolean} whether this request's client gets the raised limit
  */
-export function getsRaisedRateLimit(req, trustProxy) {
-  const forwarded = req.headers['x-forwarded-for'] !== undefined || req.headers.forwarded !== undefined;
-  if (forwarded && trustProxy === false) return false;
+export function getsRaisedRateLimit(req, trustProxy, isTrustedProxy) {
+  if (trustProxy === false) {
+    const forwarded = req.headers['x-forwarded-for'] !== undefined || req.headers.forwarded !== undefined;
+    if (forwarded) return false;
+  } else if (isTrustedProxy(req.ip, 0)) {
+    return false;
+  }
   return isLocalOrPrivateAddress(req.ip);
 }

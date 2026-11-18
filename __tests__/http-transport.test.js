@@ -313,6 +313,16 @@ describe('HTTP transport: rate-limit client identification', () => {
       expect([a.remaining, b.remaining]).toEqual([99, 99]);
     });
 
+    // The proxy (here: loopback) sent no X-Forwarded-For, or only Forwarded,
+    // which Express does not read: req.ip is the proxy itself, so who the
+    // client is stays unknown.
+    test.each([
+      ['no forwarding header', {}],
+      ['only Forwarded', { forwarded: 'for=203.0.113.7' }],
+    ])('a request from the trusted proxy with %s gets the standard limit', async (_, headers) => {
+      expect((await probe(proxied.url, headers)).limit).toBe(100);
+    });
+
     test('a forwarded private client gets the raised limit', async () => {
       expect((await probe(proxied.url, { 'x-forwarded-for': '10.0.0.5' })).limit).toBe(10000);
     });
