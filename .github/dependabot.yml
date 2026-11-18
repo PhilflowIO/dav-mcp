@@ -9,9 +9,14 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Minor and patch releases come in one pull request; a major release,
+    # which may change inputs or behaviour, gets one of its own.
     groups:
       github-actions:
         patterns:
           - '*'
+        update-types:
+          - minor
+          - patch
     commit-message:
       prefix: ci
