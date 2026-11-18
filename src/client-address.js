@@ -1,5 +1,5 @@
 /**
- * Which client addresses get the raised HTTP rate limit.
+ * Which clients get the raised HTTP rate limit.
  *
  * The raised limit exists for clients that are part of the deployment: a
  * process on the same host, or another container on the same Docker network
@@ -13,6 +13,14 @@
  * be `startsWith('::ffff:172.')`, which is all of 172.0.0.0/8: sixteen million
  * public addresses got the raised limit before the bearer-token check ran.
  * Issue #84.
+ *
+ * The address is the one Express reports as the client (req.ip): the socket
+ * address, or with TRUST_PROXY the first untrusted entry of X-Forwarded-For.
+ * Without TRUST_PROXY a reverse proxy in front of dav-mcp is itself the
+ * client of every request, and its address is usually private — so a request
+ * that says it was forwarded (X-Forwarded-For or Forwarded) and is not
+ * resolved through TRUST_PROXY gets the standard limit: its address belongs
+ * to a proxy, not to the client. Issue #177.
  */
 
 const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
@@ -38,4 +46,15 @@ export function isLocalOrPrivateAddress(ip) {
     a === 10 ||                             // 10.0.0.0/8
     (a === 172 && b >= 16 && b <= 31) ||    // 172.16.0.0/12
     (a === 192 && b === 168);               // 192.168.0.0/16
+}
+
+/**
+ * @param {import('express').Request} req
+ * @param {false|number|string[]} trustProxy - the parsed TRUST_PROXY setting
+ * @returns {boolean} whether this request's client gets the raised limit
+ */
+export function getsRaisedRateLimit(req, trustProxy) {
+  const forwarded = req.headers['x-forwarded-for'] !== undefined || req.headers.forwarded !== undefined;
+  if (forwarded && trustProxy === false) return false;
+  return isLocalOrPrivateAddress(req.ip);
 }

@@ -74,6 +74,7 @@ const serverEnv = (davPort, env) => ({
   CARDDAV_USERNAME: '',
   CARDDAV_PASSWORD: '',
   HOST: '',
+  TRUST_PROXY: '',
   ...env,
 });
 
@@ -258,5 +259,75 @@ describe('HTTP transport: the listen address', () => {
     const { code, output } = await startRefused(davPort, { HOST: 'dav.example.com' });
     expect(code).toBe(1);
     expect(output).toContain("HOST must be an IP address or localhost, got 'dav.example.com'");
+  }, 20000);
+});
+
+describe('HTTP transport: rate-limit client identification', () => {
+  // The limiter runs before the bearer token check, so an unauthenticated
+  // POST shows the limit it was counted against.
+  const probe = async (url, headers = {}) => {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...headers },
+      body: '{}',
+    });
+    expect(response.status).toBe(401);
+    return {
+      limit: Number(response.headers.get('ratelimit-limit')),
+      remaining: Number(response.headers.get('ratelimit-remaining')),
+    };
+  };
+
+  describe('without TRUST_PROXY', () => {
+    test('a local client keeps the raised limit', async () => {
+      expect((await probe(mcpUrl)).limit).toBe(10000);
+    });
+
+    // A reverse proxy on a private address in front of dav-mcp: the address
+    // the server sees is the proxy's, whoever the client is.
+    test.each([
+      ['X-Forwarded-For', { 'x-forwarded-for': '203.0.113.7' }],
+      ['Forwarded', { forwarded: 'for=203.0.113.7' }],
+    ])('a request forwarded with %s gets the standard limit', async (_, headers) => {
+      expect((await probe(mcpUrl, headers)).limit).toBe(100);
+    });
+
+    test('X-Forwarded-For cannot choose the counter', async () => {
+      const first = await probe(mcpUrl, { 'x-forwarded-for': '203.0.113.20' });
+      const second = await probe(mcpUrl, { 'x-forwarded-for': '203.0.113.21' });
+      expect(second.remaining).toBe(first.remaining - 1);
+    });
+  });
+
+  describe('with TRUST_PROXY=loopback', () => {
+    let proxied;
+    beforeAll(async () => {
+      proxied = await startServer(davPort, { TRUST_PROXY: 'loopback' });
+    }, 30000);
+    afterAll(() => stopServer(proxied));
+
+    test('each forwarded client has its own counter and the standard limit', async () => {
+      const a = await probe(proxied.url, { 'x-forwarded-for': '203.0.113.7' });
+      const b = await probe(proxied.url, { 'x-forwarded-for': '203.0.113.8' });
+      expect([a.limit, b.limit]).toEqual([100, 100]);
+      expect([a.remaining, b.remaining]).toEqual([99, 99]);
+    });
+
+    test('a forwarded private client gets the raised limit', async () => {
+      expect((await probe(proxied.url, { 'x-forwarded-for': '10.0.0.5' })).limit).toBe(10000);
+    });
+
+    test('an entry a client prepends is not trusted past the proxy', async () => {
+      // the client sent "10.0.0.6", the proxy appended the address it saw
+      const spoofed = await probe(proxied.url, { 'x-forwarded-for': '10.0.0.6, 203.0.113.9' });
+      expect(spoofed.limit).toBe(100);
+      expect(spoofed.remaining).toBe(99);
+    });
+  });
+
+  test('TRUST_PROXY=true stops the server at startup', async () => {
+    const { code, output } = await startRefused(davPort, { TRUST_PROXY: 'true' });
+    expect(code).toBe(1);
+    expect(output).toContain('TRUST_PROXY=true would trust X-Forwarded-For from any client');
   }, 20000);
 });

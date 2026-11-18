@@ -1,5 +1,5 @@
 import { describe, test, expect } from '@jest/globals';
-import { isLocalOrPrivateAddress } from '../src/client-address.js';
+import { getsRaisedRateLimit, isLocalOrPrivateAddress } from '../src/client-address.js';
 
 // The HTTP rate limiter gives these addresses a 100x higher limit, before the
 // bearer token is checked. A prefix match on "172." once handed that to all of
@@ -44,5 +44,36 @@ describe('isLocalOrPrivateAddress', () => {
     ['undefined', undefined],
   ])('%s is not', (_, ip) => {
     expect(isLocalOrPrivateAddress(ip)).toBe(false);
+  });
+});
+
+describe('getsRaisedRateLimit', () => {
+  const request = (ip, headers = {}) => ({ ip, headers });
+
+  test('a private client that connects directly gets it, with or without TRUST_PROXY', () => {
+    expect(getsRaisedRateLimit(request('::ffff:172.18.0.5'), false)).toBe(true);
+    expect(getsRaisedRateLimit(request('127.0.0.1'), ['loopback'])).toBe(true);
+  });
+
+  test('a public client does not', () => {
+    expect(getsRaisedRateLimit(request('203.0.113.7'), false)).toBe(false);
+    expect(getsRaisedRateLimit(request('203.0.113.7'), 1)).toBe(false);
+  });
+
+  // Behind a reverse proxy without TRUST_PROXY, req.ip is the proxy's private
+  // address for every client; handing that the raised limit gave it to the
+  // whole internet (#177).
+  test.each([
+    ['X-Forwarded-For', { 'x-forwarded-for': '203.0.113.7' }],
+    ['Forwarded', { forwarded: 'for=203.0.113.7' }],
+  ])('a forwarded request without TRUST_PROXY does not: its %s address is a proxy\'s', (_, headers) => {
+    expect(getsRaisedRateLimit(request('::ffff:172.18.0.2', headers), false)).toBe(false);
+  });
+
+  test('with TRUST_PROXY the client Express resolved decides', () => {
+    const headers = { 'x-forwarded-for': '10.0.0.5' };
+    // req.ip is what Express took from X-Forwarded-For over trusted proxies
+    expect(getsRaisedRateLimit(request('10.0.0.5', headers), ['uniquelocal'])).toBe(true);
+    expect(getsRaisedRateLimit(request('203.0.113.7', { 'x-forwarded-for': '203.0.113.7' }), 1)).toBe(false);
   });
 });

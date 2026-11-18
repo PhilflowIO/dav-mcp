@@ -1,5 +1,7 @@
 import { describe, test, expect } from '@jest/globals';
-import { checkBearerToken, MIN_BEARER_TOKEN_LENGTH, parseListenHost } from '../src/http-config.js';
+import {
+  checkBearerToken, MIN_BEARER_TOKEN_LENGTH, parseListenHost, parseTrustProxy,
+} from '../src/http-config.js';
 
 describe('checkBearerToken', () => {
   test.each([
@@ -49,5 +51,46 @@ describe('parseListenHost', () => {
     ['a bracketed IPv6 address', '[::1]'],
   ])('refuses %s', (_, value) => {
     expect(() => parseListenHost(value)).toThrow(/HOST must be an IP address or localhost/);
+  });
+});
+
+describe('parseTrustProxy', () => {
+  test.each([undefined, '', ' ', 'false', '0'])('%p trusts no proxy', (value) => {
+    expect(parseTrustProxy(value)).toBe(false);
+  });
+
+  test.each([['1', 1], ['2', 2]])('%s is a hop count', (value, hops) => {
+    expect(parseTrustProxy(value)).toBe(hops);
+  });
+
+  test.each([
+    ['10.0.0.2', ['10.0.0.2']],
+    ['172.18.0.0/16', ['172.18.0.0/16']],
+    ['loopback', ['loopback']],
+    ['loopback, uniquelocal,linklocal', ['loopback', 'uniquelocal', 'linklocal']],
+    ['::1, fd00::/8, 192.168.1.1/32', ['::1', 'fd00::/8', '192.168.1.1/32']],
+  ])('%s is a list of proxies', (value, list) => {
+    expect(parseTrustProxy(value)).toEqual(list);
+  });
+
+  test('true is refused: it would let every client choose its address', () => {
+    expect(() => parseTrustProxy('true')).toThrow(/any client.*TRUST_PROXY=1/s);
+  });
+
+  test.each([
+    ['a host name', 'proxy.internal', "'proxy.internal'"],
+    ['a prefix too long for IPv4', '10.0.0.0/33', "'10.0.0.0/33'"],
+    ['a prefix that is not a number', '10.0.0.0/8a', "'10.0.0.0/8a'"],
+    ['an empty entry', '10.0.0.2,', "''"],
+    ['a negative hop count', '-1', "'-1'"],
+  ])('refuses %s and names the entry', (_, value, named) => {
+    let error;
+    try {
+      parseTrustProxy(value);
+    } catch (e) {
+      error = e;
+    }
+    expect(error?.name).toBe('ConfigurationError');
+    expect(error.message).toContain(named);
   });
 });

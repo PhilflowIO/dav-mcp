@@ -16,6 +16,8 @@
  *     interface; set 127.0.0.1 to keep the server off the network)
  *   - BEARER_TOKEN: Required, at least 32 characters (`openssl rand -hex 32`);
  *     the server does not start without one
+ *   - TRUST_PROXY: Reverse proxies whose X-Forwarded-For names the client:
+ *     a hop count or a list of addresses/CIDR ranges (default: none)
  *   - CORS_ALLOWED_ORIGINS: Comma-separated list of allowed origins
  *   - CALDAV_SERVER_URL, CALDAV_USERNAME, CALDAV_PASSWORD: CalDAV credentials
  *   - AUTH_METHOD: 'Basic' (default), 'Digest' or 'OAuth' (case-insensitive, see auth-config.js)
@@ -35,9 +37,9 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 import { tsdavManager } from './tsdav-client.js';
-import { isLocalOrPrivateAddress } from './client-address.js';
+import { getsRaisedRateLimit } from './client-address.js';
 import { buildTsdavConfig } from './auth-config.js';
-import { checkBearerToken, parseListenHost } from './http-config.js';
+import { checkBearerToken, parseListenHost, parseTrustProxy } from './http-config.js';
 import { tools, toListedTool } from './tools/index.js';
 import { createToolErrorResponse, MCP_ERROR_CODES } from './error-handler.js';
 import { logger, createRequestLogger } from './logger.js';
@@ -48,6 +50,12 @@ dotenv.config({ path: fileURLToPath(new URL('../.env', import.meta.url)), quiet:
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Set by readHttpSettings() once the environment has passed its checks; the
+// server does not listen before that, so no request sees them unset.
+let bearerSecret;
+let listenHost;
+let trustProxy = false;
 
 // CORS Configuration
 const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS
@@ -69,13 +77,11 @@ app.use(cors({
 // Body parser
 app.use(express.json());
 
-// Rate Limiting
+// Rate Limiting. Counted per client address (req.ip, the limiter's default
+// key), which TRUST_PROXY decides behind a reverse proxy.
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: (req) => {
-    const ip = req.ip || req.socket?.remoteAddress;
-    return isLocalOrPrivateAddress(ip) ? 10000 : 100;
-  },
+  max: (req) => (getsRaisedRateLimit(req, trustProxy) ? 10000 : 100),
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
@@ -86,11 +92,6 @@ app.use('/mcp', limiter);
 /**
  * Bearer token authentication middleware
  */
-// Set by start() from BEARER_TOKEN once it has passed checkBearerToken; the
-// server does not listen before that, so no request sees it unset.
-let bearerSecret;
-let listenHost;
-
 function authenticateBearer(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -128,9 +129,14 @@ function readHttpSettings() {
   try {
     bearerSecret = Buffer.from(checkBearerToken(process.env.BEARER_TOKEN));
     listenHost = parseListenHost(process.env.HOST);
+    trustProxy = parseTrustProxy(process.env.TRUST_PROXY);
   } catch (error) {
     logger.error({ error: error.message }, 'Invalid configuration — server not started');
     process.exit(1);
+  }
+  app.set('trust proxy', trustProxy);
+  if (trustProxy !== false) {
+    logger.info({ trustProxy }, 'Client addresses taken from X-Forwarded-For of trusted proxies');
   }
 }
 
