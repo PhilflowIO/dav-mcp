@@ -1,7 +1,7 @@
 import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, updateCalendarSchema } from '../../validation.js';
 import { formatCalendarUpdateSuccess } from '../../formatters.js';
-import { assertDavSuccess } from '../shared/helpers.js';
+import { assertDavSuccess, findCalendarOrThrow } from '../shared/helpers.js';
 import { calendarTimezoneValue, readCalendarTimezone, calendarTimezoneOf } from '../../calendar-zone.js';
 import { NotFoundError } from '../../error-handler.js';
 
@@ -69,11 +69,33 @@ export const updateCalendar = {
       prop['c:calendar-timezone'] = timezone.text;
     }
 
+    // Only a calendar list_calendars names is changed, decided before the
+    // PROPPATCH. The URL check alone admits every collection in the account
+    // (the calendar home, the principal), and a URL from event or contact
+    // text a model was steered by must not rename those. The same calendar
+    // under another spelling of its URL (an escaped character, a missing
+    // trailing slash) is still this one; the request goes to the URL the
+    // server listed, not to the caller's spelling of it.
+    const key = (url) => {
+      let path;
+      try {
+        path = decodeURIComponent(new URL(url).pathname);
+      } catch {
+        path = String(url);
+      }
+      return path.replace(/\/+$/, '');
+    };
+    const listed = (calendars, url) => calendars.find(c => c.url === url)
+      ?? calendars.find(c => key(c.url) === key(url));
+    const before = await client.fetchCalendars();
+    const calendar = listed(before, validated.calendar_url)
+      ?? findCalendarOrThrow(before, validated.calendar_url);
+
     // Through tsdav, not a bare fetch: the client adds its own auth headers and
     // fetch override, so PROPPATCH authenticates the same way every other
     // request does instead of copying client.authHeaders by hand.
     const response = await client.davRequest({
-      url: validated.calendar_url,
+      url: calendar.url,
       init: {
         method: 'PROPPATCH',
         namespace: 'd',
@@ -89,29 +111,16 @@ export const updateCalendar = {
         },
       },
     });
-    await assertDavSuccess(response, `update calendar ${validated.calendar_url}`);
+    await assertDavSuccess(response, `update calendar ${calendar.url}`);
 
     // Fetch updated calendar to confirm
-    const calendars = await client.fetchCalendars();
-    // the same calendar under another spelling of its URL (an escaped
-    // character, a missing trailing slash) is still this one
-    const key = (url) => {
-      let path;
-      try {
-        path = decodeURIComponent(new URL(url).pathname);
-      } catch {
-        path = String(url);
-      }
-      return path.replace(/\/+$/, '');
-    };
-    const updatedCalendar = calendars.find(c => c.url === validated.calendar_url)
-      ?? calendars.find(c => key(c.url) === key(validated.calendar_url));
+    const updatedCalendar = listed(await client.fetchCalendars(), calendar.url);
 
     if (!updatedCalendar) {
       throw new NotFoundError(
-        `The server accepted the update, but ${validated.calendar_url} is not among the calendars it lists, ` +
+        `The server accepted the update, but ${calendar.url} is no longer among the calendars it lists, ` +
         'so the result cannot be confirmed. Check the URL with list_calendars.',
-        { calendarUrl: validated.calendar_url },
+        { calendarUrl: calendar.url },
       );
     }
 
