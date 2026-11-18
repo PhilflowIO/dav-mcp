@@ -1,0 +1,302 @@
+[
+ {
+  "name": "multi-day yearly reaching in",
+  "dtstart": "20000315",
+  "duration": 864000,
+  "rrule": "FREQ=YEARLY",
+  "range": [
+   "2026-03-20T00:00:00Z",
+   "2026-03-21T00:00:00Z"
+  ],
+  "touches": true
+ },
+ {
+  "name": "9-day timed reaching in",
+  "dtstart": "20200110T090000Z",
+  "duration": 777600,
+  "rrule": "FREQ=YEARLY;BYMONTH=1;BYMONTHDAY=10",
+  "range": [
+   "2026-01-18T00:00:00Z",
+   "2026-01-18T01:00:00Z"
+  ],
+  "touches": true
+ },
+ {
+  "name": "last day of February",
+  "dtstart": "20200131T090000Z",
+  "duration": 3600,
+  "rrule": "FREQ=MONTHLY;BYMONTHDAY=-1",
+  "range": [
+   "2026-02-28T08:00:00Z",
+   "2026-02-28T10:00:00Z"
+  ],
+  "touches": true
+ },
+ {
+  "name": "fifth Friday",
+  "dtstart": "20200131T090000Z",
+  "duration": 3600,
+  "rrule": "FREQ=MONTHLY;BYDAY=5FR",
+  "range": [
+   "2026-05-29T08:00:00Z",
+   "2026-05-29T10:00:00Z"
+  ],
+  "touches": true
+ },
+ {
+  "name": "fifth-last Friday",
+  "dtstart": "20200131T090000Z",
+  "duration": 3600,
+  "rrule": "FREQ=MONTHLY;BYDAY=-5FR",
+  "range": [
+   "2026-05-01T08:00:00Z",
+   "2026-05-01T10:00:00Z"
+  ],
+  "touches": true
+ },
+ {
+  "name": "Thanksgiving",
+  "dtstart": "20201126T170000Z",
+  "duration": 10800,
+  "rrule": "FREQ=YEARLY;BYMONTH=11;BYDAY=4TH",
+  "range": [
+   "2026-11-26T16:00:00Z",
+   "2026-11-26T18:00:00Z"
+  ],
+  "touches": true
+ },
+ {
+  "name": "last Monday of the year",
+  "dtstart": "20201228T090000Z",
+  "duration": 3600,
+  "rrule": "FREQ=YEARLY;BYDAY=-1MO",
+  "range": [
+   "2026-12-28T08:00:00Z",
+   "2026-12-28T10:00:00Z"
+  ],
+  "touches": true
+ },
+ {
+  "name": "20th Monday of the year",
+  "dtstart": "20200511T090000Z",
+  "duration": 3600,
+  "rrule": "FREQ=YEARLY;BYDAY=20MO",
+  "range": [
+   "2026-05-18T08:00:00Z",
+   "2026-05-18T10:00:00Z"
+  ],
+  "touches": true
+ },
+ {
+  "name": "YEARLY with BYMONTHDAY only is every month",
+  "dtstart": "20200113T090000Z",
+  "duration": 3600,
+  "rrule": "FREQ=YEARLY;BYMONTHDAY=13",
+  "range": [
+   "2026-11-13T08:00:00Z",
+   "2026-11-13T10:00:00Z"
+  ],
+  "touches": true
+ },
+ {
+  "name": "YEARLY with BYDAY only is every week",
+  "dtstart": "20200106T090000Z",
+  "duration": 3600,
+  "rrule": "FREQ=YEARLY;BYDAY=TU",
+  "range": [
+   "2026-11-17T08:00:00Z",
+   "2026-11-17T10:00:00Z"
+  ],
+  "touches": true
+ },
+ {
+  "name": "leap day",
+  "dtstart": "20200229",
+  "duration": 86400,
+  "rrule": "FREQ=YEARLY",
+  "range": [
+   "2028-02-29T10:00:00Z",
+   "2028-02-29T11:00:00Z"
+  ],
+  "touches": true
+ },
+ {
+  "name": "Auckland Monday 08:00 seen from UTC Sunday",
+  "dtstart": "20200106T080000",
+  "tzid": "Pacific/Auckland",
+  "duration": 3600,
+  "rrule": "FREQ=WEEKLY",
+  "range": [
+   "2026-11-15T19:00:00Z",
+   "2026-11-15T19:30:00Z"
+  ],
+  "touches": true
+ },
+ {
+  "name": "Auckland Sunday 01:30 on the day DST begins",
+  "dtstart": "20200105T013000",
+  "tzid": "Pacific/Auckland",
+  "duration": 3600,
+  "rrule": "FREQ=WEEKLY;BYDAY=SU",
+  "range": [
+   "2026-09-26T13:00:00Z",
+   "2026-09-26T14:00:00Z"
+  ],
+  "touches": true
+ },
+ {
+  "name": "override moved into the range",
+  "dtstart": "20200315T090000Z",
+  "duration": 3600,
+  "rrule": "FREQ=YEARLY",
+  "overrides": [
+   {
+    "rid": "20260315T090000Z",
+    "start": "20261118T090000Z",
+    "end": "20261118T100000Z"
+   }
+  ],
+  "range": [
+   "2026-11-18T08:00:00Z",
+   "2026-11-18T10:00:00Z"
+  ],
+  "touches": true
+ },
+ {
+  "name": "override lengthened into the range",
+  "dtstart": "20200315T090000Z",
+  "duration": 3600,
+  "rrule": "FREQ=YEARLY",
+  "overrides": [
+   {
+    "rid": "20260315T090000Z",
+    "start": "20260315T090000Z",
+    "end": "20260320T090000Z"
+   }
+  ],
+  "range": [
+   "2026-03-19T08:00:00Z",
+   "2026-03-19T10:00:00Z"
+  ],
+  "touches": true
+ },
+ {
+  "name": "RDATE period reaching into the range",
+  "dtstart": "20200315T090000Z",
+  "duration": 3600,
+  "rrule": "FREQ=YEARLY",
+  "rdatePeriods": [
+   [
+    "20261110T090000Z",
+    "20261120T090000Z"
+   ]
+  ],
+  "range": [
+   "2026-11-18T08:00:00Z",
+   "2026-11-18T10:00:00Z"
+  ],
+  "touches": true
+ },
+ {
+  "name": "DTSTART off the rule, in the range",
+  "dtstart": "20261118T090000Z",
+  "duration": 3600,
+  "rrule": "FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=15",
+  "range": [
+   "2026-11-18T08:00:00Z",
+   "2026-11-18T10:00:00Z"
+  ],
+  "touches": true
+ },
+ {
+  "name": "monthly on the 31st, December",
+  "dtstart": "20200131T090000Z",
+  "duration": 3600,
+  "rrule": "FREQ=MONTHLY",
+  "range": [
+   "2026-12-31T08:00:00Z",
+   "2026-12-31T10:00:00Z"
+  ],
+  "touches": true
+ },
+ {
+  "name": "every fifth hour on Wednesdays",
+  "dtstart": "20261101T000000Z",
+  "duration": 600,
+  "rrule": "FREQ=HOURLY;INTERVAL=5;BYDAY=WE",
+  "range": [
+   "2026-11-18T09:00:00Z",
+   "2026-11-18T12:01:00Z"
+  ],
+  "touches": true
+ },
+ {
+  "name": "YEARLY second Monday of the year",
+  "dtstart": "20200113T090000Z",
+  "duration": 3600,
+  "rrule": "FREQ=YEARLY;BYDAY=2MO",
+  "range": [
+   "2026-01-12T08:00:00Z",
+   "2026-01-12T10:00:00Z"
+  ],
+  "touches": true
+ },
+ {
+  "name": "MONTHLY with BYMONTH, last Sunday",
+  "dtstart": "20200329T010000Z",
+  "duration": 3600,
+  "rrule": "FREQ=MONTHLY;BYMONTH=3,10;BYDAY=-1SU",
+  "range": [
+   "2026-10-25T00:00:00Z",
+   "2026-10-25T02:00:00Z"
+  ],
+  "touches": true
+ },
+ {
+  "name": "29 February with BYMONTH=2, a year without one",
+  "dtstart": "20200229T090000Z",
+  "duration": 3600,
+  "rrule": "FREQ=YEARLY;BYMONTH=2",
+  "range": [
+   "2026-02-28T08:00:00Z",
+   "2026-03-01T10:00:00Z"
+  ],
+  "touches": false
+ },
+ {
+  "name": "RFC 7529 SKIP=FORWARD moves 29 February to 1 March",
+  "dtstart": "20200229T090000Z",
+  "duration": 3600,
+  "rrule": "RSCALE=GREGORIAN;FREQ=YEARLY;SKIP=FORWARD",
+  "oracle": false,
+  "range": [
+   "2026-03-01T08:00:00Z",
+   "2026-03-01T10:00:00Z"
+  ],
+  "touches": null
+ },
+ {
+  "name": "refused by the library: BYDAY=6MO",
+  "dtstart": "20200106T090000Z",
+  "duration": 3600,
+  "rrule": "FREQ=MONTHLY;BYDAY=6MO",
+  "oracle": false,
+  "range": [
+   "2026-11-16T08:00:00Z",
+   "2026-11-16T10:00:00Z"
+  ],
+  "touches": null
+ },
+ {
+  "name": "refused by the library: WEEKLY with BYMONTHDAY",
+  "dtstart": "20200106T090000Z",
+  "duration": 3600,
+  "rrule": "FREQ=WEEKLY;BYMONTHDAY=1",
+  "oracle": false,
+  "range": [
+   "2026-11-16T08:00:00Z",
+   "2026-11-16T10:00:00Z"
+  ],
+  "touches": null
+ }
+]

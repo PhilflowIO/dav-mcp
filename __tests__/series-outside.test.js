@@ -1,5 +1,6 @@
 import { describe, test, expect } from '@jest/globals';
 import ICAL from 'ical.js';
+import { readFileSync } from 'node:fs';
 
 // seriesOutside decides, without expanding, that no occurrence of a series
 // touches a range; range-candidates.js drops the recurring objects it rules
@@ -9,6 +10,8 @@ import ICAL from 'ical.js';
 const { readSeries } = await import('../src/ical-components.js');
 const { relateSeries, seriesOutside, seriesOccurrences } = await import('../src/occurrences.js');
 const { createRecurrenceBudget } = await import('tsdav-utils');
+const zoneModule = await import('../src/calendar-zone.js');
+const CASES = JSON.parse(readFileSync(new URL('./fixtures/series-outside-cases.json', import.meta.url), 'utf8'));
 
 /** mulberry32: the same rules on every run */
 function random(seed) {
@@ -99,4 +102,35 @@ describe('seriesOutside never rules out a series with an occurrence in the range
     expect(outside).toBeGreaterThan(1000);
     expect(checked).toBeGreaterThan(outside * 0.9);
   }, 300000);
+});
+
+// Hand-built edge cases with their truth from an independent oracle
+// (python-dateutil, fixtures/series-outside-oracle.py), so the verdicts are
+// not only checked against the library they save calls into. Floating times
+// and dates are read in UTC here, as the oracle reads them.
+describe('seriesOutside against an independent RFC 5545 oracle', () => {
+  const { setFloatingZone, floatingZoneFor } = zoneModule;
+  const AUCKLAND = ['BEGIN:VTIMEZONE', 'TZID:Pacific/Auckland',
+    'BEGIN:STANDARD', 'DTSTART:19700405T030000', 'RRULE:FREQ=YEARLY;BYMONTH=4;BYDAY=1SU', 'TZOFFSETFROM:+1300', 'TZOFFSETTO:+1200', 'END:STANDARD',
+    'BEGIN:DAYLIGHT', 'DTSTART:19700927T020000', 'RRULE:FREQ=YEARLY;BYMONTH=9;BYDAY=-1SU', 'TZOFFSETFROM:+1200', 'TZOFFSETTO:+1300', 'END:DAYLIGHT',
+    'END:VTIMEZONE'];
+  const at = (value, tzid) => (tzid ? `;TZID=${tzid}:${value}` : value.length === 8 ? `;VALUE=DATE:${value}` : `:${value}`);
+  const vevent = (...lines) => ['BEGIN:VEVENT', 'UID:x', 'DTSTAMP:20260101T000000Z', ...lines, 'END:VEVENT'];
+  const icsOf = (c) => ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Test//EN', ...(c.tzid ? AUCKLAND : []),
+    ...vevent(`DTSTART${at(c.dtstart, c.tzid)}`, `DURATION:PT${c.duration}S`, `RRULE:${c.rrule}`,
+      ...(c.rdatePeriods ?? []).map(([from, to]) => `RDATE;VALUE=PERIOD:${from}/${to}`)),
+    ...(c.overrides ?? []).flatMap((o) => vevent(`RECURRENCE-ID${at(o.rid, c.tzid)}`, `DTSTART${at(o.start, c.tzid)}`, `DTEND${at(o.end, c.tzid)}`)),
+    'END:VCALENDAR', ''].join('\r\n');
+
+  test.each(CASES.filter((c) => c.touches !== false).map((c) => [c.name, c]))(
+    '%s: not ruled out', (_, c) => {
+      const root = setFloatingZone(new ICAL.Component(ICAL.parse(icsOf(c))), floatingZoneFor({ timezone: 'UTC' }));
+      const { master, overrides } = readSeries(root, 'vevent');
+      const range = { start: Date.parse(c.range[0]), end: Date.parse(c.range[1]) };
+      expect(seriesOutside(relateSeries(master, overrides), range)).toBe(false);
+    });
+
+  test('the fixture holds the 21 touching cases the oracle computed', () => {
+    expect(CASES.filter((c) => c.touches === true)).toHaveLength(21);
+  });
 });

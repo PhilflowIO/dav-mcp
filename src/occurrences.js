@@ -990,6 +990,11 @@ export function seriesOutside(series, range) {
 
 // Longest range, in days, whose days ruleMissesRange checks one by one
 const RULE_DAYS_CHECKED = 400;
+// The fields of an ICAL.Recur that RFC 5545 alone gives; any other (rscale,
+// skip, an x-name) is a part ruleMissesRange does not decide on
+const RULE_FIELDS = new Set(['parts', 'interval', 'wkst', 'until', 'count', 'freq', 'icalclass', 'icaltype', 'wrappedJSObject']);
+// BY parts dayTest reads, or that only narrow a day it passes (BYSETPOS, the time parts)
+const DAY_TESTED_PARTS = new Set(['BYMONTH', 'BYMONTHDAY', 'BYDAY', 'BYSETPOS', 'BYHOUR', 'BYMINUTE', 'BYSECOND']);
 
 /**
  * Does no day of the range (widened by the occurrence length and `slack`)
@@ -1000,7 +1005,7 @@ const RULE_DAYS_CHECKED = 400;
  * it. A necessary condition only, never sufficient: years, INTERVAL, COUNT,
  * BYSETPOS and the time parts are not looked at, so a day passing it may
  * still hold no occurrence, but a day failing it holds none. BYYEARDAY,
- * BYWEEKNO, several RRULEs,
+ * BYWEEKNO, RSCALE/SKIP or another part outside RFC 5545, several RRULEs,
  * a range of more than RULE_DAYS_CHECKED days, a rule that cannot be read
  * or one the calendar library refuses (libraryAccepts): not decided,
  * false, so the expansion reports it.
@@ -1015,8 +1020,11 @@ function ruleMissesRange({ master, event, frame, root }, range, duration, slack)
   if (rules.length !== 1) return false;
   const rule = orNull(() => rules[0].getFirstValue());
   if (!rule?.freq) return false;
-  const parts = rule.parts ?? {};
-  if (parts.BYYEARDAY || parts.BYWEEKNO) return false;
+  // only rules of RFC 5545 parts dayTest knows: RFC 7529's RSCALE/SKIP move
+  // a missing day (SKIP=FORWARD: 29 February to 1 March), and an unknown or
+  // x-name part may mean anything
+  if (Object.keys(rule).some((key) => !RULE_FIELDS.has(key))) return false;
+  if (Object.keys(rule.parts ?? {}).some((part) => !DAY_TESTED_PARTS.has(part))) return false;
   const startWall = orNull(() => wallOfTime(event.startDate));
   if (startWall === null) return false;
   // a date without an end still takes its whole day
