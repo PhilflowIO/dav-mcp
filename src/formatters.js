@@ -591,7 +591,7 @@ export function formatEventList(events, calendar = 'Unknown Calendar', timeRange
 
   events.forEach((event, index) => {
     // one expansion budget for the whole list (one tool call), shared fairly
-    const share = budget.take();
+    const share = budget.take(event);
     const entry = eventEntry(event, calendarName, timeRange, matches, shown?.get(event), share);
     if (entry.unreadable) unreadable++;
     entries += `### ${index + 1}. ` + entry.text.replace(/^## /, '') + '\n';
@@ -1179,7 +1179,7 @@ const LIBRARY_STOP = 'the calendar library cannot compute the occurrences of thi
  *
  * @param {Array<'budget'|'library'>} [stops] - seriesOccurrences' `stops`
  */
-function whyStopped(stops = []) {
+export function whyStopped(stops = []) {
   const library = stops.includes('library');
   const budget = stops.includes('budget') || !library;
   return [budget && 'too many occurrences', library && LIBRARY_STOP].filter(Boolean).join('; and ');
@@ -1206,6 +1206,28 @@ export function withUnsearched(result, unsearched, noun, listTool) {
     `(${listTool} lists them with the reason):\n\n`;
   for (const { object, reason } of unsearched.slice(0, LISTED_UNREADABLE)) output += `- ${object.url} — ${reason}\n`;
   output += moreLine(unsearched.length);
+
+  const [first, ...rest] = result.content;
+  return { ...result, content: [{ ...first, text: first.text + output }, ...rest] };
+}
+
+/**
+ * Add the recurring events a range query could not check to a formatted
+ * list result: objects fetched because the server's range answer may leave
+ * them out (src/tools/shared/range-candidates.js) that could not be read or
+ * expanded in the call, or a calendar whose recurring events could not be
+ * fetched. One of them may touch the range, so the list may lack it.
+ *
+ * @param {{content: Array<{type:string, text:string}>}} result - formatted list
+ * @param {Array<{object: {url: string}, reason: string}>} unchecked
+ */
+export function withUnchecked(result, unchecked) {
+  if (!unchecked || unchecked.length === 0) return result;
+
+  let output = `\n\n---\nNot checked: **${unchecked.length}** — recurring events the server did not return for this range ` +
+    'could not all be checked here, so an occurrence in the range may be missing above:\n\n';
+  for (const { object, reason } of unchecked.slice(0, LISTED_UNREADABLE)) output += `- ${object.url} — ${reason}\n`;
+  output += moreLine(unchecked.length);
 
   const [first, ...rest] = result.content;
   return { ...result, content: [{ ...first, text: first.text + output }, ...rest] };

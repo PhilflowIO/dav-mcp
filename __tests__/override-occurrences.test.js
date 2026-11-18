@@ -19,6 +19,8 @@ jest.unstable_mockModule('../src/tsdav-client.js', () => ({
       // calendar's days on any host (#117)
       fetchCalendars: async () => [{ url: CALENDAR_URL, displayName: 'Work', timezone: 'UTC', components: ['VEVENT', 'VTODO'] }],
       fetchCalendarObjects: async () => stored,
+      // the range answer holds every object; no recurring one to add (range-candidates.js)
+      calendarQuery: async () => [],
     }),
     getCardDavClient: () => ({}),
   },

@@ -4,7 +4,8 @@ import { shareTimezones, toInstant } from './ical-dates.js';
 import { logicalLines, parseContentLine } from './content-lines.js';
 import { setFloatingZone, objectFloatingZone, serverZone } from '../../calendar-zone.js';
 import { readSeries, blocksTime } from '../../ical-components.js';
-import { relateSeries, seriesOccurrences, spanOf, touchesRange, requestBudget, budgetPool } from '../../occurrences.js';
+import { relateSeries, seriesOccurrences, spanOf, touchesRange, requestBudget, rangeBudgetPool } from '../../occurrences.js';
+import { isRangeExtra } from './range-candidates.js';
 
 /**
  * Client-side free/busy calculation.
@@ -306,8 +307,8 @@ function busyBlocks(intervals) {
 export function calculateFreeBusy(calendarObjects, range) {
   const window = { start: range.start.getTime(), end: range.end.getTime() };
   // one expansion budget for this answer (one tool call), shared fairly by
-  // its objects
-  const budget = budgetPool(calendarObjects.length);
+  // its objects; the extra recurring objects have a pool of their own
+  const budget = rangeBudgetPool(calendarObjects, isRangeExtra);
   const blocking = [];
   const published = [];
   const incomplete = [];
@@ -341,7 +342,7 @@ export function calculateFreeBusy(calendarObjects, range) {
       incomplete.push({ object, summary: '', reason: unreadableReason(error, 'iCalendar') });
       continue;
     }
-    const share = budget.take();
+    const share = budget.take(object);
     const { occurrences, truncated, reason, stops, shown } = busyOccurrencesOf(root, window, share);
     budget.give(share);
     if (truncated) {

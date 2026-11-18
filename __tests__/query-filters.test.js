@@ -19,6 +19,8 @@ jest.unstable_mockModule('../src/tsdav-client.js', () => ({
       fetchCalendars: async () => [{ url: CALENDAR_URL, displayName: 'Main' }],
       fetchTodos: async () => storedTodos,
       fetchCalendarObjects: async () => storedEvents,
+      // the range answer holds every object; no recurring one to add (range-candidates.js)
+      calendarQuery: async () => [],
     }),
     getCardDavClient: () => ({
       fetchAddressBooks: async () => [{ url: ADDRESSBOOK_URL, displayName: 'Default' }],

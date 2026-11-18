@@ -20,16 +20,23 @@ let events;
 // how the server answers the stored free/busy query: 'refuse' (a DAV
 // error), 'ignore-filter' (the events again), or normally
 let storedQuery;
-const fetchCalendarObjects = jest.fn(async ({ calendar, filters }) => {
+// recurring events the range answer leaves out; found by the property listing
+let recurring;
+const fetchCalendarObjects = jest.fn(async ({ calendar, filters, objectUrls }) => {
+  if (objectUrls) return (recurring[calendar.url] ?? []).filter((object) => objectUrls.includes(object.url));
   const isStored = filters?.[0]?.['comp-filter']?.['comp-filter']?._attributes?.name === 'VFREEBUSY';
   if (isStored && storedQuery === 'refuse') throw new Error('REPORT returned 501 Not Implemented');
-  if (isStored && storedQuery === 'ignore-filter') return [...(events[calendar.url] ?? []), ...(stored[calendar.url] ?? [])];
+  if (isStored && storedQuery === 'ignore-filter') {
+    return [...(events[calendar.url] ?? []), ...(recurring[calendar.url] ?? []), ...(stored[calendar.url] ?? [])];
+  }
   return (isStored ? stored : events)[calendar.url] ?? [];
 });
 
 jest.unstable_mockModule('../src/tsdav-client.js', () => ({
   tsdavManager: {
-    getCalDavClient: () => ({ fetchCalendars: async () => calendars, fetchCalendarObjects }),
+    // calendarQuery: the recurring-object listing (range-candidates.js) finds
+    // nothing beyond the range answer
+    getCalDavClient: () => ({ fetchCalendars: async () => calendars, fetchCalendarObjects, calendarQuery: async ({ url }) => (recurring[url] ?? []).map((object) => ({ href: object.url })) }),
     getCardDavClient: () => ({}),
   },
 }));
@@ -75,6 +82,7 @@ beforeEach(() => {
   stored = {};
   events = {};
   storedQuery = null;
+  recurring = {};
 });
 
 describe('the stored free/busy query', () => {
@@ -82,18 +90,24 @@ describe('the stored free/busy query', () => {
     await freeBusyQuery.handler(WINDOW);
     const byCalendar = (url) => fetchCalendarObjects.mock.calls.map(([options]) => options)
       .filter((options) => options.calendar.url === url);
+    // told apart by what they ask for, not by the order they are sent in
+    const asksFor = (options, name) => options.filters?.[0]?.['comp-filter']?.['comp-filter']?._attributes?.name === name;
+    const storedQueries = (url) => byCalendar(url).filter((options) => asksFor(options, 'VFREEBUSY'));
+    const rangeQueries = (url) => byCalendar(url).filter((options) => options.timeRange);
 
     // the one that names VFREEBUSY and the one that names no types (RFC 4791 5.2.3)
     for (const url of [FREEBUSY, OPEN]) {
-      const [eventQuery, storedQuery] = byCalendar(url);
-      expect(eventQuery.filters).toBeUndefined();
-      expect(storedQuery.filters).toEqual([{
+      expect(rangeQueries(url)).toHaveLength(1);
+      expect(rangeQueries(url)[0].filters).toBeUndefined();
+      expect(storedQueries(url)).toHaveLength(1);
+      expect(storedQueries(url)[0].filters).toEqual([{
         'comp-filter': { _attributes: { name: 'VCALENDAR' }, 'comp-filter': { _attributes: { name: 'VFREEBUSY' } } },
       }]);
-      expect(storedQuery.timeRange).toBeUndefined();
+      expect(storedQueries(url)[0].timeRange).toBeUndefined();
     }
-    // one that leaves VFREEBUSY out costs no second query
-    expect(byCalendar(EVENTS)).toHaveLength(1);
+    // one that leaves VFREEBUSY out costs no stored query
+    expect(storedQueries(EVENTS)).toHaveLength(0);
+    expect(rangeQueries(EVENTS)).toHaveLength(1);
   });
 });
 
@@ -325,5 +339,17 @@ describe('the stored free/busy query going wrong', () => {
     const output = await call({ include_event_details: true });
     expect(output).toContain('### Events behind the busy blocks (1)');
     expect(busyLines(output)).toEqual(['10:00-11:00', '14:00-15:00']);
+  });
+
+  test('nor a recurring event found both by the recurring listing and by the stored query', async () => {
+    storedQuery = 'ignore-filter';
+    recurring[FREEBUSY] = [calendarObject('Standup', [
+      'BEGIN:VEVENT', 'UID:standup@test', 'DTSTAMP:20260101T000000Z', 'SUMMARY:Standup',
+      'DTSTART:20260518T120000Z', 'DTEND:20260518T123000Z', 'RRULE:FREQ=WEEKLY', 'END:VEVENT',
+    ])];
+    const output = await call({ include_event_details: true });
+    expect(busyLines(output)).toEqual(['12:00-12:30']);
+    expect(output).toContain('### Events behind the busy blocks (1)');
+    expect(output).not.toContain('incomplete');
   });
 });

@@ -31,6 +31,8 @@ jest.unstable_mockModule('../src/tsdav-client.js', () => ({
     getCalDavClient: () => ({
       fetchCalendars: async () => [{ url: CALENDAR_URL, displayName: 'Main', components: ['VEVENT', 'VTODO'] }],
       fetchCalendarObjects: async () => storedEvents,
+      // the range answer holds every object; no recurring one to add (range-candidates.js)
+      calendarQuery: async () => [],
       fetchTodos: async () => storedTodos,
       updateCalendarObject,
     }),

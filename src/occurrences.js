@@ -38,11 +38,15 @@ import { floatingZoneOf, setFloatingZone, zoneInstant, zoneWall } from './calend
  */
 
 /**
- * What one tool call may spend expanding recurring events, across all of
- * them, in two measures:
+ * What one tool call may spend expanding recurring events, in two measures,
+ * per pool. A range query has two pools (rangeBudgetPool): one for the
+ * objects the server returned for the range, one for the recurring objects
+ * fetched on top of that answer (src/tools/shared/range-candidates.js); each
+ * gets the amounts below, so a tool call spends at most twice them. Other
+ * calls have one pool.
  *
  *  - candidates: tsdav-utils units, one per rule candidate ical.js tests
- *    (deterministic): 300 000 per tool call, at most CALL_UNITS of them in
+ *    (deterministic): 300 000 per pool, at most CALL_UNITS of them in
  *    any one call into the library (about 0.5 s here), since a call cannot
  *    be stopped once it runs.
  *  - time: what a request budget (requestBudget, budgetPool) has left of
@@ -52,10 +56,12 @@ import { floatingZoneOf, setFloatingZone, zoneInstant, zoneWall } from './calend
  *    made here, the work on each occurrence.
  *
  * Whichever runs out first ends the expansion, as incomplete. The clock is
- * checked before each call into the library, and every object gets at least
- * MIN_SHARE: so about 1.5 s per tool call plus up to one call per remaining
- * object, which grows with the size of the answer; machine load can make a
- * series incomplete. A year of a calendar of 100 ordinary series (daily,
+ * checked before each call into the library, and every object of the
+ * server's answer gets at least MIN_SHARE: so about 1.5 s for that pool plus
+ * up to one call per remaining object, which grows with the size of the
+ * answer; the extra pool has no floor, so it stays within its 1.5 s and the
+ * objects it cannot reach are reported as not checked. Machine load can
+ * make a series incomplete. A year of a calendar of 100 ordinary series (daily,
  * weekly, monthly, yearly, with overrides) takes about 1 s and some 280 000
  * candidates. A walk that needs more than CALL_UNITS is incomplete even for
  * a lone series.
@@ -112,21 +118,56 @@ export function requestBudget() {
  * @param {number} count
  * @returns {{take: () => Object, give: (budget: Object) => void}}
  */
-export function budgetPool(count) {
+export function budgetPool(count, { floor = true } = {}) {
   let units = REQUEST_UNITS;
   let ms = REQUEST_MS;
   let left = Math.max(1, count);
+  // without the floor no object gets more than the pool has left: once it
+  // is spent, what follows gets nothing and comes out incomplete
+  const cap = (value, rest) => (floor ? value : Math.max(0, Math.min(value, rest)));
   return {
     take() {
       return timedBudget(
-        Math.max(MIN_SHARE.units, Math.floor(units / left)),
-        Math.max(MIN_SHARE.ms, ms / left),
+        cap(Math.max(MIN_SHARE.units, Math.floor(units / left)), units),
+        cap(Math.max(MIN_SHARE.ms, ms / left), ms),
       );
     },
     give(budget) {
       units -= budget.granted.units - Math.max(0, budget.remaining);
       ms -= budget.granted.ms - Math.max(0, budget.timeLeft);
       left = Math.max(1, left - 1);
+    },
+  };
+}
+
+/**
+ * The budget of a range query whose objects come in two kinds: those the
+ * server returned for the range, and the recurring objects fetched on top
+ * because a server's range answer can leave them out (`isExtra`, see
+ * src/tools/shared/range-candidates.js). Each kind has a pool of its own, so
+ * however many extra objects there are, they never spend what the server's
+ * answer needs; the extra pool has no floor, so it bounds their time too.
+ * take(object) draws from the object's pool (none given: the first).
+ *
+ * @param {Object[]} objects
+ * @param {(object: Object) => boolean} isExtra
+ */
+export function rangeBudgetPool(objects, isExtra) {
+  const extraCount = objects.filter(isExtra).length;
+  const pools = {
+    answered: budgetPool(objects.length - extraCount),
+    extra: budgetPool(extraCount, { floor: false }),
+  };
+  const poolOf = new WeakMap();
+  return {
+    take(object) {
+      const pool = object && isExtra(object) ? pools.extra : pools.answered;
+      const share = pool.take();
+      poolOf.set(share, pool);
+      return share;
+    },
+    give(share) {
+      (poolOf.get(share) ?? pools.answered).give(share);
     },
   };
 }
@@ -896,6 +937,211 @@ function pastUntil({ plan, frame }, wall) {
 
 function byStart(a, b) {
   return spanOf(a).start - spanOf(b).start || toInstant(a.recurrenceId) - toInstant(b.recurrenceId);
+}
+
+/**
+ * Does provably no occurrence of the series touch the range? Decided from
+ * its bounds alone, without expanding: no occurrence starts before the
+ * earliest of DTSTART, the RDATEs and the overrides' starts, and none ends
+ * after the latest of the rule's last start (from UNTIL, or from COUNT where
+ * every period of the rule surely holds an occurrence) plus the duration,
+ * the RDATEs' ends and the overrides' ends. Or, between those bounds: none
+ * of DTSTART, the RDATEs and the overrides comes near the range, and no day
+ * of it meets the rule (ruleMissesRange). A THISANDFUTURE override, an
+ * unbounded or unreadable rule, a value that cannot be placed: not provable,
+ * false. Floating times and dates carry a zone offset of slack, the rule a
+ * DST change of it.
+ *
+ * @param {ReturnType<typeof relateSeries>} series
+ * @param {{start: number, end: number}} range - ms
+ * @returns {boolean}
+ */
+export function seriesOutside(series, range) {
+  if (!series.frame || series.futures.length > 0) return false;
+  const { event, master, zone } = series;
+  const at = (time) => orNull(() => toInstant(time, zone));
+  const start = at(event.startDate);
+  if (start === null) return false;
+  const duration = durationOf(event);
+
+  const spans = [];
+  for (const value of master.getAllProperties('rdate').flatMap((p) => p.getValues())) {
+    const period = value instanceof ICAL.Period;
+    const from = at(period ? value.start : value);
+    const to = period ? at(value.getEnd()) : from + duration;
+    if (from === null || to === null) return false;
+    spans.push([from, to]);
+  }
+  for (const { event: own } of series.overrides) {
+    const from = at(own.startDate);
+    if (from === null) return false;
+    spans.push([from, at(own.endDate ?? own.startDate) ?? from]);
+  }
+
+  const slack = ZONE_SLACK_MS + DST_SLACK_MS;
+  if (Math.min(start, ...spans.map(([from]) => from)) - slack >= range.end) return true;
+  const last = lastRuleStart(series, start);
+  if (last !== null && Math.max(last + duration, ...spans.map(([, to]) => to)) + slack <= range.start) return true;
+  // the rule's days miss the range, and so do DTSTART, the RDATEs and the
+  // overrides: a birthday in March for a week in November
+  const near = ([from, to]) => from - slack < range.end && to + slack > range.start;
+  return !near([start, start + duration]) && !spans.some(near) && ruleMissesRange(series, range, duration, slack);
+}
+
+// Longest range, in days, whose days ruleMissesRange checks one by one
+const RULE_DAYS_CHECKED = 400;
+// The fields of an ICAL.Recur that RFC 5545 alone gives; any other (rscale,
+// skip, an x-name) is a part ruleMissesRange does not decide on
+const RULE_FIELDS = new Set(['parts', 'interval', 'wkst', 'until', 'count', 'freq', 'icalclass', 'icaltype', 'wrappedJSObject']);
+// BY parts dayTest reads, or that only narrow a day it passes (BYSETPOS, the time parts)
+const DAY_TESTED_PARTS = new Set(['BYMONTH', 'BYMONTHDAY', 'BYDAY', 'BYSETPOS', 'BYHOUR', 'BYMINUTE', 'BYSECOND']);
+
+/**
+ * Does no day of the range (widened by the occurrence length and `slack`)
+ * meet the series' rule? Each day is tested against what RFC 5545 makes
+ * every occurrence's day hold: BYMONTH, BYMONTHDAY, the weekdays of BYDAY
+ * (with an ordinal in a month, the seven days it can fall on), and
+ * DTSTART's month, day of month or weekday where the rule takes those from
+ * it. A necessary condition only, never sufficient: years, INTERVAL, COUNT,
+ * BYSETPOS and the time parts are not looked at, so a day passing it may
+ * still hold no occurrence, but a day failing it holds none. BYYEARDAY,
+ * BYWEEKNO, RSCALE/SKIP or another part outside RFC 5545, several RRULEs,
+ * a range of more than RULE_DAYS_CHECKED days, a rule that cannot be read
+ * or one the calendar library refuses (libraryAccepts): not decided,
+ * false, so the expansion reports it.
+ *
+ * tsdav-utils works out a fixed-day yearly rule without walking it, but each
+ * call into it still costs a call (CALL_COST) and a copy of the series: a
+ * calendar of 5 000 birthdays would spend the extra pool on calls that each
+ * find nothing (#170). This keeps those calls from being made.
+ */
+function ruleMissesRange({ master, event, frame, root }, range, duration, slack) {
+  const rules = master.getAllProperties('rrule');
+  if (rules.length !== 1) return false;
+  const rule = orNull(() => rules[0].getFirstValue());
+  if (!rule?.freq) return false;
+  // only rules of RFC 5545 parts dayTest knows: RFC 7529's RSCALE/SKIP move
+  // a missing day (SKIP=FORWARD: 29 February to 1 March), and an unknown or
+  // x-name part may mean anything
+  if (Object.keys(rule).some((key) => !RULE_FIELDS.has(key))) return false;
+  if (Object.keys(rule.parts ?? {}).some((part) => !DAY_TESTED_PARTS.has(part))) return false;
+  const startWall = orNull(() => wallOfTime(event.startDate));
+  if (startWall === null) return false;
+  // a date without an end still takes its whole day
+  const length = frame.kind === 'date' ? Math.max(duration, 864e5) : duration;
+  // the wall-clock days an occurrence touching the range can start on
+  const first = utcDay(range.start - length - slack) - 864e5;
+  const last = utcDay(range.end + slack);
+  if ((last - first) / 864e5 > RULE_DAYS_CHECKED) return false;
+  const takes = dayTest(rule, new Date(startWall));
+  if (!takes) return false;
+  for (let day = first; day <= last; day += 864e5) {
+    if (takes(new Date(day))) return false;
+  }
+  // the days above are RFC 5545's; a rule the library refuses has none it
+  // can give, and must reach the expansion to be reported as unreadable
+  return libraryAccepts(root, master);
+}
+
+// What the acceptance check may spend on candidates; it asks for a window
+// before the series, so it spends none on any rule the library accepts
+const ACCEPT_UNITS = 1000;
+
+/**
+ * Does tsdav-utils accept the series for expansion? Asked the way expand()
+ * asks, for an empty window long before the series: the library parses the
+ * rule and sets ical.js up at DTSTART, refusing what ical.js rejects
+ * (`FREQ=MONTHLY;BYDAY=6MO`, `FREQ=WEEKLY;BYMONTHDAY=1`) and what would
+ * hang it (a fifth weekday searched without end), and walks nothing. Its
+ * own judgement, not a grammar of ours: a refusal here is the one the
+ * expansion would give. Measured at about 0.03 ms and 0 units a series.
+ */
+function libraryAccepts(root, master) {
+  const calendar = root ?? new ICAL.Component(['vcalendar', [], [master.toJSON()]]);
+  try {
+    expandOccurrences(calendar, {
+      budget: createRecurrenceBudget(ACCEPT_UNITS),
+      from: '1000-01-01T00:00:00Z',
+      until: '1000-01-01T00:00:00Z',
+      limit: 1,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The test a day must pass to hold an occurrence of `rule` (see
+ * ruleMissesRange), on UTC Date fields read as the wall clock; null when a
+ * value cannot be read.
+ */
+function dayTest(rule, start) {
+  const parts = rule.parts ?? {};
+  const numbers = (part) => (parts[part] ?? []).map(Number);
+  const months = numbers('BYMONTH');
+  const monthDays = numbers('BYMONTHDAY');
+  const byDay = (parts.BYDAY ?? []).map((value) => {
+    const text = String(value);
+    return { weekday: text.slice(-2), ordinal: Number(text.slice(0, -2)) || 0 };
+  });
+  if ([...months, ...monthDays].some((v) => !Number.isInteger(v))) return null;
+  if (byDay.some(({ weekday, ordinal }) => !WEEKDAYS.includes(weekday) || !Number.isInteger(ordinal))) return null;
+  const { freq } = rule;
+  const yearly = freq === 'YEARLY';
+  // an ordinal counts within the month for MONTHLY, and for YEARLY with
+  // BYMONTH; within the year otherwise, which is not narrowed here
+  const monthOrdinal = freq === 'MONTHLY' || (yearly && months.length > 0);
+  // what the rule takes from DTSTART (RFC 5545 3.3.10)
+  const startMonth = yearly && !months.length && !monthDays.length && !byDay.length ? start.getUTCMonth() + 1 : null;
+  const startDay = (yearly || freq === 'MONTHLY') && !monthDays.length && !byDay.length ? start.getUTCDate() : null;
+  const startWeekday = freq === 'WEEKLY' && !byDay.length ? WEEKDAYS[start.getUTCDay()] : null;
+
+  return (d) => {
+    const month = d.getUTCMonth() + 1;
+    const date = d.getUTCDate();
+    const weekday = WEEKDAYS[d.getUTCDay()];
+    const length = new Date(Date.UTC(d.getUTCFullYear(), month, 0)).getUTCDate();
+    if (months.length && !months.includes(month)) return false;
+    if (startMonth !== null && month !== startMonth) return false;
+    if (startDay !== null && date !== startDay) return false;
+    if (startWeekday !== null && weekday !== startWeekday) return false;
+    if (monthDays.length && !monthDays.some((v) => (v > 0 ? v : length + 1 + v) === date)) return false;
+    if (byDay.length && !byDay.some(({ weekday: w, ordinal }) => {
+      if (w !== weekday) return false;
+      if (!ordinal || !monthOrdinal) return true;
+      const nth = ordinal > 0 ? Math.ceil(date / 7) : -Math.ceil((length + 1 - date) / 7);
+      return nth === ordinal;
+    })) return false;
+    return true;
+  };
+}
+
+// ms per period for the rule frequencies, the longest a period can be
+const PERIOD_MS = { ...Object.fromEntries(Object.entries(UNIT_SECONDS).map(([f, s]) => [f, s * 1000])), MONTHLY: 31 * 864e5, YEARLY: 366 * 864e5 };
+// BY parts that never empty a period of a rule coarser than the part
+const FINER = { BYHOUR: ['DAILY', 'WEEKLY'], BYMINUTE: ['HOURLY', 'DAILY', 'WEEKLY'], BYSECOND: ['MINUTELY', 'HOURLY', 'DAILY', 'WEEKLY'], BYDAY: ['WEEKLY'], WKST: Object.keys(PERIOD_MS) };
+
+/** The latest start the series' rule can have, as an instant; null when unbounded or unknown */
+function lastRuleStart({ master, event, zone }, start) {
+  const rules = master.getAllProperties('rrule');
+  if (rules.length === 0) return start;
+  if (rules.length > 1) return null;
+  const rule = orNull(() => rules[0].getFirstValue());
+  if (!rule) return null;
+  if (rule.until) {
+    const until = orNull(() => toInstant(rule.until, zone));
+    // a date UNTIL includes its whole day
+    return until === null ? null : until + 864e5;
+  }
+  if (!rule.count || !PERIOD_MS[rule.freq]) return null;
+  const parts = Object.keys(rule.parts ?? {});
+  const filled = rule.freq === 'MONTHLY' || rule.freq === 'YEARLY'
+    ? everyPeriodHasOne(rule, parts, wallOfTime(event.startDate))
+    : parts.every((part) => FINER[part]?.includes(rule.freq));
+  if (!filled) return null;
+  // the COUNT-th occurrence lies within the first COUNT periods
+  return start + rule.count * (rule.interval || 1) * PERIOD_MS[rule.freq];
 }
 
 function orNull(compute) {
