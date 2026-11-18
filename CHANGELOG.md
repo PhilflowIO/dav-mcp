@@ -5,15 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [5.1.1] - 2026-11-18
 
 ### Security
-- **`delete_calendar` only deletes a calendar `list_calendars` names.** It
+- **`delete_calendar` only deletes a calendar `list_calendars` names**
+  ([GHSA-fhf7-mx5r-gvcw](https://github.com/PhilflowIO/dav-mcp/security/advisories/GHSA-fhf7-mx5r-gvcw)). It
   used to send the DELETE to any URL inside the account, so a model steered
   by hostile event or contact text could aim it at the calendar home, the
   principal or the server root, and on servers that allow that, every
   calendar went with it. A URL that is not one of the calendars is now
   refused before anything is sent.
+- **`update_calendar` checks the calendar before writing, not after.** It
+  sent the PROPPATCH first and only then looked the URL up among the
+  calendars, so the same steered URL could rename the calendar home or the
+  principal. The lookup now comes first, and the change goes to the URL the
+  server lists for that calendar.
 
 ## [5.1.0] - 2026-11-17
 
