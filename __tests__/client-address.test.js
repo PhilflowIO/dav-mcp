@@ -21,6 +21,27 @@ describe('isLocalOrPrivateAddress', () => {
     expect(isLocalOrPrivateAddress('::1')).toBe(true);
   });
 
+  // n8n on a compose network with IPv6 enabled connects from a unique local
+  // address; an IPv6 peer on the same link may use its link-local one.
+  test.each([
+    'fc00::', 'fd00::1', 'fd12:3456:789a:1::5', 'fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
+    'fe80::1', 'fe80::42:acff:fe11:2', 'febf:ffff::1', 'fe80::1%eth0',
+    'FD00::1', 'FE80::1',
+  ])('IPv6 %s is private', (ip) => {
+    expect(isLocalOrPrivateAddress(ip)).toBe(true);
+  });
+
+  test.each([
+    // either side of fc00::/7 and fe80::/10
+    'fbff:ffff::1', 'fe00::1', 'fe7f:ffff::1', 'fec0::1',
+    // public, unspecified, and the IPv4-mapped form of a public address
+    '2001:db8::1', '2a00:1450:4001:80b::200e', '::', '::ffff:8.8.8.8',
+    // mapped notation that is not dotted IPv4 must not reach the IPv6 rules
+    '::ffff:fd00:1',
+  ])('IPv6 %s is not', (ip) => {
+    expect(isLocalOrPrivateAddress(ip)).toBe(false);
+  });
+
   test.each([
     // either side of 172.16.0.0/12
     '172.15.255.255', '172.32.0.0',
