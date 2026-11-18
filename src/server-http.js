@@ -17,7 +17,7 @@
  *   - BEARER_TOKEN: Required, at least 32 characters (`openssl rand -hex 32`);
  *     the server does not start without one
  *   - TRUST_PROXY: Reverse proxies whose X-Forwarded-For names the client:
- *     a hop count or a list of addresses/CIDR ranges (default: none)
+ *     their addresses or CIDR ranges, comma-separated (default: none)
  *   - CORS_ALLOWED_ORIGINS: Comma-separated list of allowed origins
  *   - CALDAV_SERVER_URL, CALDAV_USERNAME, CALDAV_PASSWORD: CalDAV credentials
  *   - AUTH_METHOD: 'Basic' (default), 'Digest' or 'OAuth' (case-insensitive, see auth-config.js)

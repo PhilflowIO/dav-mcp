@@ -57,7 +57,7 @@ describe('getsRaisedRateLimit', () => {
 
   test('a public client does not', () => {
     expect(getsRaisedRateLimit(request('203.0.113.7'), false)).toBe(false);
-    expect(getsRaisedRateLimit(request('203.0.113.7'), 1)).toBe(false);
+    expect(getsRaisedRateLimit(request('203.0.113.7'), ['10.0.0.2'])).toBe(false);
   });
 
   // Behind a reverse proxy without TRUST_PROXY, req.ip is the proxy's private
@@ -74,6 +74,6 @@ describe('getsRaisedRateLimit', () => {
     const headers = { 'x-forwarded-for': '10.0.0.5' };
     // req.ip is what Express took from X-Forwarded-For over trusted proxies
     expect(getsRaisedRateLimit(request('10.0.0.5', headers), ['uniquelocal'])).toBe(true);
-    expect(getsRaisedRateLimit(request('203.0.113.7', { 'x-forwarded-for': '203.0.113.7' }), 1)).toBe(false);
+    expect(getsRaisedRateLimit(request('203.0.113.7', { 'x-forwarded-for': '203.0.113.7' }), ['10.0.0.2'])).toBe(false);
   });
 });

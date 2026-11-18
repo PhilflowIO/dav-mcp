@@ -55,12 +55,14 @@ describe('parseListenHost', () => {
 });
 
 describe('parseTrustProxy', () => {
-  test.each([undefined, '', ' ', 'false', '0'])('%p trusts no proxy', (value) => {
+  test.each([undefined, '', ' ', 'false'])('%p trusts no proxy', (value) => {
     expect(parseTrustProxy(value)).toBe(false);
   });
 
-  test.each([['1', 1], ['2', 2]])('%s is a hop count', (value, hops) => {
-    expect(parseTrustProxy(value)).toBe(hops);
+  // TRUST_PROXY=1 trusts whatever connects to the socket: a client reaching
+  // the published port directly would be taken for the proxy (#177 review).
+  test.each(['0', '1', '2'])('the hop count %s is refused and the message says to list the proxy', (value) => {
+    expect(() => parseTrustProxy(value)).toThrow(/is a hop count.*TRUST_PROXY=172\.18\.0\.2.*docker network inspect/s);
   });
 
   test.each([
@@ -74,7 +76,7 @@ describe('parseTrustProxy', () => {
   });
 
   test('true is refused: it would let every client choose its address', () => {
-    expect(() => parseTrustProxy('true')).toThrow(/any client.*TRUST_PROXY=1/s);
+    expect(() => parseTrustProxy('true')).toThrow(/any client.*TRUST_PROXY=172\.18\.0\.2/s);
   });
 
   test.each([

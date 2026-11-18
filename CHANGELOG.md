@@ -21,7 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   proxy that sends `X-Forwarded-For` or `Forwarded` and does not set
   `TRUST_PROXY` now shares one counter of 100 requests per 15 minutes
   across all clients instead of 10,000. **Fix:** set `TRUST_PROXY` to the
-  number of proxies in front of dav-mcp (usually `TRUST_PROXY=1`).
+  proxy's address, e.g. `TRUST_PROXY=172.18.0.2` for a proxy container
+  (`docker network inspect <network>` shows it).
 
 ### Added
 - **`HOST` (and `--host=`) sets the HTTP listen address** (#177): an IP
@@ -29,10 +30,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Docker image needs. `HOST=127.0.0.1` keeps a workstation setup off the
   network. The startup log names the address and port actually bound.
 - **`TRUST_PROXY` names the reverse proxies whose `X-Forwarded-For` says
-  who the client is** (#177): a hop count, or proxy addresses, CIDR ranges
-  and `loopback`/`linklocal`/`uniquelocal`, comma-separated. Rate limits
-  then count per client. `TRUST_PROXY=true` is refused, because any client
-  could then choose its own address.
+  who the client is** (#177): proxy addresses, CIDR ranges and
+  `loopback`/`linklocal`/`uniquelocal`, comma-separated. Rate limits then
+  count per client. A range trusts every peer in it (`uniquelocal`: every
+  container on the compose network). `TRUST_PROXY=true` and hop counts are
+  refused: either lets a client that reaches the port directly choose its
+  own address.
 
 ### Security
 - **The container image carries a build provenance attestation** (#177).

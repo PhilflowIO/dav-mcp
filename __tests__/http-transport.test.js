@@ -330,4 +330,13 @@ describe('HTTP transport: rate-limit client identification', () => {
     expect(code).toBe(1);
     expect(output).toContain('TRUST_PROXY=true would trust X-Forwarded-For from any client');
   }, 20000);
+
+  // With a hop count, a client that reaches the port directly would be
+  // trusted as the proxy and could name any address in X-Forwarded-For.
+  test('a hop count in TRUST_PROXY stops the server at startup', async () => {
+    const { code, output } = await startRefused(davPort, { TRUST_PROXY: '1' });
+    expect(code).toBe(1);
+    expect(output).toContain('TRUST_PROXY=1 is a hop count');
+    expect(output).toContain('TRUST_PROXY=172.18.0.2');
+  }, 20000);
 });
