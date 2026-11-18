@@ -377,6 +377,21 @@ describe('moving a recurring series (#107)', () => {
     expect(reply.data.details.code).toBe('ORPHANED_EXCEPTIONS');
   });
 
+  test('a new RRULE the calendar library gives up on before an override is refused, not written unchecked', async () => {
+    // a fifth Sunday of February: 2060, 2088, then not within the 28 years
+    // after which ical.js ends a yearly rule, so the override in 2128 cannot
+    // be checked (tsdav-utils CHECK_LIBRARY_STOPPED)
+    storedEvent = calendar('VEVENT',
+      ['UID:feb@test', 'SUMMARY:February', 'DTSTART:20580203T100000Z', 'DURATION:PT1H', 'RRULE:FREQ=YEARLY;BYMONTH=2'],
+      ['UID:feb@test', 'SUMMARY:Moved', 'RECURRENCE-ID:21280203T100000Z', 'DTSTART:21280203T120000Z', 'DURATION:PT1H']);
+    const reply = await errorReply(setEvent({ fields: { RRULE: 'FREQ=YEARLY;BYMONTH=2;BYDAY=5SU' } }));
+    expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+    expect(reply.message).toMatch(/ical\.js stops this rule after a long stretch without an occurrence/);
+    expect(reply.message).toMatch(/To change a single occurrence, or to rewrite the whole object: fetch it with calendar_multi_get .* send the whole object with update_event_raw\.$/);
+    expect(reply.data.details).toMatchObject({ code: 'CHECK_LIBRARY_STOPPED', remedy: 'rewrite-object' });
+    expect(updateCalendarObject).not.toHaveBeenCalled();
+  });
+
   const BERLIN = [
     'BEGIN:VTIMEZONE', 'TZID:Europe/Berlin',
     'BEGIN:DAYLIGHT', 'TZOFFSETFROM:+0100', 'TZOFFSETTO:+0200', 'TZNAME:CEST',

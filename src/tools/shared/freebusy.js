@@ -186,8 +186,9 @@ export function storedBusyOf(text, zone, range) {
  * @param {ICAL.Component} root - the parsed VCALENDAR
  * @param {{start: number, end: number}} range - ms
  * @param {Object} [budget] - the tool call's expansion budget (requestBudget)
- * @returns {{occurrences: Object[], truncated: boolean, reason?: string, shown: Object|null}}
- *   reason: why the series could not be read at all, when that is why
+ * @returns {{occurrences: Object[], truncated: boolean, stops?: string[], reason?: string, shown: Object|null}}
+ *   reason: why the series could not be read at all, when that is why;
+ *   stops: why its expansion ended early (seriesOccurrences)
  */
 export function busyOccurrencesOf(root, range, budget = requestBudget()) {
   const none = { occurrences: [], truncated: false, shown: null };
@@ -222,11 +223,12 @@ export function busyOccurrencesOf(root, range, budget = requestBudget()) {
     return { occurrences, truncated: false, shown: view(series.master, event, null, occurrences) };
   }
 
-  const { occurrences, truncated, reason } = seriesOccurrences(related, range, { filter: blocks, budget });
+  const { occurrences, truncated, reason, stops } = seriesOccurrences(related, range, { filter: blocks, budget });
   return {
     occurrences,
     truncated,
     reason,
+    stops,
     shown: occurrences.length ? view(series.master, event, occurrences[0], occurrences) : null,
   };
 }
@@ -287,13 +289,15 @@ function busyBlocks(intervals) {
  *   free: Array<{start: Date, end: Date}>,
  *   blocking: Array<{object: Object, shown: Object}>,
  *   published: Array<Object>,
- *   incomplete: Array<{object: Object, summary: string}>,
+ *   incomplete: Array<{object: Object, summary: string, reason?: string|null, stops?: string[]}>,
  * }} busy: with its type (BUSY_TYPES) when that is not plain BUSY.
  *   blocking: each event object that makes up busy time, in input order, with
  *   the occurrences of it that do (`shown`, as formatEvent takes it) — not the
  *   objects the server returned for the range that block none of it.
  *   published: each object whose stored VFREEBUSY makes up busy time.
- *   incomplete: series too dense to expand fully (the iteration cap), and
+ *   incomplete: series too dense to expand fully (the iteration cap) or
+ *   whose rule the calendar library cannot compute in full (`stops`
+ *   'library'), and
  *   objects that could not be read at all, and (kind 'stored', with the
  *   count of `periods`) stored free/busy with periods that could not be
  *   read: busy time from them may be missing, so the free time is not
@@ -338,11 +342,11 @@ export function calculateFreeBusy(calendarObjects, range) {
       continue;
     }
     const share = budget.take();
-    const { occurrences, truncated, reason, shown } = busyOccurrencesOf(root, window, share);
+    const { occurrences, truncated, reason, stops, shown } = busyOccurrencesOf(root, window, share);
     budget.give(share);
     if (truncated) {
       const summary = readSeries(root, 'vevent')?.master.getFirstPropertyValue('summary');
-      incomplete.push({ object, summary: summary ? String(summary) : '', reason: reason ?? null });
+      incomplete.push({ object, summary: summary ? String(summary) : '', reason: reason ?? null, stops: stops ?? [] });
     }
     if (occurrences.length === 0) continue;
     blocking.push({ object, shown });

@@ -365,7 +365,6 @@ export function relateSeries(master, overrides) {
     .filter((o) => String(o.component.getFirstProperty('recurrence-id').getParameter('range') ?? '').toUpperCase() === 'THISANDFUTURE')
     .sort((a, b) => a.wall - b.wall);
   series.plan = shiftPlan(series);
-  series.lookahead = lookaheadOf(master.getFirstPropertyValue('rrule'));
   return series;
 }
 
@@ -390,15 +389,20 @@ export function relateSeries(master, overrides) {
  *   touching the range (a search, blocking time)
  * @param {boolean} [options.first] - only the earliest is wanted
  * @param {Object} [options.budget] - the tool call's (requestBudget)
- * @returns {{occurrences: Object[], truncated: boolean}} sorted by start,
- *   then recurrence id; truncated when the budget ran out (or the series
- *   could not be read): some occurrences may then be missing, but none is
- *   wrong — an override that could not be checked is left out, and so is
- *   every occurrence a THISANDFUTURE override that could not be checked
- *   might move.
+ * @returns {{occurrences: Object[], truncated: boolean, stops: Array<'budget'|'library'>, reason?: string}}
+ *   sorted by start, then recurrence id; truncated when the budget ran out,
+ *   the calendar library gave the rule up, or the series could not be read
+ *   (`reason`): some occurrences may then be missing, but none is wrong — an
+ *   override that could not be checked is left out, and so is every
+ *   occurrence a THISANDFUTURE override that could not be checked might
+ *   move. stops: why expansions ended early — 'budget' (the work budget ran
+ *   out) and 'library' (from some point on ical.js cannot give the rule's
+ *   occurrences as RFC 5545 has them: it skips one, or ends the rule after
+ *   28 years without one; tsdav-utils' stoppedBy 'library'); empty when
+ *   none did.
  */
 export function seriesOccurrences(series, range, { filter = null, first = false, budget = requestBudget() } = {}) {
-  if (!series.frame) return { occurrences: [], truncated: false };
+  if (!series.frame) return { occurrences: [], truncated: false, stops: [] };
   if (!budget.timed) return occurrencesWithin(series, range, filter, first, budget);
   // a request budget pays for all the time spent here, not only in the library
   const timeLeft = budget.timeLeft;
@@ -416,6 +420,7 @@ function occurrencesWithin(series, range, filter, first, budget) {
     return touchesRange(start, end, range) && (!filter || filter(o));
   };
   let truncated = false;
+  const stops = new Set();
 
   const { lead, trail } = reach(series);
   const from = series.frame.toWall(range.start - lead) - DST_SLACK_MS;
@@ -426,8 +431,11 @@ function occurrencesWithin(series, range, filter, first, budget) {
   // converts every one it is given, on every call
   const inWindow = series.overrides.filter((o) => o.wall >= from && o.wall <= to);
   const main = expand(series, from, to, inWindow, budget);
-  if (main.unreadable) return { occurrences: [], truncated: true, reason: main.unreadable };
-  truncated ||= !main.complete;
+  if (main.unreadable) return { occurrences: [], truncated: true, stops: [], reason: main.unreadable };
+  if (!main.complete) {
+    truncated = true;
+    stops.add(main.stoppedBy);
+  }
   const { reached } = main;
 
   // which overrides are occurrences: those in the window from the window,
@@ -448,6 +456,7 @@ function occurrencesWithin(series, range, filter, first, budget) {
       // decided only below where an incomplete expansion stopped
       if (checked.unreadable || override.wall >= checked.reached) {
         unchecked.add(override);
+        if (!checked.unreadable) stops.add(checked.stoppedBy);
         continue;
       }
       const own = checked.occurrences.find((o) => o.wall === override.wall && o.overridden);
@@ -474,7 +483,7 @@ function occurrencesWithin(series, range, filter, first, budget) {
   }
 
   found.sort(byStart);
-  return { occurrences: first ? found.slice(0, 1) : found, truncated };
+  return { occurrences: first ? found.slice(0, 1) : found, truncated, stops: [...stops] };
 }
 
 /**
@@ -533,15 +542,16 @@ function durationOf(event) {
  * `from` where shiftPlan allows (and only the given overrides). null when the
  * library cannot read the series.
  *
- * @returns {{occurrences: Object[], complete: boolean, reached: number}|null}
+ * @returns {{occurrences: Object[], complete: boolean, stoppedBy: 'budget'|'library'|null, reached: number}|{unreadable: string}}
  *   occurrences: {wall, overridden, start, end} (the library's times);
- *   reached: the wall clock up to which the list is whole
+ *   stoppedBy: why an incomplete list ended (the budget, or ical.js unable
+ *   to go on as RFC 5545 has it); reached: the wall clock up to which the list is whole
  */
 function expand(series, from, to, overrides, budget) {
   const { frame, plan } = series;
   if (budget.remaining <= 0 || budget.timeLeft <= 0) {
     budget.exhausted = true;
-    return { occurrences: [], complete: false, reached: from };
+    return { occurrences: [], complete: false, stoppedBy: 'budget', reached: from };
   }
   const startWall = wallOfTime(series.event.startDate);
   let dtstart = startWall;
@@ -593,14 +603,12 @@ function expand(series, from, to, overrides, budget) {
   for (const { component } of overrides) copy.addSubcomponent(clone(component));
 
   const bound = (wall) => (frame.kind === 'date' ? wallText(wall).slice(0, 10) : wallText(wall));
-  // candidates out of order: look one period past the window (lookaheadOf)
-  const lookahead = series.lookahead;
   let result;
   try {
     result = expandOccurrences(copy, {
       budget: slice,
       from: bound(from),
-      until: bound(to + lookahead + (frame.kind === 'date' ? 86400000 : 1000)),
+      until: bound(to + (frame.kind === 'date' ? 86400000 : 1000)),
       limit: Number.MAX_SAFE_INTEGER,
     });
   } catch (error) {
@@ -612,7 +620,9 @@ function expand(series, from, to, overrides, budget) {
     expansionWork.calls += 1;
     expansionWork.overridesHanded += overrides.length;
   }
-  if (!result.complete) budget.exhausted = true;
+  // a library stop spends no budget: the rest of the call may go on
+  const stoppedBy = result.complete ? null : result.stoppedBy === 'library' ? 'library' : 'budget';
+  if (stoppedBy === 'budget') budget.exhausted = true;
 
   const occurrences = [];
   for (const o of result.occurrences) {
@@ -622,7 +632,7 @@ function expand(series, from, to, overrides, budget) {
     occurrences.push({ wall, overridden: o.overridden, start: o.start, end: o.end });
   }
   const last = occurrences.length ? occurrences[occurrences.length - 1].wall : from;
-  return { occurrences, complete: result.complete, reached: result.complete ? Infinity : last };
+  return { occurrences, complete: result.complete, stoppedBy, reached: result.complete ? Infinity : last };
 }
 
 /**
@@ -824,8 +834,8 @@ function calendarPlan(event, rule, parts) {
  * BYYEARDAY within ±365; a BYWEEKNO within ±52 with BYDAY; DTSTART's day
  * when it is 1-28; BYSETPOS only over plain weekdays, within the four of
  * each a month surely has. Combinations that intersect (BYMONTHDAY with
- * BYDAY, ...) can be empty; so can MONTHLY;BYMONTH, which ical.js also does
- * not repeat by INTERVAL.
+ * BYDAY, ...) can be empty; so is every month of MONTHLY;BYMONTH that the
+ * list leaves out.
  */
 function everyPeriodHasOne(rule, parts, startWall) {
   const yearly = rule.freq === 'YEARLY';
@@ -850,36 +860,6 @@ function everyPeriodHasOne(rule, parts, startWall) {
     if (!within('BYSETPOS', 4 * values('BYDAY').length)) return false;
   }
   return true;
-}
-
-/**
- * How far past a window an expansion must look so that every occurrence in
- * it comes out. ical.js yields the values of a BY list in the order the list
- * gives them (BYHOUR=17,9: 17:00 before 09:00) and MONTHLY;BYMONTH a year's
- * months in list order, while the library stops at the first candidate past
- * `until` and reports the list complete. Where a list is out of ascending
- * order (or mixes signs, or BYDAY has ordinals), one period of the rule is
- * enough: candidates come out of order only within it.
- */
-function lookaheadOf(rule) {
-  if (!rule) return 0;
-  const p = rule.parts ?? {};
-  const order = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
-  const ascending = (list) => list.every((v, i) => i === 0 || v > list[i - 1]);
-  const numeric = ['BYSECOND', 'BYMINUTE', 'BYHOUR', 'BYMONTHDAY', 'BYYEARDAY', 'BYWEEKNO', 'BYMONTH', 'BYSETPOS']
-    .some((part) => {
-      const list = (p[part] ?? []).map(Number);
-      const signs = new Set(list.map(Math.sign));
-      return signs.size > 1 || !ascending(list);
-    });
-  const days = (p.BYDAY ?? []).map(String);
-  const weekdays = days.some((d) => d.length > 2) || !ascending(days.map((d) => order.indexOf(d.slice(-2))));
-  const monthlyByMonth = rule.freq === 'MONTHLY' && Boolean(p.BYMONTH);
-  if (!numeric && !weekdays && !monthlyByMonth) return 0;
-  const interval = rule.interval || 1;
-  if (rule.freq === 'YEARLY' || monthlyByMonth) return 366 * 864e5 * (rule.freq === 'YEARLY' ? interval : 1);
-  if (rule.freq === 'MONTHLY') return 31 * 864e5 * interval;
-  return (UNIT_SECONDS[rule.freq] ?? 86400) * 1000 * interval;
 }
 
 /**

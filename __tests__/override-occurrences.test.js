@@ -411,16 +411,25 @@ describe('times are shown as tsdav-utils converts them', () => {
     expect(text).toMatch(/cannot be read — .*floating/);
   });
 
-  test('MONTHLY;BYMONTH, which ical.js yields out of order, loses no occurrence near a window end', () => {
+  test.each([
+    // every month: 27 February 2005 is an occurrence, its override moved in
+    ['FREQ=MONTHLY;BYMONTH=11,2', ['Moved']],
+    // RFC 5545: INTERVAL=2 from November keeps the odd months, so February is
+    // never in it and the override names no occurrence (tsdav-utils 0.8.1;
+    // ical.js ignored INTERVAL here and yielded every listed month)
+    ['FREQ=MONTHLY;INTERVAL=2;BYMONTH=11,2', []],
+  ])('%s, listed out of order, loses no occurrence near a window end', (rule, names) => {
     const series = relateSeries(...(() => {
       const root = new ICAL.Component(ICAL.parse(object(
-        vevent('SUMMARY:x', 'DTSTART:19951127T030000Z', 'DURATION:PT1H', 'RRULE:FREQ=MONTHLY;INTERVAL=2;BYMONTH=11,2'),
+        vevent('SUMMARY:x', 'DTSTART:19951127T030000Z', 'DURATION:PT1H', `RRULE:${rule}`),
         vevent('SUMMARY:Moved', 'RECURRENCE-ID:20050227T030000Z', 'DTSTART:20241214T081500Z', 'DURATION:PT15M')).data));
       const { master, overrides } = readSeries(root, 'vevent');
       return [master, overrides];
     })());
     const range = { start: Date.UTC(2024, 11, 14), end: Date.UTC(2024, 11, 15) };
-    expect(seriesOccurrences(series, range).occurrences.map((o) => o.item.summary)).toEqual(['Moved']);
+    const result = seriesOccurrences(series, range);
+    expect(result.truncated).toBe(false);
+    expect(result.occurrences.map((o) => o.item.summary)).toEqual(names);
   });
 });
 
@@ -440,11 +449,22 @@ describe('periods that can be empty, and BY lists out of order (review of #110)'
   test.each([
     ['29 February', ['DTSTART:20040118T094500Z'], 'FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=29;UNTIL=20290622T120000Z', [1803686400000, 1811635200000]],
     ['the 31st every fifth month', ['DTSTART;VALUE=DATE:19920630'], 'FREQ=MONTHLY;INTERVAL=5;BYMONTHDAY=31,-31', [1779321600000, 1787270400000]],
-    ['a fifth Monday by BYSETPOS', ['DTSTART;TZID=Europe/Berlin:19711005T233000'], 'FREQ=MONTHLY;INTERVAL=2;BYDAY=5MO;BYSETPOS=5', [1855094400000, 1857772800000]],
   ])('%s: a moved start would shift ical.js\' grid, so it walks from DTSTART', (_, [dtstart], rule, [start, end]) => {
     const text = object(BERLIN, vevent('SUMMARY:x', dtstart, 'DURATION:PT1H', `RRULE:${rule}`)).data;
     const range = { start, end };
     expect(fast(text, range)).toEqual(full(text, range));
+  });
+
+  test('a fifth Monday by BYSETPOS=5 has no occurrence after DTSTART, and says so completely', () => {
+    // RFC 5545: BYSETPOS=5 of a set of at most one Monday never matches, so
+    // the series is DTSTART alone. ical.js gives the walk up after 336
+    // months; tsdav-utils 0.8.1 counts the rule's whole cycle and calls the
+    // empty answer complete
+    const text = object(BERLIN, vevent('SUMMARY:x', 'DTSTART;TZID=Europe/Berlin:19711005T233000', 'DURATION:PT1H',
+      'RRULE:FREQ=MONTHLY;INTERVAL=2;BYDAY=5MO;BYSETPOS=5')).data;
+    const { master, overrides } = readSeries(setFloatingZone(new ICAL.Component(ICAL.parse(text)), UTC_ZONE), 'vevent');
+    const result = seriesOccurrences(relateSeries(master, overrides), { start: 1855094400000, end: 1857772800000 });
+    expect(result).toMatchObject({ occurrences: [], truncated: false, stops: [] });
   });
 
   test.each([
@@ -459,6 +479,113 @@ describe('periods that can be empty, and BY lists out of order (review of #110)'
     const range = { start: Date.UTC(2026, 9, 20, 11), end: Date.UTC(2026, 9, 20, 13) };
     const names = seriesOccurrences(relateSeries(master, overrides), range).occurrences.map((o) => o.item.summary);
     expect(names).toContain('Moved');
+  });
+});
+
+describe('BY lists out of order, read in time order by tsdav-utils (tsdav-utils#31)', () => {
+  // ical.js stepped BYMONTH, BYHOUR, BYMINUTE and BYSECOND in the order the
+  // list gives them, and the library stopped at the first candidate past its
+  // window. Since tsdav-utils 0.8.0 it walks them in time order; dav-mcp no
+  // longer reads a period past the window to make up for it.
+  test('free/busy finds every Friday of March in MONTHLY;BYMONTH=9,3,6;BYDAY=FR', async () => {
+    stored = [object(vevent('SUMMARY:Quarterly', 'DTSTART:20260306T100000Z', 'DURATION:PT1H',
+      'RRULE:FREQ=MONTHLY;BYMONTH=9,3,6;BYDAY=FR'))];
+    const text = (await freeBusyQuery.handler({
+      time_range_start: '2027-03-01T00:00:00Z', time_range_end: '2027-04-01T00:00:00Z', include_event_details: true,
+    })).content[0].text;
+    expect(text).toContain('### Busy (4)');
+    for (const date of ['March 5, 2027', 'March 12, 2027', 'March 19, 2027', 'March 26, 2027']) expect(text).toContain(date);
+    expect(text).not.toContain('Warning');
+  });
+
+  test('list_events shows the March occurrence of MONTHLY;BYMONTH=9,3,6;BYDAY=FR, without a note', async () => {
+    stored = [object(vevent('SUMMARY:Quarterly', 'DTSTART:20260306T100000Z', 'DURATION:PT1H',
+      'RRULE:FREQ=MONTHLY;BYMONTH=9,3,6;BYDAY=FR'))];
+    const text = (await listEvents.handler({
+      calendar_url: CALENDAR_URL, time_range_start: '2027-03-20T00:00:00Z', time_range_end: '2027-03-31T00:00:00Z',
+    })).content[0].text;
+    expect(text).toContain('Quarterly');
+    expect(text).toContain('March 26, 2027');
+    expect(text).not.toContain('incomplete');
+  });
+
+  test('free/busy finds an override moved in from a 09:00 of DAILY;BYHOUR=17,9', async () => {
+    // from a 17:00 start the walk reaches 17:00 of 2 February before its
+    // 09:00, which the override names
+    stored = [object(vevent('SUMMARY:Series', 'DTSTART:20260101T170000Z', 'DURATION:PT30M', 'RRULE:FREQ=DAILY;BYHOUR=17,9'),
+      vevent('SUMMARY:Moved', 'RECURRENCE-ID:20260202T090000Z', 'DTSTART:20261020T120000Z', 'DURATION:PT30M'))];
+    const text = (await freeBusyQuery.handler({
+      time_range_start: '2026-10-20T11:00:00Z', time_range_end: '2026-10-20T13:00:00Z', include_event_details: true,
+    })).content[0].text;
+    expect(text).toContain('### Busy (1)');
+    expect(text).toContain('Moved');
+    expect(text).not.toContain('Warning');
+  });
+});
+
+describe('a rule the calendar library gives up on is named as such (tsdav-utils 0.8.0)', () => {
+  // a fifth Sunday of February: 2060 and 2088, then ical.js ends the yearly
+  // rule after 28 years without one and cannot say what follows
+  const FEB = () => object(vevent('SUMMARY:Leap Sunday', 'DTSTART:20580203T100000Z', 'DURATION:PT1H',
+    'RRULE:FREQ=YEARLY;BYMONTH=2;BYDAY=5SU'));
+  const LATER = { time_range_start: '2150-01-01T00:00:00Z', time_range_end: '2151-01-01T00:00:00Z' };
+
+  test('seriesOccurrences reports the library stop, and spends no budget on it', () => {
+    const { master, overrides } = readSeries(new ICAL.Component(ICAL.parse(FEB().data)), 'vevent');
+    const budget = createRecurrenceBudget(1e6);
+    const result = seriesOccurrences(relateSeries(master, overrides), { start: Date.UTC(2150, 0, 1), end: Date.UTC(2151, 0, 1) }, { budget });
+    expect(result).toMatchObject({ occurrences: [], truncated: true, stops: ['library'] });
+    expect(budget.exhausted).toBeFalsy();
+  });
+
+  test('free/busy says the calendar library cannot compute the occurrences, not that there are too many', async () => {
+    stored = [FEB()];
+    const text = (await freeBusyQuery.handler(LATER)).content[0].text;
+    expect(text).toContain('**Warning**');
+    expect(text).toContain(`- Leap Sunday (${CALENDAR_URL}standup.ics): the calendar library cannot compute the occurrences of this rule from some point on: it skips occurrences RFC 5545 requires, or gives the rule up after a long stretch without one`);
+    expect(text).not.toContain('Nothing blocks this window');
+  });
+
+  test('calendar_query and list_events say the same in the series note', async () => {
+    stored = [FEB()];
+    for (const [tool, args] of [[calendarQuery, {}], [listEvents, { calendar_url: CALENDAR_URL }]]) {
+      const text = (await tool.handler({ ...LATER, ...args })).content[0].text;
+      expect(text).toContain('Leap Sunday');
+      expect(text).toContain('- **Note**: incomplete — this series could not be expanded (the calendar library cannot compute the occurrences of this rule from some point on: it skips occurrences RFC 5545 requires, or gives the rule up after a long stretch without one)');
+      expect(text).not.toContain('too many occurrences');
+    }
+  });
+
+  test.each([
+    // RFC 5545 takes the 15th of every month, ical.js DTSTART's month only
+    ['YEARLY;BYMONTHDAY=15', 'DTSTART:20260115T090000Z', '2026-03-01T00:00:00Z', '2026-04-01T00:00:00Z'],
+    // ical.js keeps one of the two hours (tsdav-utils 0.8.1)
+    ['YEARLY;BYMONTH=6;BYDAY=MO;BYHOUR=0,9', 'DTSTART:20210607T000000Z', '2026-06-01T00:00:00Z', '2026-07-01T00:00:00Z'],
+  ])('FREQ=%s, whose occurrences ical.js skips, gets the same note', async (rule, dtstart, start, end) => {
+    stored = [object(vevent('SUMMARY:Skipped', dtstart, 'DURATION:PT1H', `RRULE:FREQ=${rule}`))];
+    const range = { time_range_start: start, time_range_end: end };
+    const query = (await calendarQuery.handler(range)).content[0].text;
+    expect(query).toMatch(/could not be expanded( fully)? \(the calendar library cannot compute the occurrences of this rule from some point on/);
+    const freebusy = (await freeBusyQuery.handler(range)).content[0].text;
+    expect(freebusy).toContain("Skipped (" + CALENDAR_URL + "standup.ics): the calendar library cannot compute");
+    expect(freebusy).not.toContain('28 years');
+  });
+
+  test('a rule that would hang ical.js is a series that cannot be read, with the library\'s reason', async () => {
+    // tsdav-utils 0.8.1 refuses it; 0.8.0 never returned
+    stored = [object(vevent('SUMMARY:Hangs', 'DTSTART:20190214T090000Z', 'DURATION:PT1H', 'RRULE:FREQ=MONTHLY;INTERVAL=24;BYDAY=-1TH,5MO'))];
+    const range = { time_range_start: '2026-01-01T00:00:00Z', time_range_end: '2027-01-01T00:00:00Z' };
+    const query = (await calendarQuery.handler(range)).content[0].text;
+    expect(query).toMatch(/- \*\*Note\*\*: incomplete — this series cannot be read \(.*fifth or fifth-last weekday without end\)/);
+    const freebusy = (await freeBusyQuery.handler(range)).content[0].text;
+    expect(freebusy).toMatch(/Hangs \(.*\): cannot be read — .*without end/);
+  });
+
+  test('a window before the stop is answered in full', async () => {
+    stored = [FEB()];
+    const text = (await freeBusyQuery.handler({ time_range_start: '2088-02-01T00:00:00Z', time_range_end: '2088-03-01T00:00:00Z' })).content[0].text;
+    expect(text).toContain('### Busy (1)');
+    expect(text).not.toContain('Warning');
   });
 });
 
@@ -522,9 +649,19 @@ describe('no series can stall a tool call (ical.js loops between candidates)', (
   };
   const one = (uid, ...lines) => ({ ...object(vevent('SUMMARY:x', ...lines)), url: `${CALENDAR_URL}${uid}.ics` });
 
-  test('a limiting BYHOUR on SECONDLY since 1950 is reported incomplete, fast', async () => {
+  test('a limiting BYHOUR on SECONDLY since 1950 is answered from near the range', async () => {
+    // tsdav-utils 0.8.0 starts the walk of an open-ended rule near `from`
     const { text, work } = await timed([one('s', 'DTSTART:19500101T090000Z', 'DURATION:PT1M',
       'RRULE:FREQ=SECONDLY;BYHOUR=9;BYMINUTE=0;BYSECOND=0')]);
+    expect(text).toContain('### Busy (7)');
+    expect(text).not.toContain('Warning');
+    expect(work.units).toBeLessThan(CALL_UNITS);
+  });
+
+  test('the same rule with COUNT, walked from 1950, is reported incomplete, fast', async () => {
+    // COUNT has to be counted from DTSTART, so the library walks it in full
+    const { text, work } = await timed([one('s', 'DTSTART:19500101T090000Z', 'DURATION:PT1M',
+      'RRULE:FREQ=SECONDLY;BYHOUR=9;BYMINUTE=0;BYSECOND=0;COUNT=100000')]);
     expect(text).toContain('**Warning**');
     // ended by the cap on one call into the library (100 102 candidates),
     // not by the clock; without the cap it spends the tool call's budget
@@ -570,11 +707,10 @@ describe('the expansion still starts near the range', () => {
     expect(truncated).toBe(false);
     expect(occurrences.map((o) => o.item.summary)).toEqual(['Daily', 'Standup (01)']);
     // ~9700 days since DTSTART, ~1800 more to the override: what a walk from
-    // DTSTART spends, a near start does not
-    series.plan = null;
-    const far = createRecurrenceBudget(1e6);
-    seriesOccurrences(series, { start, end: start + 86400000 }, { budget: far });
-    expect(1e6 - near.remaining).toBeLessThan((1e6 - far.remaining) / 20);
+    // DTSTART spends, a near start does not (two calls, CALL_COST each, and
+    // a few candidates). Since tsdav-utils 0.8.0 the library starts near
+    // `from` too, so a series without a plan is no walk from DTSTART either.
+    expect(1e6 - near.remaining).toBeLessThan(2 * CALL_COST + 9700 / 20);
   });
 
   test('1000 overrides of an every-minute series from 2000 on are checked within one budget', async () => {

@@ -62,6 +62,7 @@ function parseICalEvent(icalData, timeRange = null, matches = null, resolved = n
       dtend: occurrence ? occurrence.endDate : event.endDate,
       expansionTruncated,
       expansionReason: shown.expansionReason ?? null,
+      expansionStops: shown.expansionStops ?? [],
       // the instants the expansion computed (exact at a DST change)
       dtstartAt: occurrence?.startAt ?? null,
       dtendAt: occurrence?.endAt ?? null,
@@ -521,11 +522,11 @@ function eventEntry(event, calendar = 'Unknown Calendar', timeRange = null, matc
   // range. A series with no occurrence in it is not listed at all: the
   // listing tools leave it out (shownTouchesRange).
   if (parsed.expansionTruncated && parsed.occurrenceShown) {
-    output += `- **Note**: incomplete — this series could not be expanded fully (too many occurrences); an earlier occurrence in the queried range may exist\n`;
+    output += `- **Note**: incomplete — this series could not be expanded fully (${whyStopped(parsed.expansionStops)}); an earlier occurrence in the queried range may exist\n`;
   } else if (parsed.expansionReason) {
     output += `- **Note**: incomplete — this series cannot be read (${parsed.expansionReason}); the date above is the series start, not an occurrence in the queried range\n`;
   } else if (parsed.expansionTruncated) {
-    output += `- **Note**: incomplete — this series could not be expanded (too many occurrences); the date above is the series start, not an occurrence in the queried range\n`;
+    output += `- **Note**: incomplete — this series could not be expanded (${whyStopped(parsed.expansionStops)}); the date above is the series start, not an occurrence in the queried range\n`;
   }
 
   // Show organizer if present
@@ -1166,6 +1167,24 @@ function unreadableLine(count, noun) {
  */
 const LISTED_UNREADABLE = 10;
 
+// ical.js skips an occurrence RFC 5545 requires, or ends a rule after 28
+// years without one; tsdav-utils reports either as stoppedBy 'library'
+const LIBRARY_STOP = 'the calendar library cannot compute the occurrences of this rule from some point on: it skips occurrences RFC 5545 requires, or gives the rule up after a long stretch without one';
+
+/**
+ * What ended the expansion of a series early, in words: the work budget
+ * (too many occurrences), or the calendar library, which from some point
+ * on cannot give a rule's occurrences as RFC 5545 has them (LIBRARY_STOP).
+ * Without a reason given, the budget.
+ *
+ * @param {Array<'budget'|'library'>} [stops] - seriesOccurrences' `stops`
+ */
+function whyStopped(stops = []) {
+  const library = stops.includes('library');
+  const budget = stops.includes('budget') || !library;
+  return [budget && 'too many occurrences', library && LIBRARY_STOP].filter(Boolean).join('; and ');
+}
+
 /** the line for the skipped objects past LISTED_UNREADABLE, or '' */
 function moreLine(count) {
   return count > LISTED_UNREADABLE ? `- and ${count - LISTED_UNREADABLE} more\n` : '';
@@ -1241,9 +1260,10 @@ export function formatFreeBusy({ busy, free, range, zone = null, zoneNote = null
   const unreadStored = incomplete.filter(({ kind }) => kind === 'stored');
   const unasked = incomplete.filter(({ kind }) => kind === 'query');
   if (unreadEvents.length > 0) {
-    output += `**Warning**: incomplete — ${unreadEvents.length === 1 ? 'an event' : `${unreadEvents.length} events`} could not be read or expanded fully (an object that cannot be read, a series that cannot be read, or too many occurrences), so busy time from ${unreadEvents.length === 1 ? 'it' : 'them'} may be missing and the free time below is not certain:\n`;
-    unreadEvents.slice(0, LISTED_UNREADABLE).forEach(({ object, summary, reason }) => {
-      output += `- ${summary || 'Untitled Event'} (${object.url})${reason ? `: cannot be read — ${reason}` : ''}\n`;
+    output += `**Warning**: incomplete — ${unreadEvents.length === 1 ? 'an event' : `${unreadEvents.length} events`} could not be read or expanded fully (an object that cannot be read, a series that cannot be read, a rule the calendar library cannot compute in full, or too many occurrences), so busy time from ${unreadEvents.length === 1 ? 'it' : 'them'} may be missing and the free time below is not certain:\n`;
+    unreadEvents.slice(0, LISTED_UNREADABLE).forEach(({ object, summary, reason, stops = [] }) => {
+      const why = reason ? `: cannot be read — ${reason}` : stops.includes('library') ? `: ${LIBRARY_STOP}` : '';
+      output += `- ${summary || 'Untitled Event'} (${object.url})${why}\n`;
     });
     output += moreLine(unreadEvents.length);
     output += '\n';

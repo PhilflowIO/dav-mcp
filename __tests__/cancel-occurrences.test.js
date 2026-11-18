@@ -444,6 +444,23 @@ describe('names, inert exclusions and refusals (#126 review)', () => {
     expect(occurrenceIds(written(), '2026-11-10T00:00:00Z', '2026-11-11T00:00:00Z')).toEqual([]);
   });
 
+  test('a whole-day exclusion whose day cannot be checked names the raw route, not a guessed restore', async () => {
+    // ical.js keeps one of the two hours of YEARLY;BYHOUR=17,13, so
+    // tsdav-utils cannot compute the series there (stoppedBy 'library'):
+    // which occurrences 10 June held is unknown, and restore_occurrences
+    // alone would only hit CHECK_LIBRARY_STOPPED
+    storedEvent = calendar('VEVENT', [
+      'UID:y@test', 'SUMMARY:Y', 'DTSTART:20190610T130000Z', 'DTEND:20190610T140000Z',
+      'RRULE:FREQ=YEARLY;BYHOUR=17,13', 'EXDATE;VALUE=DATE:20260610',
+    ]);
+    const reply = await errorReply(setEvent({ start_date: '2019-06-10T13:30:00Z', end_date: '2019-06-10T14:30:00Z' }));
+    expect(reply.code).toBe(MCP_ERROR_CODES.VALIDATION_ERROR);
+    expect(reply.message).not.toMatch(/restore_occurrences|cancel_occurrences/);
+    expect(reply.message).toMatch(/whole-day exclusion 2026-06-10 .*cannot be checked/);
+    expect(reply.message).toMatch(/fetch the object with calendar_multi_get.* send the whole object with update_event_raw/);
+    expect(updateCalendarObject).not.toHaveBeenCalled();
+  });
+
   test('a move blocked by a whole-day extra date names the raw route', async () => {
     storedEvent = calendar('VEVENT', [
       'UID:r@test', 'SUMMARY:R', 'DTSTART;TZID=Europe/Berlin:20261103T090000',
