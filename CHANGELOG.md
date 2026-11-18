@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+- **`delete_calendar` only deletes a calendar `list_calendars` names.** It
+  used to send the DELETE to any URL inside the account, so a model steered
+  by hostile event or contact text could aim it at the calendar home, the
+  principal or the server root, and on servers that allow that, every
+  calendar went with it. A URL that is not one of the calendars is now
+  refused before anything is sent.
+
 ## [5.1.0] - 2026-11-17
 
 ### Added
