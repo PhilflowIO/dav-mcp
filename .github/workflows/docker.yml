@@ -182,6 +182,7 @@ jobs:
             -e CALDAV_USERNAME=ci \
             -e CALDAV_PASSWORD=ci \
             -e PORT=8080 \
+            -e BEARER_TOKEN="$(openssl rand -hex 32)" \
             dav-mcp:ci
           for _ in $(seq 1 30); do
             status=$(docker inspect -f '{{.State.Health.Status}}' dav-mcp)

@@ -12,7 +12,12 @@
  *
  * Configuration via environment variables:
  *   - PORT: Server port (default: 3000)
- *   - BEARER_TOKEN: Required for authentication
+ *   - HOST: Address to listen on, an IP address or localhost (default: every
+ *     interface; set 127.0.0.1 to keep the server off the network)
+ *   - BEARER_TOKEN: Required, at least 32 characters (`openssl rand -hex 32`);
+ *     the server does not start without one
+ *   - TRUST_PROXY: Reverse proxies whose X-Forwarded-For names the client:
+ *     their addresses or CIDR ranges, comma-separated (default: none)
  *   - CORS_ALLOWED_ORIGINS: Comma-separated list of allowed origins
  *   - CALDAV_SERVER_URL, CALDAV_USERNAME, CALDAV_PASSWORD: CalDAV credentials
  *   - AUTH_METHOD: 'Basic' (default), 'Digest' or 'OAuth' (case-insensitive, see auth-config.js)
@@ -22,6 +27,7 @@ import express from 'express';
 import { SERVER_NAME, SERVER_VERSION } from './server-info.js';
 import cors from 'cors';
 import crypto from 'crypto';
+import net from 'net';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import rateLimit from 'express-rate-limit';
@@ -31,8 +37,9 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 import { tsdavManager } from './tsdav-client.js';
-import { isLocalOrPrivateAddress } from './client-address.js';
+import { getsRaisedRateLimit } from './client-address.js';
 import { buildTsdavConfig } from './auth-config.js';
+import { checkBearerToken, parseListenHost, parseTrustProxy } from './http-config.js';
 import { tools, toListedTool } from './tools/index.js';
 import { createToolErrorResponse, MCP_ERROR_CODES } from './error-handler.js';
 import { logger, createRequestLogger } from './logger.js';
@@ -43,6 +50,12 @@ dotenv.config({ path: fileURLToPath(new URL('../.env', import.meta.url)), quiet:
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Set by readHttpSettings() once the environment has passed its checks; the
+// server does not listen before that, so no request sees them unset.
+let bearerSecret;
+let listenHost;
+let trustProxy = false;
 
 // CORS Configuration
 const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS
@@ -64,13 +77,12 @@ app.use(cors({
 // Body parser
 app.use(express.json());
 
-// Rate Limiting
+// Rate Limiting. Counted per client address (req.ip, the limiter's default
+// key), which TRUST_PROXY decides behind a reverse proxy.
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: (req) => {
-    const ip = req.ip || req.socket?.remoteAddress;
-    return isLocalOrPrivateAddress(ip) ? 10000 : 100;
-  },
+  // 'trust proxy fn' is the check Express itself resolves req.ip with
+  max: (req) => (getsRaisedRateLimit(req, trustProxy, req.app.get('trust proxy fn')) ? 10000 : 100),
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
@@ -82,17 +94,6 @@ app.use('/mcp', limiter);
  * Bearer token authentication middleware
  */
 function authenticateBearer(req, res, next) {
-  const bearerToken = process.env.BEARER_TOKEN;
-
-  if (!bearerToken) {
-    logger.error('Server misconfiguration: BEARER_TOKEN not set');
-    return res.status(500).json({
-      jsonrpc: '2.0',
-      error: { code: -32603, message: 'Server misconfiguration: BEARER_TOKEN not set' },
-      id: null,
-    });
-  }
-
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     logger.warn({ ip: req.ip }, 'Unauthorized: Bearer token required');
@@ -107,7 +108,7 @@ function authenticateBearer(req, res, next) {
 
   // Timing-safe comparison
   const tokenBuffer = Buffer.from(token);
-  const secretBuffer = Buffer.from(bearerToken);
+  const secretBuffer = bearerSecret;
 
   if (tokenBuffer.length !== secretBuffer.length || !crypto.timingSafeEqual(tokenBuffer, secretBuffer)) {
     logger.warn({ ip: req.ip }, 'Unauthorized: Invalid token');
@@ -119,6 +120,25 @@ function authenticateBearer(req, res, next) {
   }
 
   next();
+}
+
+/**
+ * Check the HTTP transport's own settings; like a wrong DAV configuration, a
+ * wrong one here stops the server before it listens.
+ */
+function readHttpSettings() {
+  try {
+    bearerSecret = Buffer.from(checkBearerToken(process.env.BEARER_TOKEN));
+    listenHost = parseListenHost(process.env.HOST);
+    trustProxy = parseTrustProxy(process.env.TRUST_PROXY);
+  } catch (error) {
+    logger.error({ error: error.message }, 'Invalid configuration — server not started');
+    process.exit(1);
+  }
+  app.set('trust proxy', trustProxy);
+  if (trustProxy !== false) {
+    logger.info({ trustProxy }, 'Client addresses taken from X-Forwarded-For of trusted proxies');
+  }
 }
 
 /**
@@ -345,6 +365,8 @@ let httpServer;
 async function start() {
   logger.info('Starting dav-mcp HTTP Server (stateless)...');
 
+  readHttpSettings();
+
   // Initialize tsdav clients
   await initializeTsdav();
 
@@ -352,11 +374,14 @@ async function start() {
   logger.info(initializeToolCallLogger().describe(), 'Tool-call log');
 
   // Start Express server
-  httpServer = app.listen(PORT, () => {
+  // Without HOST, Node listens on every interface, as it always has here;
+  // the container depends on that to be reachable through its port mapping.
+  httpServer = app.listen(PORT, listenHost, () => {
+    const { address, port } = httpServer.address();
     logger.info({
-      port: PORT,
-      url: `http://localhost:${PORT}`,
-      mcpEndpoint: `http://localhost:${PORT}/mcp`,
+      host: address,
+      port,
+      mcpEndpoint: `http://${net.isIPv6(address) ? `[${address}]` : address}:${port}/mcp`,
       mode: 'stateless',
     }, 'HTTP Server running');
 

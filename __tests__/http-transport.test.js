@@ -1,6 +1,8 @@
 import { describe, test, expect, beforeAll, afterAll } from '@jest/globals';
 import { spawn } from 'child_process';
+import crypto from 'crypto';
 import http from 'http';
+import os from 'os';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
@@ -11,7 +13,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 // the transport without a global it needed on an older Node.js, and every
 // request failed while all unit tests stayed green.
 
-const TOKEN = 'test-token';
+const TOKEN = crypto.randomBytes(32).toString('hex');
 
 // Enough DAV for tsdav to log in (discovery, principal, home sets) and for
 // list_calendars and list_addressbooks to get an answer.
@@ -59,55 +61,84 @@ const freePort = async () => {
   return port;
 };
 
-let child;
-let output = '';
-let mcpUrl;
+const serverEnv = (davPort, env) => ({
+  PATH: process.env.PATH,
+  NODE_ENV: 'test',
+  BEARER_TOKEN: TOKEN,
+  CALDAV_SERVER_URL: `http://127.0.0.1:${davPort}/`,
+  CALDAV_USERNAME: 'user',
+  CALDAV_PASSWORD: 'pass',
+  // pinned empty so the checkout's own .env (if any) cannot add a second
+  // endpoint the server would try to log onto
+  CARDDAV_SERVER_URL: '',
+  CARDDAV_USERNAME: '',
+  CARDDAV_PASSWORD: '',
+  HOST: '',
+  TRUST_PROXY: '',
+  ...env,
+});
 
-beforeAll(async () => {
-  const davPort = await listen(davStub);
+// Starts src/server-http.js against the DAV stub. Resolves once /health
+// answers; rejects with the server's output if it exits or never comes up.
+const startServer = async (davPort, env = {}) => {
   const port = await freePort();
-  mcpUrl = new URL(`http://127.0.0.1:${port}/mcp`);
-
-  child = spawn(process.execPath, ['src/server-http.js'], {
-    env: {
-      PATH: process.env.PATH,
-      NODE_ENV: 'test',
-      PORT: String(port),
-      BEARER_TOKEN: TOKEN,
-      CALDAV_SERVER_URL: `http://127.0.0.1:${davPort}/`,
-      CALDAV_USERNAME: 'user',
-      CALDAV_PASSWORD: 'pass',
-      // pinned empty so the checkout's own .env (if any) cannot add a second
-      // endpoint the server would try to log onto
-      CARDDAV_SERVER_URL: '',
-      CARDDAV_USERNAME: '',
-      CARDDAV_PASSWORD: '',
-    },
+  const server = { url: new URL(`http://127.0.0.1:${port}/mcp`), output: '' };
+  server.child = spawn(process.execPath, ['src/server-http.js'], {
+    env: serverEnv(davPort, { PORT: String(port), ...env }),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  child.stdout.on('data', d => { output += d; });
-  child.stderr.on('data', d => { output += d; });
+  server.child.stdout.on('data', d => { server.output += d; });
+  server.child.stderr.on('data', d => { server.output += d; });
 
   const deadline = Date.now() + 20000;
   for (;;) {
     try {
-      if ((await fetch(new URL('/health', mcpUrl))).ok) return;
+      if ((await fetch(new URL('/health', server.url))).ok) return server;
     } catch {
       // not listening yet
     }
-    if (child.exitCode !== null || Date.now() > deadline) {
-      throw new Error(`HTTP server did not come up:\n${output}`);
+    if (server.child.exitCode !== null || Date.now() > deadline) {
+      throw new Error(`HTTP server did not come up:\n${server.output}`);
     }
     await new Promise(resolve => setTimeout(resolve, 100));
   }
+};
+
+const stopServer = async (server) => {
+  if (server?.child && server.child.exitCode === null) {
+    const exited = new Promise(resolve => server.child.once('exit', resolve));
+    server.child.kill();
+    await exited;
+  }
+};
+
+// Starts the server with a configuration it must refuse; resolves with its
+// exit code and output.
+const startRefused = (davPort, env) => new Promise((resolve, reject) => {
+  const child = spawn(process.execPath, ['src/server-http.js'], {
+    env: serverEnv(davPort, { PORT: '0', ...env }),
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let output = '';
+  child.stdout.on('data', d => { output += d; });
+  child.stderr.on('data', d => { output += d; });
+  child.on('error', reject);
+  const timer = setTimeout(() => { child.kill(); resolve({ code: 'still running', output }); }, 10000);
+  child.on('exit', (code) => { clearTimeout(timer); resolve({ code, output }); });
+});
+
+let davPort;
+let server;
+let mcpUrl;
+
+beforeAll(async () => {
+  davPort = await listen(davStub);
+  server = await startServer(davPort);
+  mcpUrl = server.url;
 }, 30000);
 
 afterAll(async () => {
-  if (child && child.exitCode === null) {
-    const exited = new Promise(resolve => child.once('exit', resolve));
-    child.kill();
-    await exited;
-  }
+  await stopServer(server);
   davStub.closeAllConnections?.();
   await new Promise(resolve => davStub.close(resolve));
 });
@@ -179,4 +210,154 @@ describe('HTTP transport', () => {
     expect(health.status).toBe('healthy');
     expect(health.availableAccountTypes).toEqual(['caldav', 'carddav']);
   });
+});
+
+describe('HTTP transport: BEARER_TOKEN is checked before the server listens', () => {
+  // An unset token used to start a server that answered 500 to every MCP
+  // request; the example value from .env.example started one anybody could
+  // use. Both now stop at startup and say how to make a token.
+  test.each([
+    ['unset', '', 'BEARER_TOKEN is not set'],
+    ['the .env.example placeholder', 'your-secure-token-here', 'BEARER_TOKEN is the example value'],
+    ['the README example', 'your-secret-token', 'BEARER_TOKEN is the example value'],
+    ['31 characters', 'a'.repeat(31), 'BEARER_TOKEN has 31 characters; at least 32 are required'],
+    ['32 spaces', ' '.repeat(32), 'BEARER_TOKEN contains whitespace'],
+  ])('%s: exits 1 and says how to generate a token', async (_, token, message) => {
+    const { code, output } = await startRefused(davPort, { BEARER_TOKEN: token });
+    expect(code).toBe(1);
+    expect(output).toContain(message);
+    expect(output).toContain('openssl rand -hex 32');
+    expect(output).not.toContain('HTTP Server running');
+  }, 20000);
+});
+
+describe('HTTP transport: the listen address', () => {
+  // An address of this machine that is not loopback, if it has one
+  const outsideAddress = Object.values(os.networkInterfaces()).flat()
+    .find(i => i.family === 'IPv4' && !i.internal)?.address;
+
+  test('without HOST it listens on every interface and logs that', async () => {
+    expect(server.output).toMatch(/HTTP Server running .*"host":"(::|0\.0\.0\.0)"/);
+    if (outsideAddress) {
+      const health = await fetch(`http://${outsideAddress}:${server.url.port}/health`);
+      expect(health.ok).toBe(true);
+    }
+  });
+
+  test('HOST=127.0.0.1 listens on loopback only and logs that', async () => {
+    const local = await startServer(davPort, { HOST: '127.0.0.1' });
+    try {
+      expect(local.output).toMatch(/HTTP Server running .*"host":"127\.0\.0\.1"/);
+      if (outsideAddress) {
+        await expect(fetch(`http://${outsideAddress}:${local.url.port}/health`)).rejects.toThrow();
+      }
+    } finally {
+      await stopServer(local);
+    }
+  }, 30000);
+
+  test('a HOST that is not an address stops the server at startup', async () => {
+    const { code, output } = await startRefused(davPort, { HOST: 'dav.example.com' });
+    expect(code).toBe(1);
+    expect(output).toContain("HOST must be an IP address or localhost, got 'dav.example.com'");
+  }, 20000);
+});
+
+describe('HTTP transport: rate-limit client identification', () => {
+  // The limiter runs before the bearer token check, so an unauthenticated
+  // POST shows the limit it was counted against.
+  const probe = async (url, headers = {}) => {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...headers },
+      body: '{}',
+    });
+    expect(response.status).toBe(401);
+    return {
+      limit: Number(response.headers.get('ratelimit-limit')),
+      remaining: Number(response.headers.get('ratelimit-remaining')),
+    };
+  };
+
+  describe('without TRUST_PROXY', () => {
+    test('a local client keeps the raised limit', async () => {
+      expect((await probe(mcpUrl)).limit).toBe(10000);
+    });
+
+    // A reverse proxy on a private address in front of dav-mcp: the address
+    // the server sees is the proxy's, whoever the client is.
+    test.each([
+      ['X-Forwarded-For', { 'x-forwarded-for': '203.0.113.7' }],
+      ['Forwarded', { forwarded: 'for=203.0.113.7' }],
+    ])('a request forwarded with %s gets the standard limit', async (_, headers) => {
+      expect((await probe(mcpUrl, headers)).limit).toBe(100);
+    });
+
+    test('X-Forwarded-For cannot choose the counter', async () => {
+      const first = await probe(mcpUrl, { 'x-forwarded-for': '203.0.113.20' });
+      const second = await probe(mcpUrl, { 'x-forwarded-for': '203.0.113.21' });
+      expect(second.remaining).toBe(first.remaining - 1);
+    });
+  });
+
+  describe('with TRUST_PROXY=loopback', () => {
+    let proxied;
+    beforeAll(async () => {
+      proxied = await startServer(davPort, { TRUST_PROXY: 'loopback' });
+    }, 30000);
+    afterAll(() => stopServer(proxied));
+
+    test('each forwarded client has its own counter and the standard limit', async () => {
+      const a = await probe(proxied.url, { 'x-forwarded-for': '203.0.113.7' });
+      const b = await probe(proxied.url, { 'x-forwarded-for': '203.0.113.8' });
+      expect([a.limit, b.limit]).toEqual([100, 100]);
+      expect([a.remaining, b.remaining]).toEqual([99, 99]);
+    });
+
+    // The proxy (here: loopback) sent no X-Forwarded-For, or only Forwarded,
+    // which Express does not read: req.ip is the proxy itself, so who the
+    // client is stays unknown.
+    test.each([
+      ['no forwarding header', {}],
+      ['only Forwarded', { forwarded: 'for=203.0.113.7' }],
+    ])('a request from the trusted proxy with %s gets the standard limit', async (_, headers) => {
+      expect((await probe(proxied.url, headers)).limit).toBe(100);
+    });
+
+    test('a forwarded private client gets the raised limit', async () => {
+      expect((await probe(proxied.url, { 'x-forwarded-for': '10.0.0.5' })).limit).toBe(10000);
+    });
+
+    test('an entry a client prepends is not trusted past the proxy', async () => {
+      // the client sent "10.0.0.6", the proxy appended the address it saw
+      const spoofed = await probe(proxied.url, { 'x-forwarded-for': '10.0.0.6, 203.0.113.9' });
+      expect(spoofed.limit).toBe(100);
+      expect(spoofed.remaining).toBe(99);
+    });
+  });
+
+  test('TRUST_PROXY=true stops the server at startup', async () => {
+    const { code, output } = await startRefused(davPort, { TRUST_PROXY: 'true' });
+    expect(code).toBe(1);
+    expect(output).toContain('TRUST_PROXY=true would trust X-Forwarded-For from any client');
+  }, 20000);
+
+  // Express itself refuses /0 when it compiles the setting; that used to
+  // surface as an unexplained startup crash. ::ffff:0.0.0.0/96 it accepted,
+  // trusting every IPv4 client.
+  test.each(['0.0.0.0/0', '::ffff:0.0.0.0/96'])('TRUST_PROXY=%s stops the server as a configuration error', async (range) => {
+    const { code, output } = await startRefused(davPort, { TRUST_PROXY: range });
+    expect(code).toBe(1);
+    expect(output).toContain('Invalid configuration');
+    expect(output).toContain(`'${range}'`);
+  }, 20000);
+
+  // With a hop count, a client that reaches the port directly would be
+  // trusted as the proxy and could name any address in X-Forwarded-For.
+  test('a hop count in TRUST_PROXY stops the server at startup', async () => {
+    const { code, output } = await startRefused(davPort, { TRUST_PROXY: '1' });
+    expect(code).toBe(1);
+    expect(output).toContain('TRUST_PROXY=1 is a hop count');
+    expect(output).toContain('TRUST_PROXY=172.18.0.2');
+  }, 20000);
 });

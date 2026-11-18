@@ -66,9 +66,13 @@ Start the HTTP server:
 CALDAV_SERVER_URL=https://dav.example.com \
 CALDAV_USERNAME=your_username \
 CALDAV_PASSWORD=your_password \
-BEARER_TOKEN=your-secret-token \
+BEARER_TOKEN=$(openssl rand -hex 32) \
 npx dav-mcp --http
 ```
+
+`BEARER_TOKEN` is required and must be at least 32 characters; the server
+refuses to start with a shorter one or with the example value from
+`.env.example`. Keep the generated value, n8n needs it.
 
 Then in n8n:
 1. Add **AI Agent** node
@@ -76,12 +80,21 @@ Then in n8n:
 3. Configure:
    - **MCP Endpoint**: `http://localhost:3000/mcp`
    - **Authentication**: Bearer
-   - **Token**: your-secret-token
+   - **Token**: the `BEARER_TOKEN` value
 
 **Custom port:**
 ```bash
 npx dav-mcp --http --port=8080
 ```
+
+**Listen address:** the server listens on every interface unless `HOST` (or
+`--host=`) names one. When n8n runs on the same machine, keep it off the
+network:
+```bash
+npx dav-mcp --http --host=127.0.0.1
+```
+`HOST` takes an IP address or `localhost`; the address in use is logged at
+startup.
 
 ---
 
@@ -95,7 +108,9 @@ docker run -d --name dav-mcp -p 3000:3000 --env-file .env \
 ```
 
 Tags: `latest`, the exact release (`5.1.0`) and the minor line (`5.1`).
-Set `PORT` to serve on a different port; the healthcheck follows it.
+Set `PORT` to serve on a different port; the healthcheck follows it. Leave
+`HOST` unset in the container: the port mapping needs the server on every
+interface of the container.
 
 Or build from source:
 
@@ -103,7 +118,7 @@ Or build from source:
 git clone https://github.com/PhilflowIO/dav-mcp.git
 cd dav-mcp
 cp .env.example .env
-# Edit .env with your credentials
+# Edit .env with your credentials and a BEARER_TOKEN from `openssl rand -hex 32`
 docker-compose up
 ```
 
@@ -286,8 +301,8 @@ For Google Calendar, use OAuth2 authentication:
 ## Security
 
 - **Input Validation**: All inputs validated with Zod schemas before execution
-- **Rate Limiting** (HTTP mode): 100 requests per 15 minutes per client address, counted before the bearer token is checked. Clients on loopback or a private network (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) — another container on the same Docker network, for example — get 10,000. Limitation: dav-mcp sees the address of whatever connects to it. Behind a Docker port mapping or a reverse proxy that is the bridge gateway or the proxy, so all outside clients share that one address, its one counter and its raised limit. Rate-limit per client at the proxy if you expose the HTTP transport.
-- **Bearer Auth**: Token authentication for HTTP transport
+- **Rate Limiting** (HTTP mode): 100 requests per 15 minutes per client address, counted before the bearer token is checked. Clients on loopback or a private network (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, and for IPv6 fc00::/7 and fe80::/10) — another container on the same Docker network, for example — get 10,000. dav-mcp sees the address of whatever connects to it; behind a reverse proxy that is the proxy, for every client. Set `TRUST_PROXY` to the proxy's address (`TRUST_PROXY=172.18.0.2` for a proxy container on a compose network, `docker network inspect <network>` shows it; comma-separated for several) and the client address is taken from that proxy's `X-Forwarded-For`. CIDR ranges and Express's names `loopback`, `linklocal` and `uniquelocal` are accepted, but trust every peer in the range, and a peer counted as a proxy never gets the raised limit: with `uniquelocal`, n8n and every other container on the compose network get 100, and with `loopback` so does every client on the same host. List only the proxy's own address so other local clients keep the raised limit. Ranges wider than /8 (IPv4) or /32 (IPv6) are refused, and an IPv6 range covering IPv4-mapped addresses counts as the IPv4 range it trusts (`::ffff:0.0.0.0/96` is all of IPv4). `TRUST_PROXY=true` and hop counts (`TRUST_PROXY=1`) are refused: a hop count trusts whatever connects to the port, so a client that reaches it directly instead of through the proxy could pick its own address. Without `TRUST_PROXY`, `X-Forwarded-For` is ignored, and a request that carries it or `Forwarded` gets the standard limit even from a private address — that address is a proxy's, not the client's — so all clients behind an unconfigured proxy share one counter of 100. With `TRUST_PROXY` set, a request whose address is itself a trusted proxy — the proxy sent no `X-Forwarded-For`, or only `Forwarded`, which is not read — gets the standard limit too, since the client behind it is unknown. The one gap is a proxy that sends neither header while `TRUST_PROXY` is unset: dav-mcp cannot tell it from a local client, so it and everyone behind it get the raised limit. Set `TRUST_PROXY` for every proxy in front of dav-mcp, or rate-limit per client at the proxy.
+- **Bearer Auth**: Token authentication for HTTP transport; the server does not start without a `BEARER_TOKEN` of at least 32 characters
 - **No Credential Storage**: Pass-through only, never logged or cached
 - **Structured Logging**: Audit trail with request IDs, no PII exposure
 - **Tool-Call Log Off by Default**: `LOG_TOOL_CALLS=true` records every tool call with its arguments, for debugging — to `~/.local/state/dav-mcp/tool-calls.jsonl` (or `$XDG_STATE_HOME`, `%LOCALAPPDATA%` on Windows, or `TOOL_CALL_LOG_FILE`), readable by you only. `TOOL_CALL_LOG_MODE=console` sends it to stderr instead.

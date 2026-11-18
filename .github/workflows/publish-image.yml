@@ -151,6 +151,7 @@ jobs:
             -e CALDAV_USERNAME=ci \
             -e CALDAV_PASSWORD=ci \
             -e PORT=8080 \
+            -e BEARER_TOKEN="$(openssl rand -hex 32)" \
             dav-mcp:verify
           for _ in $(seq 1 30); do
             status=$(docker inspect -f '{{.State.Health.Status}}' dav-mcp)
@@ -186,6 +187,7 @@ jobs:
             -e CALDAV_USERNAME=ci \
             -e CALDAV_PASSWORD=ci \
             -e PORT=8080 \
+            -e BEARER_TOKEN="$(openssl rand -hex 32)" \
             dav-mcp:verify-arm64
           arch=$(docker image inspect dav-mcp:verify-arm64 --format '{{.Architecture}}')
           [ "$arch" = "arm64" ] || { echo "::error::expected arm64 image, got '${arch}'"; exit 1; }
@@ -333,6 +335,7 @@ jobs:
             -e CALDAV_USERNAME=ci \
             -e CALDAV_PASSWORD=ci \
             -e PORT=8080 \
+            -e BEARER_TOKEN="$(openssl rand -hex 32)" \
             dav-mcp:published
           for _ in $(seq 1 30); do
             status=$(docker inspect -f '{{.State.Health.Status}}' dav-mcp)
