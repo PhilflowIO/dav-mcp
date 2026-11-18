@@ -10,6 +10,7 @@
  *   npx dav-mcp              # STDIO mode (default)
  *   npx dav-mcp --http       # HTTP mode on port 3000
  *   npx dav-mcp --http --port=8080  # HTTP mode on custom port
+ *   npx dav-mcp --http --host=127.0.0.1  # HTTP mode on loopback only
  *
  * Configuration via environment variables:
  *   - CALDAV_SERVER_URL: CalDAV server URL
@@ -30,11 +31,15 @@
 const args = process.argv.slice(2);
 const isHttpMode = args.includes('--http');
 const portArg = args.find(a => a.startsWith('--port='));
+const hostArg = args.find(a => a.startsWith('--host='));
 
 if (isHttpMode) {
   // HTTP mode - set port and load HTTP server
   if (portArg) {
     process.env.PORT = portArg.split('=')[1];
+  }
+  if (hostArg) {
+    process.env.HOST = hostArg.slice('--host='.length);
   }
   // Dynamic import of HTTP server (it will start itself)
   import('./server-http.js');

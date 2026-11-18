@@ -6,6 +6,7 @@
  * rather than serve with a setting the operator did not mean.
  */
 
+import net from 'net';
 import { ConfigurationError } from './auth-config.js';
 
 export const MIN_BEARER_TOKEN_LENGTH = 32;
@@ -43,4 +44,28 @@ export function checkBearerToken(value) {
     );
   }
   return value;
+}
+
+/**
+ * The address the HTTP transport listens on.
+ *
+ * Only an IP address or `localhost` is accepted. A host name would be
+ * resolved to one of the machine's addresses, which is rarely what the
+ * operator meant and hides which interface is exposed; some shells (tcsh)
+ * also export HOST as the machine's name, and that must not silently move
+ * the listener.
+ *
+ * @param {string|undefined} value - HOST as read from the environment
+ * @returns {string|undefined} the address, or undefined for Node's default:
+ *   every interface (`::`, dual-stack, or `0.0.0.0` without IPv6)
+ * @throws {ConfigurationError} for anything else
+ */
+export function parseListenHost(value) {
+  if (value === undefined || value === '') return undefined;
+  if (value === 'localhost' || net.isIP(value) !== 0) return value;
+  throw new ConfigurationError(
+    `HOST must be an IP address or localhost, got '${value}'. ` +
+    'Use 127.0.0.1 to listen on loopback only, 0.0.0.0 or :: for every interface, ' +
+    'or leave HOST unset for every interface.',
+  );
 }

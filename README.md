@@ -87,6 +87,15 @@ Then in n8n:
 npx dav-mcp --http --port=8080
 ```
 
+**Listen address:** the server listens on every interface unless `HOST` (or
+`--host=`) names one. When n8n runs on the same machine, keep it off the
+network:
+```bash
+npx dav-mcp --http --host=127.0.0.1
+```
+`HOST` takes an IP address or `localhost`; the address in use is logged at
+startup.
+
 ---
 
 ### Docker
@@ -99,7 +108,9 @@ docker run -d --name dav-mcp -p 3000:3000 --env-file .env \
 ```
 
 Tags: `latest`, the exact release (`5.1.0`) and the minor line (`5.1`).
-Set `PORT` to serve on a different port; the healthcheck follows it.
+Set `PORT` to serve on a different port; the healthcheck follows it. Leave
+`HOST` unset in the container: the port mapping needs the server on every
+interface of the container.
 
 Or build from source:
 

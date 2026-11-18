@@ -100,6 +100,7 @@ npm run dev:http   # HTTP with watch
 | `AUTH_METHOD` | `Basic`, `Digest` or `OAuth` | No (default: Basic) |
 | `BEARER_TOKEN` | API authentication token, at least 32 characters (`openssl rand -hex 32`) | Yes (HTTP server) |
 | `PORT` | HTTP server port | No (default: 3000) |
+| `HOST` | HTTP listen address, an IP address or `localhost` | No (default: every interface) |
 
 ## Upgrading: `AUTH_METHOD` is now checked
 

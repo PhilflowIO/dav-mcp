@@ -12,6 +12,8 @@
  *
  * Configuration via environment variables:
  *   - PORT: Server port (default: 3000)
+ *   - HOST: Address to listen on, an IP address or localhost (default: every
+ *     interface; set 127.0.0.1 to keep the server off the network)
  *   - BEARER_TOKEN: Required, at least 32 characters (`openssl rand -hex 32`);
  *     the server does not start without one
  *   - CORS_ALLOWED_ORIGINS: Comma-separated list of allowed origins
@@ -23,6 +25,7 @@ import express from 'express';
 import { SERVER_NAME, SERVER_VERSION } from './server-info.js';
 import cors from 'cors';
 import crypto from 'crypto';
+import net from 'net';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import rateLimit from 'express-rate-limit';
@@ -34,7 +37,7 @@ import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprot
 import { tsdavManager } from './tsdav-client.js';
 import { isLocalOrPrivateAddress } from './client-address.js';
 import { buildTsdavConfig } from './auth-config.js';
-import { checkBearerToken } from './http-config.js';
+import { checkBearerToken, parseListenHost } from './http-config.js';
 import { tools, toListedTool } from './tools/index.js';
 import { createToolErrorResponse, MCP_ERROR_CODES } from './error-handler.js';
 import { logger, createRequestLogger } from './logger.js';
@@ -86,6 +89,7 @@ app.use('/mcp', limiter);
 // Set by start() from BEARER_TOKEN once it has passed checkBearerToken; the
 // server does not listen before that, so no request sees it unset.
 let bearerSecret;
+let listenHost;
 
 function authenticateBearer(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -123,6 +127,7 @@ function authenticateBearer(req, res, next) {
 function readHttpSettings() {
   try {
     bearerSecret = Buffer.from(checkBearerToken(process.env.BEARER_TOKEN));
+    listenHost = parseListenHost(process.env.HOST);
   } catch (error) {
     logger.error({ error: error.message }, 'Invalid configuration — server not started');
     process.exit(1);
@@ -362,11 +367,14 @@ async function start() {
   logger.info(initializeToolCallLogger().describe(), 'Tool-call log');
 
   // Start Express server
-  httpServer = app.listen(PORT, () => {
+  // Without HOST, Node listens on every interface, as it always has here;
+  // the container depends on that to be reachable through its port mapping.
+  httpServer = app.listen(PORT, listenHost, () => {
+    const { address, port } = httpServer.address();
     logger.info({
-      port: PORT,
-      url: `http://localhost:${PORT}`,
-      mcpEndpoint: `http://localhost:${PORT}/mcp`,
+      host: address,
+      port,
+      mcpEndpoint: `http://${net.isIPv6(address) ? `[${address}]` : address}:${port}/mcp`,
       mode: 'stateless',
     }, 'HTTP Server running');
 

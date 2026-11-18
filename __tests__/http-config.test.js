@@ -1,5 +1,5 @@
 import { describe, test, expect } from '@jest/globals';
-import { checkBearerToken, MIN_BEARER_TOKEN_LENGTH } from '../src/http-config.js';
+import { checkBearerToken, MIN_BEARER_TOKEN_LENGTH, parseListenHost } from '../src/http-config.js';
 
 describe('checkBearerToken', () => {
   test.each([
@@ -30,5 +30,24 @@ describe('checkBearerToken', () => {
   test('accepts what `openssl rand -hex 32` prints', () => {
     const token = 'f'.repeat(64);
     expect(checkBearerToken(token)).toBe(token);
+  });
+});
+
+describe('parseListenHost', () => {
+  test.each([undefined, ''])('%p leaves the choice to Node: every interface', (value) => {
+    expect(parseListenHost(value)).toBeUndefined();
+  });
+
+  test.each(['127.0.0.1', '0.0.0.0', '192.168.1.20', '::1', '::', 'localhost'])('accepts %s', (value) => {
+    expect(parseListenHost(value)).toBe(value);
+  });
+
+  test.each([
+    ['a machine name as tcsh exports it', 'workstation'],
+    ['a domain name', 'dav.example.com'],
+    ['an address with a port', '127.0.0.1:3000'],
+    ['a bracketed IPv6 address', '[::1]'],
+  ])('refuses %s', (_, value) => {
+    expect(() => parseListenHost(value)).toThrow(/HOST must be an IP address or localhost/);
   });
 });

@@ -2,6 +2,7 @@ import { describe, test, expect, beforeAll, afterAll } from '@jest/globals';
 import { spawn } from 'child_process';
 import crypto from 'crypto';
 import http from 'http';
+import os from 'os';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
@@ -72,6 +73,7 @@ const serverEnv = (davPort, env) => ({
   CARDDAV_SERVER_URL: '',
   CARDDAV_USERNAME: '',
   CARDDAV_PASSWORD: '',
+  HOST: '',
   ...env,
 });
 
@@ -224,5 +226,37 @@ describe('HTTP transport: BEARER_TOKEN is checked before the server listens', ()
     expect(output).toContain(message);
     expect(output).toContain('openssl rand -hex 32');
     expect(output).not.toContain('HTTP Server running');
+  }, 20000);
+});
+
+describe('HTTP transport: the listen address', () => {
+  // An address of this machine that is not loopback, if it has one
+  const outsideAddress = Object.values(os.networkInterfaces()).flat()
+    .find(i => i.family === 'IPv4' && !i.internal)?.address;
+
+  test('without HOST it listens on every interface and logs that', async () => {
+    expect(server.output).toMatch(/HTTP Server running .*"host":"(::|0\.0\.0\.0)"/);
+    if (outsideAddress) {
+      const health = await fetch(`http://${outsideAddress}:${server.url.port}/health`);
+      expect(health.ok).toBe(true);
+    }
+  });
+
+  test('HOST=127.0.0.1 listens on loopback only and logs that', async () => {
+    const local = await startServer(davPort, { HOST: '127.0.0.1' });
+    try {
+      expect(local.output).toMatch(/HTTP Server running .*"host":"127\.0\.0\.1"/);
+      if (outsideAddress) {
+        await expect(fetch(`http://${outsideAddress}:${local.url.port}/health`)).rejects.toThrow();
+      }
+    } finally {
+      await stopServer(local);
+    }
+  }, 30000);
+
+  test('a HOST that is not an address stops the server at startup', async () => {
+    const { code, output } = await startRefused(davPort, { HOST: 'dav.example.com' });
+    expect(code).toBe(1);
+    expect(output).toContain("HOST must be an IP address or localhost, got 'dav.example.com'");
   }, 20000);
 });
