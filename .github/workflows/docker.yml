@@ -133,9 +133,10 @@ jobs:
       # does not exercise that path, so this stays, on the amd64 leg only.
       # Nothing is loaded: --load holds a single platform; the native build
       # below is the one that gets booted.
-      # This step exports the cache, not the amd64-only one: the GHA cache scope
-      # is shared with publish-image.yml, and an amd64-only export from main
-      # would replace the release's multi-arch cache and drop its arm64 layers.
+      # This step exports the cache, not the amd64-only one: an amd64-only
+      # export would replace the multi-arch cache and drop the arm64 layers
+      # the arm64 leg reads. The release build (publish-image.yml) reads no
+      # GHA cache, so nothing written here reaches a published image.
       - name: Build all published platforms
         if: matrix.arch == 'amd64'
         uses: docker/build-push-action@v6
