@@ -365,7 +365,6 @@ export function relateSeries(master, overrides) {
     .filter((o) => String(o.component.getFirstProperty('recurrence-id').getParameter('range') ?? '').toUpperCase() === 'THISANDFUTURE')
     .sort((a, b) => a.wall - b.wall);
   series.plan = shiftPlan(series);
-  series.lookahead = lookaheadOf(master.getFirstPropertyValue('rrule'));
   return series;
 }
 
@@ -593,14 +592,12 @@ function expand(series, from, to, overrides, budget) {
   for (const { component } of overrides) copy.addSubcomponent(clone(component));
 
   const bound = (wall) => (frame.kind === 'date' ? wallText(wall).slice(0, 10) : wallText(wall));
-  // candidates out of order: look one period past the window (lookaheadOf)
-  const lookahead = series.lookahead;
   let result;
   try {
     result = expandOccurrences(copy, {
       budget: slice,
       from: bound(from),
-      until: bound(to + lookahead + (frame.kind === 'date' ? 86400000 : 1000)),
+      until: bound(to + (frame.kind === 'date' ? 86400000 : 1000)),
       limit: Number.MAX_SAFE_INTEGER,
     });
   } catch (error) {
@@ -850,36 +847,6 @@ function everyPeriodHasOne(rule, parts, startWall) {
     if (!within('BYSETPOS', 4 * values('BYDAY').length)) return false;
   }
   return true;
-}
-
-/**
- * How far past a window an expansion must look so that every occurrence in
- * it comes out. ical.js yields the values of a BY list in the order the list
- * gives them (BYHOUR=17,9: 17:00 before 09:00) and MONTHLY;BYMONTH a year's
- * months in list order, while the library stops at the first candidate past
- * `until` and reports the list complete. Where a list is out of ascending
- * order (or mixes signs, or BYDAY has ordinals), one period of the rule is
- * enough: candidates come out of order only within it.
- */
-function lookaheadOf(rule) {
-  if (!rule) return 0;
-  const p = rule.parts ?? {};
-  const order = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
-  const ascending = (list) => list.every((v, i) => i === 0 || v > list[i - 1]);
-  const numeric = ['BYSECOND', 'BYMINUTE', 'BYHOUR', 'BYMONTHDAY', 'BYYEARDAY', 'BYWEEKNO', 'BYMONTH', 'BYSETPOS']
-    .some((part) => {
-      const list = (p[part] ?? []).map(Number);
-      const signs = new Set(list.map(Math.sign));
-      return signs.size > 1 || !ascending(list);
-    });
-  const days = (p.BYDAY ?? []).map(String);
-  const weekdays = days.some((d) => d.length > 2) || !ascending(days.map((d) => order.indexOf(d.slice(-2))));
-  const monthlyByMonth = rule.freq === 'MONTHLY' && Boolean(p.BYMONTH);
-  if (!numeric && !weekdays && !monthlyByMonth) return 0;
-  const interval = rule.interval || 1;
-  if (rule.freq === 'YEARLY' || monthlyByMonth) return 366 * 864e5 * (rule.freq === 'YEARLY' ? interval : 1);
-  if (rule.freq === 'MONTHLY') return 31 * 864e5 * interval;
-  return (UNIT_SECONDS[rule.freq] ?? 86400) * 1000 * interval;
 }
 
 /**

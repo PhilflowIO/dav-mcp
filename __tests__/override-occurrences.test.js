@@ -472,6 +472,47 @@ describe('periods that can be empty, and BY lists out of order (review of #110)'
   });
 });
 
+describe('BY lists out of order, read in time order by tsdav-utils (tsdav-utils#31)', () => {
+  // ical.js stepped BYMONTH, BYHOUR, BYMINUTE and BYSECOND in the order the
+  // list gives them, and the library stopped at the first candidate past its
+  // window. Since tsdav-utils 0.8.0 it walks them in time order; dav-mcp no
+  // longer reads a period past the window to make up for it.
+  test('free/busy finds every Friday of March in MONTHLY;BYMONTH=9,3,6;BYDAY=FR', async () => {
+    stored = [object(vevent('SUMMARY:Quarterly', 'DTSTART:20260306T100000Z', 'DURATION:PT1H',
+      'RRULE:FREQ=MONTHLY;BYMONTH=9,3,6;BYDAY=FR'))];
+    const text = (await freeBusyQuery.handler({
+      time_range_start: '2027-03-01T00:00:00Z', time_range_end: '2027-04-01T00:00:00Z', include_event_details: true,
+    })).content[0].text;
+    expect(text).toContain('### Busy (4)');
+    for (const date of ['March 5, 2027', 'March 12, 2027', 'March 19, 2027', 'March 26, 2027']) expect(text).toContain(date);
+    expect(text).not.toContain('Warning');
+  });
+
+  test('list_events shows the March occurrence of MONTHLY;BYMONTH=9,3,6;BYDAY=FR, without a note', async () => {
+    stored = [object(vevent('SUMMARY:Quarterly', 'DTSTART:20260306T100000Z', 'DURATION:PT1H',
+      'RRULE:FREQ=MONTHLY;BYMONTH=9,3,6;BYDAY=FR'))];
+    const text = (await listEvents.handler({
+      calendar_url: CALENDAR_URL, time_range_start: '2027-03-20T00:00:00Z', time_range_end: '2027-03-31T00:00:00Z',
+    })).content[0].text;
+    expect(text).toContain('Quarterly');
+    expect(text).toContain('March 26, 2027');
+    expect(text).not.toContain('incomplete');
+  });
+
+  test('free/busy finds an override moved in from a 09:00 of DAILY;BYHOUR=17,9', async () => {
+    // from a 17:00 start the walk reaches 17:00 of 2 February before its
+    // 09:00, which the override names
+    stored = [object(vevent('SUMMARY:Series', 'DTSTART:20260101T170000Z', 'DURATION:PT30M', 'RRULE:FREQ=DAILY;BYHOUR=17,9'),
+      vevent('SUMMARY:Moved', 'RECURRENCE-ID:20260202T090000Z', 'DTSTART:20261020T120000Z', 'DURATION:PT30M'))];
+    const text = (await freeBusyQuery.handler({
+      time_range_start: '2026-10-20T11:00:00Z', time_range_end: '2026-10-20T13:00:00Z', include_event_details: true,
+    })).content[0].text;
+    expect(text).toContain('### Busy (1)');
+    expect(text).toContain('Moved');
+    expect(text).not.toContain('Warning');
+  });
+});
+
 describe('the near-range start and the budget, at their edges', () => {
   const seriesOf = (...vevents) => {
     const root = new ICAL.Component(ICAL.parse(object(...vevents).data));
