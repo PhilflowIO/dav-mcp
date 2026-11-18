@@ -130,7 +130,7 @@ jobs:
       # image is built from the tag alone. The builds of this job still share
       # layers through the Buildx builder they all run on.
       - name: Build image for verification
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           load: true
@@ -168,7 +168,7 @@ jobs:
       # Every published platform is observed booting, not just the runner's
       # native one. --load holds a single platform, hence a separate build.
       - name: Build arm64 image for verification
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           platforms: linux/arm64
@@ -236,7 +236,7 @@ jobs:
       # jobs below pull this index by digest and wait for the health check.
       - name: Build and push
         id: push
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           platforms: linux/amd64,linux/arm64
