@@ -127,10 +127,23 @@ describe('one reader for every tool', () => {
     expect(text(await updateCalendar.handler({ calendar_url: BERLIN, timezone: 'Europe/Berlin' }))).toContain('- Timezone: Europe/Berlin\n');
   });
 
-  test('update_calendar: a calendar the server no longer lists is a NotFoundError', async () => {
+  test('update_calendar: a calendar the server does not list is refused before any write', async () => {
     calendars = [];
+    client.davRequest.mockClear();
     await expect(updateCalendar.handler({ calendar_url: BERLIN, display_name: 'x' }))
       .rejects.toMatchObject({ name: 'NotFoundError' });
+    expect(client.davRequest).not.toHaveBeenCalled();
+  });
+
+  test('update_calendar: a calendar gone from the list after the write is a NotFoundError', async () => {
+    client.davRequest.mockClear();
+    client.fetchCalendars
+      .mockResolvedValueOnce([{ url: BERLIN, displayName: 'Berlin' }])
+      .mockResolvedValueOnce([]);
+    const error = await updateCalendar.handler({ calendar_url: BERLIN, display_name: 'x' }).catch(e => e);
+    expect(client.davRequest).toHaveBeenCalledTimes(1);
+    expect(error).toMatchObject({ name: 'NotFoundError' });
+    expect(error.message).toContain(`The server accepted the update, but ${BERLIN} is no longer among the calendars`);
   });
 });
 
