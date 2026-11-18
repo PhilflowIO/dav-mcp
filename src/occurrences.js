@@ -1000,15 +1000,17 @@ const RULE_DAYS_CHECKED = 400;
  * it. A necessary condition only, never sufficient: years, INTERVAL, COUNT,
  * BYSETPOS and the time parts are not looked at, so a day passing it may
  * still hold no occurrence, but a day failing it holds none. BYYEARDAY,
- * BYWEEKNO, several RRULEs, a range of more than RULE_DAYS_CHECKED days or a
- * rule that cannot be read: not decided, false.
+ * BYWEEKNO, several RRULEs,
+ * a range of more than RULE_DAYS_CHECKED days, a rule that cannot be read
+ * or one the calendar library refuses (libraryAccepts): not decided,
+ * false, so the expansion reports it.
  *
  * tsdav-utils works out a fixed-day yearly rule without walking it, but each
  * call into it still costs a call (CALL_COST) and a copy of the series: a
  * calendar of 5 000 birthdays would spend the extra pool on calls that each
  * find nothing (#170). This keeps those calls from being made.
  */
-function ruleMissesRange({ master, event, frame }, range, duration, slack) {
+function ruleMissesRange({ master, event, frame, root }, range, duration, slack) {
   const rules = master.getAllProperties('rrule');
   if (rules.length !== 1) return false;
   const rule = orNull(() => rules[0].getFirstValue());
@@ -1028,7 +1030,37 @@ function ruleMissesRange({ master, event, frame }, range, duration, slack) {
   for (let day = first; day <= last; day += 864e5) {
     if (takes(new Date(day))) return false;
   }
-  return true;
+  // the days above are RFC 5545's; a rule the library refuses has none it
+  // can give, and must reach the expansion to be reported as unreadable
+  return libraryAccepts(root, master);
+}
+
+// What the acceptance check may spend on candidates; it asks for a window
+// before the series, so it spends none on any rule the library accepts
+const ACCEPT_UNITS = 1000;
+
+/**
+ * Does tsdav-utils accept the series for expansion? Asked the way expand()
+ * asks, for an empty window long before the series: the library parses the
+ * rule and sets ical.js up at DTSTART, refusing what ical.js rejects
+ * (`FREQ=MONTHLY;BYDAY=6MO`, `FREQ=WEEKLY;BYMONTHDAY=1`) and what would
+ * hang it (a fifth weekday searched without end), and walks nothing. Its
+ * own judgement, not a grammar of ours: a refusal here is the one the
+ * expansion would give. Measured at about 0.03 ms and 0 units a series.
+ */
+function libraryAccepts(root, master) {
+  const calendar = root ?? new ICAL.Component(['vcalendar', [], [master.toJSON()]]);
+  try {
+    expandOccurrences(calendar, {
+      budget: createRecurrenceBudget(ACCEPT_UNITS),
+      from: '1000-01-01T00:00:00Z',
+      until: '1000-01-01T00:00:00Z',
+      limit: 1,
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

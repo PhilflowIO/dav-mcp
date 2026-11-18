@@ -359,6 +359,24 @@ describe('extra recurring objects do not take expansion budget from the range an
     expect(busy).toMatch(new RegExp(`Mid-month review \\([^)]*mid\\.ics\\): ${library}`));
   });
 
+  // A rule the calendar library refuses holds no day it can give, so the day
+  // test alone would rule it out of every range and drop the object without
+  // a word; it must reach the expansion and be reported as unreadable.
+  test.each([
+    ['an ordinal no month has', 'FREQ=MONTHLY;BYDAY=6MO', 'Malformed values in BYDAY part'],
+    ['BYMONTHDAY in a weekly rule', 'FREQ=WEEKLY;BYMONTHDAY=1', 'For WEEKLY recurrences neither BYMONTHDAY nor BYYEARDAY may appear'],
+  ])('an extra series the library refuses (%s) is reported, not silently dropped', async (_, rule, why) => {
+    use({ 'f13.ics': friday13, 'refused.ics': ical(['UID:refused', 'DTSTART:20200106T090000Z', 'DURATION:PT1H',
+      `RRULE:${rule}`, 'SUMMARY:Refused rule']) });
+    const window = range('2026-11-16T08:00:00Z', '2026-11-16T10:00:00Z');
+    const listed = text(await calendarQuery.handler(window));
+    expect(listed).toMatch(new RegExp(`Not checked: \\*\\*1\\*\\*[\\s\\S]*refused\\.ics — the series cannot be read \\([^)]*${why}`));
+    const events = text(await listEvents.handler({ calendar_url: `${dav.origin}${CALENDAR}`, ...window }));
+    expect(events).toMatch(new RegExp(`refused\\.ics — the series cannot be read \\([^)]*${why}`));
+    const busy = text(await freeBusyQuery.handler(window));
+    expect(busy).toMatch(new RegExp(`Refused rule \\([^)]*refused\\.ics\\): cannot be read — [^\\n]*${why}`));
+  });
+
   test('series whose bounds rule the range out are dropped before any expansion', async () => {
     use({
       'f13.ics': friday13,
