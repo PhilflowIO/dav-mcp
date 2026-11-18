@@ -16,7 +16,7 @@
  *   - CALDAV_USERNAME: Username for Basic/Digest Auth
  *   - CALDAV_PASSWORD: Password for Basic/Digest Auth
  *   - AUTH_METHOD: 'Basic' (default), 'Digest' or 'OAuth' (case-insensitive)
- *   - BEARER_TOKEN: Required for HTTP mode
+ *   - BEARER_TOKEN: Required for HTTP mode, at least 32 characters
  *
  * For OAuth2 (Google Calendar):
  *   - GOOGLE_SERVER_URL: Google CalDAV URL

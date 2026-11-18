@@ -1,5 +1,6 @@
 import { describe, test, expect, beforeAll, afterAll } from '@jest/globals';
 import { spawn } from 'child_process';
+import crypto from 'crypto';
 import http from 'http';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -11,7 +12,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 // the transport without a global it needed on an older Node.js, and every
 // request failed while all unit tests stayed green.
 
-const TOKEN = 'test-token';
+const TOKEN = crypto.randomBytes(32).toString('hex');
 
 // Enough DAV for tsdav to log in (discovery, principal, home sets) and for
 // list_calendars and list_addressbooks to get an answer.
@@ -59,55 +60,82 @@ const freePort = async () => {
   return port;
 };
 
-let child;
-let output = '';
-let mcpUrl;
+const serverEnv = (davPort, env) => ({
+  PATH: process.env.PATH,
+  NODE_ENV: 'test',
+  BEARER_TOKEN: TOKEN,
+  CALDAV_SERVER_URL: `http://127.0.0.1:${davPort}/`,
+  CALDAV_USERNAME: 'user',
+  CALDAV_PASSWORD: 'pass',
+  // pinned empty so the checkout's own .env (if any) cannot add a second
+  // endpoint the server would try to log onto
+  CARDDAV_SERVER_URL: '',
+  CARDDAV_USERNAME: '',
+  CARDDAV_PASSWORD: '',
+  ...env,
+});
 
-beforeAll(async () => {
-  const davPort = await listen(davStub);
+// Starts src/server-http.js against the DAV stub. Resolves once /health
+// answers; rejects with the server's output if it exits or never comes up.
+const startServer = async (davPort, env = {}) => {
   const port = await freePort();
-  mcpUrl = new URL(`http://127.0.0.1:${port}/mcp`);
-
-  child = spawn(process.execPath, ['src/server-http.js'], {
-    env: {
-      PATH: process.env.PATH,
-      NODE_ENV: 'test',
-      PORT: String(port),
-      BEARER_TOKEN: TOKEN,
-      CALDAV_SERVER_URL: `http://127.0.0.1:${davPort}/`,
-      CALDAV_USERNAME: 'user',
-      CALDAV_PASSWORD: 'pass',
-      // pinned empty so the checkout's own .env (if any) cannot add a second
-      // endpoint the server would try to log onto
-      CARDDAV_SERVER_URL: '',
-      CARDDAV_USERNAME: '',
-      CARDDAV_PASSWORD: '',
-    },
+  const server = { url: new URL(`http://127.0.0.1:${port}/mcp`), output: '' };
+  server.child = spawn(process.execPath, ['src/server-http.js'], {
+    env: serverEnv(davPort, { PORT: String(port), ...env }),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  child.stdout.on('data', d => { output += d; });
-  child.stderr.on('data', d => { output += d; });
+  server.child.stdout.on('data', d => { server.output += d; });
+  server.child.stderr.on('data', d => { server.output += d; });
 
   const deadline = Date.now() + 20000;
   for (;;) {
     try {
-      if ((await fetch(new URL('/health', mcpUrl))).ok) return;
+      if ((await fetch(new URL('/health', server.url))).ok) return server;
     } catch {
       // not listening yet
     }
-    if (child.exitCode !== null || Date.now() > deadline) {
-      throw new Error(`HTTP server did not come up:\n${output}`);
+    if (server.child.exitCode !== null || Date.now() > deadline) {
+      throw new Error(`HTTP server did not come up:\n${server.output}`);
     }
     await new Promise(resolve => setTimeout(resolve, 100));
   }
+};
+
+const stopServer = async (server) => {
+  if (server?.child && server.child.exitCode === null) {
+    const exited = new Promise(resolve => server.child.once('exit', resolve));
+    server.child.kill();
+    await exited;
+  }
+};
+
+// Starts the server with a configuration it must refuse; resolves with its
+// exit code and output.
+const startRefused = (davPort, env) => new Promise((resolve, reject) => {
+  const child = spawn(process.execPath, ['src/server-http.js'], {
+    env: serverEnv(davPort, { PORT: '0', ...env }),
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let output = '';
+  child.stdout.on('data', d => { output += d; });
+  child.stderr.on('data', d => { output += d; });
+  child.on('error', reject);
+  const timer = setTimeout(() => { child.kill(); resolve({ code: 'still running', output }); }, 10000);
+  child.on('exit', (code) => { clearTimeout(timer); resolve({ code, output }); });
+});
+
+let davPort;
+let server;
+let mcpUrl;
+
+beforeAll(async () => {
+  davPort = await listen(davStub);
+  server = await startServer(davPort);
+  mcpUrl = server.url;
 }, 30000);
 
 afterAll(async () => {
-  if (child && child.exitCode === null) {
-    const exited = new Promise(resolve => child.once('exit', resolve));
-    child.kill();
-    await exited;
-  }
+  await stopServer(server);
   davStub.closeAllConnections?.();
   await new Promise(resolve => davStub.close(resolve));
 });
@@ -179,4 +207,22 @@ describe('HTTP transport', () => {
     expect(health.status).toBe('healthy');
     expect(health.availableAccountTypes).toEqual(['caldav', 'carddav']);
   });
+});
+
+describe('HTTP transport: BEARER_TOKEN is checked before the server listens', () => {
+  // An unset token used to start a server that answered 500 to every MCP
+  // request; the example value from .env.example started one anybody could
+  // use. Both now stop at startup and say how to make a token.
+  test.each([
+    ['unset', '', 'BEARER_TOKEN is not set'],
+    ['the .env.example placeholder', 'your-secure-token-here', 'BEARER_TOKEN is the example value'],
+    ['the README example', 'your-secret-token', 'BEARER_TOKEN is the example value'],
+    ['31 characters', 'a'.repeat(31), 'BEARER_TOKEN has 31 characters; at least 32 are required'],
+  ])('%s: exits 1 and says how to generate a token', async (_, token, message) => {
+    const { code, output } = await startRefused(davPort, { BEARER_TOKEN: token });
+    expect(code).toBe(1);
+    expect(output).toContain(message);
+    expect(output).toContain('openssl rand -hex 32');
+    expect(output).not.toContain('HTTP Server running');
+  }, 20000);
 });

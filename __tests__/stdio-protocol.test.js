@@ -75,7 +75,8 @@ const start = (script, env) => new Promise((resolve, reject) => {
       PATH: process.env.PATH,
       NODE_ENV: 'test',
       PORT: '0',
-      BEARER_TOKEN: 'test-token',
+      // long enough for the HTTP transport's own check, which runs first
+      BEARER_TOKEN: 'x'.repeat(32),
       CALDAV_SERVER_URL: 'https://example.invalid',
       CALDAV_USERNAME: 'x',
       CALDAV_PASSWORD: 'y',

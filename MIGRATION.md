@@ -98,7 +98,7 @@ npm run dev:http   # HTTP with watch
 | `CALDAV_USERNAME` | CalDAV username | Yes (Basic Auth) |
 | `CALDAV_PASSWORD` | CalDAV password | Yes (Basic Auth) |
 | `AUTH_METHOD` | `Basic`, `Digest` or `OAuth` | No (default: Basic) |
-| `BEARER_TOKEN` | API authentication token | Yes (HTTP server) |
+| `BEARER_TOKEN` | API authentication token, at least 32 characters (`openssl rand -hex 32`) | Yes (HTTP server) |
 | `PORT` | HTTP server port | No (default: 3000) |
 
 ## Upgrading: `AUTH_METHOD` is now checked

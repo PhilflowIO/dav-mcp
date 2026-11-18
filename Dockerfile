@@ -33,7 +33,8 @@ RUN --mount=type=cache,target=/root/.npm \
 # pinning keeps it reproducible).
 FROM ${RUNTIME_IMAGE} AS runtime
 # Runtime config via env vars; NODE_ENV selects Express production mode.
-# Overridable at runtime: PORT (default 3000), BEARER_TOKEN, CALDAV_SERVER_URL,
+# Required at runtime: BEARER_TOKEN (at least 32 characters, the server does
+# not start without it). Overridable: PORT (default 3000), CALDAV_SERVER_URL,
 # CALDAV_USERNAME, CALDAV_PASSWORD, CARDDAV_SERVER_URL, CARDDAV_USERNAME,
 # CARDDAV_PASSWORD, CORS_ALLOWED_ORIGINS.
 ENV NODE_ENV=production

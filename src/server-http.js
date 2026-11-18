@@ -12,7 +12,8 @@
  *
  * Configuration via environment variables:
  *   - PORT: Server port (default: 3000)
- *   - BEARER_TOKEN: Required for authentication
+ *   - BEARER_TOKEN: Required, at least 32 characters (`openssl rand -hex 32`);
+ *     the server does not start without one
  *   - CORS_ALLOWED_ORIGINS: Comma-separated list of allowed origins
  *   - CALDAV_SERVER_URL, CALDAV_USERNAME, CALDAV_PASSWORD: CalDAV credentials
  *   - AUTH_METHOD: 'Basic' (default), 'Digest' or 'OAuth' (case-insensitive, see auth-config.js)
@@ -33,6 +34,7 @@ import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprot
 import { tsdavManager } from './tsdav-client.js';
 import { isLocalOrPrivateAddress } from './client-address.js';
 import { buildTsdavConfig } from './auth-config.js';
+import { checkBearerToken } from './http-config.js';
 import { tools, toListedTool } from './tools/index.js';
 import { createToolErrorResponse, MCP_ERROR_CODES } from './error-handler.js';
 import { logger, createRequestLogger } from './logger.js';
@@ -81,18 +83,11 @@ app.use('/mcp', limiter);
 /**
  * Bearer token authentication middleware
  */
+// Set by start() from BEARER_TOKEN once it has passed checkBearerToken; the
+// server does not listen before that, so no request sees it unset.
+let bearerSecret;
+
 function authenticateBearer(req, res, next) {
-  const bearerToken = process.env.BEARER_TOKEN;
-
-  if (!bearerToken) {
-    logger.error('Server misconfiguration: BEARER_TOKEN not set');
-    return res.status(500).json({
-      jsonrpc: '2.0',
-      error: { code: -32603, message: 'Server misconfiguration: BEARER_TOKEN not set' },
-      id: null,
-    });
-  }
-
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     logger.warn({ ip: req.ip }, 'Unauthorized: Bearer token required');
@@ -107,7 +102,7 @@ function authenticateBearer(req, res, next) {
 
   // Timing-safe comparison
   const tokenBuffer = Buffer.from(token);
-  const secretBuffer = Buffer.from(bearerToken);
+  const secretBuffer = bearerSecret;
 
   if (tokenBuffer.length !== secretBuffer.length || !crypto.timingSafeEqual(tokenBuffer, secretBuffer)) {
     logger.warn({ ip: req.ip }, 'Unauthorized: Invalid token');
@@ -119,6 +114,19 @@ function authenticateBearer(req, res, next) {
   }
 
   next();
+}
+
+/**
+ * Check the HTTP transport's own settings; like a wrong DAV configuration, a
+ * wrong one here stops the server before it listens.
+ */
+function readHttpSettings() {
+  try {
+    bearerSecret = Buffer.from(checkBearerToken(process.env.BEARER_TOKEN));
+  } catch (error) {
+    logger.error({ error: error.message }, 'Invalid configuration — server not started');
+    process.exit(1);
+  }
 }
 
 /**
@@ -344,6 +352,8 @@ let httpServer;
  */
 async function start() {
   logger.info('Starting dav-mcp HTTP Server (stateless)...');
+
+  readHttpSettings();
 
   // Initialize tsdav clients
   await initializeTsdav();

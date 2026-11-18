@@ -66,9 +66,13 @@ Start the HTTP server:
 CALDAV_SERVER_URL=https://dav.example.com \
 CALDAV_USERNAME=your_username \
 CALDAV_PASSWORD=your_password \
-BEARER_TOKEN=your-secret-token \
+BEARER_TOKEN=$(openssl rand -hex 32) \
 npx dav-mcp --http
 ```
+
+`BEARER_TOKEN` is required and must be at least 32 characters; the server
+refuses to start with a shorter one or with the example value from
+`.env.example`. Keep the generated value, n8n needs it.
 
 Then in n8n:
 1. Add **AI Agent** node
@@ -76,7 +80,7 @@ Then in n8n:
 3. Configure:
    - **MCP Endpoint**: `http://localhost:3000/mcp`
    - **Authentication**: Bearer
-   - **Token**: your-secret-token
+   - **Token**: the `BEARER_TOKEN` value
 
 **Custom port:**
 ```bash
@@ -103,7 +107,7 @@ Or build from source:
 git clone https://github.com/PhilflowIO/dav-mcp.git
 cd dav-mcp
 cp .env.example .env
-# Edit .env with your credentials
+# Edit .env with your credentials and a BEARER_TOKEN from `openssl rand -hex 32`
 docker-compose up
 ```
 
@@ -287,7 +291,7 @@ For Google Calendar, use OAuth2 authentication:
 
 - **Input Validation**: All inputs validated with Zod schemas before execution
 - **Rate Limiting** (HTTP mode): 100 requests per 15 minutes per client address, counted before the bearer token is checked. Clients on loopback or a private network (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) — another container on the same Docker network, for example — get 10,000. Limitation: dav-mcp sees the address of whatever connects to it. Behind a Docker port mapping or a reverse proxy that is the bridge gateway or the proxy, so all outside clients share that one address, its one counter and its raised limit. Rate-limit per client at the proxy if you expose the HTTP transport.
-- **Bearer Auth**: Token authentication for HTTP transport
+- **Bearer Auth**: Token authentication for HTTP transport; the server does not start without a `BEARER_TOKEN` of at least 32 characters
 - **No Credential Storage**: Pass-through only, never logged or cached
 - **Structured Logging**: Audit trail with request IDs, no PII exposure
 - **Tool-Call Log Off by Default**: `LOG_TOOL_CALLS=true` records every tool call with its arguments, for debugging — to `~/.local/state/dav-mcp/tool-calls.jsonl` (or `$XDG_STATE_HOME`, `%LOCALAPPDATA%` on Windows, or `TOOL_CALL_LOG_FILE`), readable by you only. `TOOL_CALL_LOG_MODE=console` sends it to stderr instead.
