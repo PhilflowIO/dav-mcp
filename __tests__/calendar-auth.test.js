@@ -170,4 +170,23 @@ describe('update_calendar', () => {
     await expect(updateCalendar.handler({ calendar_url: CALENDAR_URL, display_name: 'x' }))
       .rejects.toThrow(/401/);
   });
+
+  test.each([
+    ['the calendar home', 'https://dav.example.com/calendars/user/'],
+    ['the principal', 'https://dav.example.com/principals/user/'],
+  ])('%s is never sent a PROPPATCH, though it lies inside the account', async (_, url) => {
+    nextResponse = response(207, 'Multi-Status', multistatus('200 OK'));
+    const error = await updateCalendar.handler({ calendar_url: url, display_name: 'x' }).catch(e => e);
+
+    expect(requests).toHaveLength(0);
+    expect(error.message).toContain(`calendar_url ${url} is not one of the calendars`);
+    expect(error.code).toBe(-32006); // NOT_FOUND_ERROR
+  });
+
+  test('another spelling of a listed calendar is written to the URL the server listed', async () => {
+    nextResponse = response(207, 'Multi-Status', multistatus('200 OK'));
+    await updateCalendar.handler({ calendar_url: CALENDAR_URL.replace(/\/$/, ''), display_name: 'x' });
+
+    expect(requests.map(r => r.url)).toEqual([CALENDAR_URL]);
+  });
 });
