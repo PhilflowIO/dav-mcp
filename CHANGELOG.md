@@ -40,6 +40,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rules (`MONTHLY;INTERVAL=24;BYDAY=-1TH,5MO` from 14 February 2019), so the
   tool call never returned; such a series is now listed as one that cannot
   be read, with the reason.
+- **A refused move never guesses which occurrences a whole-day exclusion
+  held.** Where the series cannot be computed on that day in full,
+  `update_event` and `update_todo` no longer offer a `restore_occurrences`
+  without the matching `cancel_occurrences` (which the next call refused);
+  they say the day cannot be checked and point to the raw tool.
 
 ## [5.1.1] - 2026-11-18
 

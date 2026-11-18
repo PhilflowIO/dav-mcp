@@ -292,7 +292,10 @@ export function listedDates(master, overrides = []) {
  *
  * @param {string} data - the calendar object
  * @param {'vevent'|'vtodo'} type
- * @returns {Array<{date: string, occurrences: string[]}>}
+ * @returns {Array<{date: string, occurrences: string[]|null}>} occurrences:
+ *   null when the expansion could not be completed (the budget ran out, or
+ *   the calendar library cannot compute the series there): which
+ *   occurrences that day held is then unknown, not none
  */
 export function wholeDayExclusions(data, type) {
   try {
@@ -302,10 +305,12 @@ export function wholeDayExclusions(data, type) {
     const names = master && seriesNames(master, [], null);
     const days = (names?.exclusions ?? []).filter(({ wholeDay }) => wholeDay);
     if (!days.length) return [];
-    const live = occurrenceValues(master, days, type) ?? new Set();
+    const live = occurrenceValues(master, days, type);
     return days.map(({ text }) => ({
       date: text,
-      occurrences: [...live].filter((value) => !value.startsWith('@') && value.startsWith(`${text}T`)).sort(),
+      occurrences: live
+        ? [...live].filter((value) => !value.startsWith('@') && value.startsWith(`${text}T`)).sort()
+        : null,
     }));
   } catch {
     return [];

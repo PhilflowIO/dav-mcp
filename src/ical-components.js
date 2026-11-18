@@ -327,6 +327,16 @@ function listHint(error, object, tools) {
   const type = update === 'update_todo' ? 'vtodo' : 'vevent';
   const data = typeof object === 'string' ? object : object?.data;
   const days = data ? wholeDayExclusions(data, type) : [];
+  // which occurrences such a day held could not be computed: no names can be
+  // given, and a restore without the matching cancels would only be refused
+  const unchecked = days.filter(({ occurrences }) => occurrences === null).map(({ date }) => date);
+  if (unchecked.length) {
+    return `Which occurrences the whole-day exclusion${unchecked.length > 1 ? 's' : ''} ${unchecked.join(', ')} ` +
+      `held cannot be checked (the series cannot be computed there in full), so no exclusions by time ` +
+      `can be named for ${update}: fetch the object with ${fetch}, replace each whole-day exclusion by ` +
+      `exclusions of the occurrences at their time of day (or remove it), send the whole object with ` +
+      `${raw}, then move the series.`;
+  }
   const restore = days.map(({ date }) => `"${date}"`);
   const cancel = days.flatMap(({ occurrences }) => occurrences.map((name) => `"${name}"`));
   if (!restore.length) {
