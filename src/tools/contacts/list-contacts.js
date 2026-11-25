@@ -2,6 +2,7 @@ import { tsdavManager } from '../../tsdav-client.js';
 import { validateInput, listContactsSchema } from '../../validation.js';
 import { formatContactList } from '../../formatters.js';
 import { findAddressbookOrThrow } from '../shared/helpers.js';
+import { fetchVCardsCached } from './vcard-cache.js';
 
 /**
  * List ALL contacts from an address book without filtering
@@ -32,7 +33,7 @@ export const listContacts = {
     const addressBooks = await client.fetchAddressBooks();
     const addressBook = findAddressbookOrThrow(addressBooks, validated.addressbook_url);
 
-    const vcards = await client.fetchVCards({ addressBook });
+    const vcards = await fetchVCardsCached(client, addressBook);
 
     return formatContactList(vcards, addressBook);
   },

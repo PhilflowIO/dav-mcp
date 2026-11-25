@@ -3,6 +3,7 @@ import { validateInput, addressBookQuerySchema } from '../../validation.js';
 import { formatContactList, withUnsearched } from '../../formatters.js';
 import { limitResults, DEFAULT_RESULT_LIMIT, findAddressbookOrThrow } from '../shared/helpers.js';
 import { parseObjects, unsearchedObjects, textValues, contactNames, organizations, containsText, textKey } from '../shared/query-objects.js';
+import { fetchVCardsCached } from './vcard-cache.js';
 
 /**
  * Search and filter contacts efficiently
@@ -56,7 +57,7 @@ export const addressbookQuery = {
     // Collect all vcards from all selected addressbooks
     let allVCards = [];
     for (const addressBook of addressbooksToSearch) {
-      const vcards = await client.fetchVCards({ addressBook });
+      const vcards = await fetchVCardsCached(client, addressBook);
       // Add addressbook context for display
       vcards.forEach(vcard => {
         vcard._addressbookName = addressBook.displayName || addressBook.url;
