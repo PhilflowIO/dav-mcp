@@ -38,7 +38,7 @@ const REPORTS = {
  * Text content of a parsed DAV property. tsdav hands over a string, a number
  * (2.3.1 coerces numeric text, e.g. an unquoted ETag) or a CDATA/text node.
  */
-function davText(value) {
+export function davText(value) {
   if (typeof value === 'string' || typeof value === 'number') return String(value);
   const text = value?._cdata ?? value?._text;
   return typeof text === 'string' ? text : undefined;
@@ -49,7 +49,7 @@ function davText(value) {
  * slash. Servers answer with a path-only href, callers pass absolute URLs, and
  * either side may percent-encode differently.
  */
-function urlKey(url, base) {
+export function urlKey(url, base) {
   let path;
   try {
     path = new URL(url, base).pathname;

@@ -42,6 +42,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   container on the compose network). `TRUST_PROXY=true`, hop counts and
   ranges wider than /8 (IPv4) or /32 (IPv6) are refused: each lets a client
   that reaches the port directly choose its own address.
+- **`list_contacts` and `addressbook_query` cache vCards per login** (#190):
+  each call lists hrefs and ETags with one PROPFIND and fetches only new or
+  changed vCards. On mailbox.org a repeated call on a 1000-contact address
+  book drops from about 150 s to 0.2 s. Without ETags, or when the
+  PROPFIND fails, the tools fetch every vCard as before.
 
 ### Security
 - **The container image carries a build provenance attestation** (#177).
