@@ -1,5 +1,5 @@
 import { DAVNamespaceShort } from 'tsdav';
-import { multiGetObjects } from '../shared/multiget.js';
+import { multiGetObjects, davText, urlKey } from '../shared/multiget.js';
 
 /**
  * vCards of an address book, cached per login and validated by ETag.
@@ -15,37 +15,14 @@ import { multiGetObjects } from '../shared/multiget.js';
  * so two logins never share cached objects, even for the same address book URL.
  * Same idea as #171 proposes for recurring events.
  */
-const caches = new WeakMap(); // client -> Map(addressBookUrl -> Map(pathKey -> vcard))
-
-/** Comparable key for an object URL: decoded path without trailing slash. */
-function pathKey(url, base) {
-  let path;
-  try {
-    path = new URL(url, base).pathname;
-  } catch {
-    path = String(url).trim();
-  }
-  try {
-    path = decodeURIComponent(path);
-  } catch {
-    // malformed escape — compare as-is
-  }
-  return path.endsWith('/') ? path.slice(0, -1) : path;
-}
-
-/** Text of a parsed DAV property (string, number or CDATA/text node). */
-function davText(value) {
-  if (typeof value === 'string' || typeof value === 'number') return String(value);
-  const text = value?._cdata ?? value?._text;
-  return typeof text === 'string' ? text : undefined;
-}
+const caches = new WeakMap(); // client -> Map(addressBookUrl -> Map(urlKey -> vcard))
 
 /**
  * List the vCards of an address book with one PROPFIND (Depth 1):
  * absolute URL and ETag per object, the collection and sub-collections skipped.
  */
 async function listVCards(client, addressBook) {
-  const bookKey = pathKey(addressBook.url, addressBook.url);
+  const bookKey = urlKey(addressBook.url, addressBook.url);
   const responses = await client.propfind({
     url: addressBook.url,
     props: {
@@ -56,7 +33,7 @@ async function listVCards(client, addressBook) {
   });
   return (responses ?? [])
     .filter(res => res?.href && res.ok !== false && !res.props?.resourcetype?.collection)
-    .filter(res => pathKey(res.href, addressBook.url) !== bookKey)
+    .filter(res => urlKey(res.href, addressBook.url) !== bookKey)
     .map(res => ({
       url: new URL(res.href, addressBook.url).href,
       etag: davText(res.props?.getetag),
@@ -92,7 +69,7 @@ export async function fetchVCardsCached(client, addressBook) {
   }
   const cache = books.get(addressBook.url) ?? new Map();
 
-  const stale = listed.filter(item => cache.get(pathKey(item.url, addressBook.url))?.etag !== item.etag);
+  const stale = listed.filter(item => cache.get(urlKey(item.url, addressBook.url))?.etag !== item.etag);
   if (stale.length > 0) {
     const { found } = await multiGetObjects(client, {
       kind: 'addressbook',
@@ -100,12 +77,12 @@ export async function fetchVCardsCached(client, addressBook) {
       objectUrls: stale.map(item => item.url),
     });
     for (const vcard of found) {
-      cache.set(pathKey(vcard.url, addressBook.url), vcard);
+      cache.set(urlKey(vcard.url, addressBook.url), vcard);
     }
   }
 
   // Drop objects that are no longer listed
-  const current = new Set(listed.map(item => pathKey(item.url, addressBook.url)));
+  const current = new Set(listed.map(item => urlKey(item.url, addressBook.url)));
   for (const key of cache.keys()) {
     if (!current.has(key)) cache.delete(key);
   }
@@ -113,7 +90,7 @@ export async function fetchVCardsCached(client, addressBook) {
 
   // Copies: callers annotate the objects (e.g. _addressbookName)
   return listed
-    .map(item => cache.get(pathKey(item.url, addressBook.url)))
+    .map(item => cache.get(urlKey(item.url, addressBook.url)))
     .filter(Boolean)
     .map(vcard => ({ ...vcard }));
 }
