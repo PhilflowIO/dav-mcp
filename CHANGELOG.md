@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [6.0.0] - 2026-11-27
 
 ### Breaking changes
 - **The HTTP transport does not start without a strong `BEARER_TOKEN`**
@@ -73,8 +73,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   local (fc00::/7) and link-local (fe80::/10) IPv6 addresses now count as
   private like the RFC 1918 ranges.
 
-## [5.1.2] - 2026-11-18
-
 ### Changed
 - **Dependencies: @philflow/tsdav 2.6.0.** tsdav lists an address book
   with a PROPFIND instead of an `addressbook-query`, so OX App Suite
@@ -87,6 +85,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   server rejects starts a full resync, object URLs that differ only in
   percent-encoding (`a@b.ics` and `a%40b.ics`) match, and Digest logins are
   stricter (per-realm sessions, no `-sess` without `qop`).
+
+## [5.1.2] - 2026-11-18
+
+### Changed
 - **Dependencies: @philflow/tsdav-utils 0.8.1.** Recurring events are read
   from near the queried range by the library itself, so an old open-ended
   series that used to come back "incomplete" (an every-second rule since 1950
