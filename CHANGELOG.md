@@ -76,6 +76,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [5.1.2] - 2026-11-18
 
 ### Changed
+- **Dependencies: @philflow/tsdav 2.6.0.** tsdav lists an address book
+  with a PROPFIND instead of an `addressbook-query`, so OX App Suite
+  (mailbox.org) returns its contacts where it used to return none
+  (PhilflowIO/tsdav#48). `list_contacts` and `addressbook_query` already list
+  this way since #190; the fix covers their fallback, which fetches every
+  vCard when the server lists no ETags. 2.6.0 also brings in upstream tsdav
+  up to v2.5.1 (PhilflowIO/tsdav#50): OAuth tokens are refreshed before they
+  expire instead of failing the first request after expiry, a sync token the
+  server rejects starts a full resync, object URLs that differ only in
+  percent-encoding (`a@b.ics` and `a%40b.ics`) match, and Digest logins are
+  stricter (per-realm sessions, no `-sess` without `qop`).
 - **Dependencies: @philflow/tsdav-utils 0.8.1.** Recurring events are read
   from near the queried range by the library itself, so an old open-ended
   series that used to come back "incomplete" (an every-second rule since 1950
